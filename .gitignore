@@ -1,0 +1,15 @@
+# Binary
+/lore
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+
+# Node (VSCode extension)
+node_modules/
+out/
+*.vsix

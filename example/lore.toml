@@ -1,0 +1,5 @@
+# Glob patterns for files to parse
+files = ["**/*.md"]
+
+# Paths to ignore (in addition to .gitignore)
+ignore = []
