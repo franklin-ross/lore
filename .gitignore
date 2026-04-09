@@ -1,5 +1,7 @@
-# Binary
-/lore
+# Zig build artifacts
+.zig-cache/
+zig-out/
+leak_test
 
 # IDE
 .idea/

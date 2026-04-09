@@ -114,11 +114,15 @@ functions — if you return slices that point into a stack-local buffer,
 they become dangling pointers. Return slices into the input (which is
 arena-owned) or embed fixed-size arrays in the return struct.
 
-## ArenaAllocator Must Not Be Moved
+## ArenaAllocator Is Pinned — Must Not Be Moved
 
-`ArenaAllocator` has internal state that becomes invalid if the struct
-is moved (e.g. returned by value from a function). Heap-allocate it
-if it needs to live inside a struct that gets returned:
+`ArenaAllocator` instances are pinned to their memory location. They
+hold internal pointers to their own address, so copying or moving the
+struct (e.g. returning it by value from a function) invalidates those
+pointers. This causes runtime panics (`start index X is larger than
+end index 0`) or silent corruption / leaked pages.
+
+Heap-allocate the arena if it needs to live inside a returned struct:
 
 ```zig
 // BAD: arena is moved when MyStruct is returned
