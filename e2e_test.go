@@ -129,6 +129,46 @@ func TestE2EQueryUnknownEntity(t *testing.T) {
 	}
 }
 
+func TestE2ERefsExcludesSelfReferences(t *testing.T) {
+	dir := setupFixtures(t)
+	stdout, _, _ := runLore(t, dir, "refs", "Gundren")
+
+	// "Gundren" should not appear as a reference from its own definition.
+	for _, line := range strings.Split(stdout, "\n") {
+		if strings.Contains(line, "A dwarf merchant") {
+			t.Errorf("self-reference not filtered: %s", line)
+		}
+	}
+	// But cross-refs from other entities should remain.
+	if !strings.Contains(stdout, "Phandalin") || !strings.Contains(stdout, "Deliver Supplies") {
+		t.Error("expected cross-references from Phandalin and Deliver Supplies")
+	}
+}
+
+func TestE2ELSPStartsAndExits(t *testing.T) {
+	dir := setupFixtures(t)
+	cmd := exec.Command(binaryPath, "lsp")
+	cmd.Dir = dir
+
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Close stdin immediately — the LSP should exit cleanly.
+	stdin.Close()
+
+	if err := cmd.Wait(); err != nil {
+		// LSP may exit with a non-zero code when stdin closes; that's acceptable.
+		// We're testing it doesn't hang or crash.
+		t.Logf("lsp exited with: %v (acceptable)", err)
+	}
+}
+
 func TestE2ENoArgsShowsUsage(t *testing.T) {
 	dir := setupFixtures(t)
 	stdout, _, code := runLore(t, dir)

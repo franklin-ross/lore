@@ -2,7 +2,7 @@
 
 ## Bugs
 
-- **Self-references are noisy** — an entity's own definition line shows up as a reference to itself in `refs` and `query` output. Should filter these out.
+- ~~**Self-references are noisy** — fixed: `GetReferences` now filters self-references.~~
 
 ## Incomplete Features
 
@@ -16,7 +16,7 @@
 
 ## Future (Phase 2+)
 
-- **VSCode extension** — TextMate grammar, LSP server, syntax highlighting, autocomplete, hover, go-to-def, find all references.
+- ~~**VSCode extension** — done: LSP server (`lore lsp`) with hover, go-to-def, references, autocomplete, semantic tokens. VSCode extension in `vscode-lore/`.~~
 - **`lore init`** — create a `lore.toml` in the current directory.
 - **Watch mode** — re-parse on file change for LSP.
 - **LLM tidy** — `lore tidy` reads session notes, suggests entity definitions.
