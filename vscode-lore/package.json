@@ -12,6 +12,7 @@
         "Other"
     ],
     "activationEvents": [
+        "workspaceContains:lore.toml",
         "workspaceContains:**/lore.toml"
     ],
     "main": "./out/extension.js",
@@ -35,6 +36,12 @@
                     "type": "string",
                     "default": "",
                     "description": "Path to the lore binary. If empty, uses 'lore' from PATH."
+                },
+                "lore.trace.server": {
+                    "type": "string",
+                    "enum": ["off", "messages", "verbose"],
+                    "default": "off",
+                    "description": "Trace communication between VSCode and the lore language server."
                 }
             }
         },

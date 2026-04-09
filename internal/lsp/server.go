@@ -25,6 +25,7 @@ type Server struct {
 	project *lore.Project
 	world   *lore.World
 	docs    map[string]string // URI -> content for open documents
+	notify  glsp.NotifyFunc   // set during initialize
 }
 
 // NewServer creates a new LSP server.
@@ -59,9 +60,11 @@ func (s *Server) newHandler() *protocol.Handler {
 	return handler
 }
 
-func (s *Server) initialize(_ *glsp.Context, params *protocol.InitializeParams) (any, error) {
+func (s *Server) initialize(ctx *glsp.Context, params *protocol.InitializeParams) (any, error) {
+	s.notify = ctx.Notify
 	s.root = uriToPath(params.RootURI)
 
+	s.logInfo("initialising with root: %s", s.root)
 	s.reparse()
 
 	syncKind := protocol.TextDocumentSyncKindFull
@@ -105,15 +108,38 @@ func (s *Server) reparse() {
 
 	project, err := lore.FindAndLoadFrom(s.root)
 	if err != nil {
+		s.logWarning("failed to load project: %v", err)
 		return
 	}
 	s.project = project
 
 	world, err := lore.Parse(project)
 	if err != nil {
+		s.logWarning("failed to parse: %v", err)
 		return
 	}
 	s.world = world
+	s.logInfo("parsed %d entities from %d files", len(world.Entities), len(project.FilePaths))
+}
+
+// logInfo sends an informational message to the client's output channel.
+func (s *Server) logInfo(format string, args ...any) {
+	s.sendLog(protocol.MessageTypeInfo, format, args...)
+}
+
+// logWarning sends a warning message to the client's output channel.
+func (s *Server) logWarning(format string, args ...any) {
+	s.sendLog(protocol.MessageTypeWarning, format, args...)
+}
+
+func (s *Server) sendLog(level protocol.MessageType, format string, args ...any) {
+	if s.notify == nil {
+		return
+	}
+	s.notify(string(protocol.ServerWindowLogMessage), protocol.LogMessageParams{
+		Type:    level,
+		Message: fmt.Sprintf(format, args...),
+	})
 }
 
 // fileToURI converts a project-relative path to a file:// URI.
