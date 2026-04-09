@@ -1,10 +1,12 @@
 const std = @import("std");
+const zlob = @import("zlob");
 
 const config_filename = "lore.toml";
 
 pub const Config = struct {
     files: []const []const u8,
     ignore: []const []const u8,
+    gitignore: bool = true,
 };
 
 /// A loaded project with its root path and config.
@@ -151,34 +153,34 @@ fn parseStringArray(allocator: std.mem.Allocator, line: []const u8, key: []const
 pub fn collectFiles(allocator: std.mem.Allocator, root: []const u8, cfg: Config) !std.ArrayList([]const u8) {
     var paths: std.ArrayList([]const u8) = .empty;
 
-    var dir = try std.fs.cwd().openDir(root, .{ .iterate = true });
-    defer dir.close();
+    const abs_root = try std.fs.cwd().realpathAlloc(allocator, root);
+    defer allocator.free(abs_root);
 
-    var walker = try dir.walk(allocator);
-    defer walker.deinit();
+    var flags = zlob.ZlobFlags.recommended();
+    flags.gitignore = cfg.gitignore;
 
-    while (try walker.next()) |entry| {
-        if (entry.kind != .file) continue;
+    var seen = std.StringHashMap(void).init(allocator);
+    defer seen.deinit();
 
-        var ignored = false;
-        for (cfg.ignore) |pattern| {
-            if (std.mem.indexOf(u8, entry.path, pattern) != null) {
-                ignored = true;
-                break;
-            }
+    for (cfg.files) |pattern| {
+        const maybe_result = zlob.matchAt(allocator, abs_root, pattern, flags) catch continue;
+        var result = maybe_result orelse continue;
+        defer result.deinit();
+
+        var it = result.iterator();
+        while (it.next()) |abs_path| {
+            const rel_path = if (std.mem.startsWith(u8, abs_path, abs_root))
+                std.mem.trimLeft(u8, abs_path[abs_root.len..], "/")
+            else
+                abs_path;
+
+            if (seen.contains(rel_path)) continue;
+            if (isIgnored(rel_path, cfg.ignore)) continue;
+
+            const duped = try allocator.dupe(u8, rel_path);
+            try paths.append(allocator, duped);
+            try seen.put(duped, {});
         }
-        if (ignored) continue;
-
-        var matched = false;
-        for (cfg.files) |pattern| {
-            if (matchGlob(pattern, entry.path)) {
-                matched = true;
-                break;
-            }
-        }
-        if (!matched) continue;
-
-        try paths.append(allocator, try allocator.dupe(u8, entry.path));
     }
 
     std.mem.sort([]const u8, paths.items, {}, struct {
@@ -190,45 +192,233 @@ pub fn collectFiles(allocator: std.mem.Allocator, root: []const u8, cfg: Config)
     return paths;
 }
 
-/// Simple glob matcher supporting:
-///   **/*.ext — matches files with given extension in any subdirectory
-///   *.ext    — matches files with given extension in current directory
-fn matchGlob(pattern: []const u8, path: []const u8) bool {
-    if (std.mem.startsWith(u8, pattern, "**/")) {
-        const suffix_pattern = pattern[3..];
-        if (suffix_pattern.len > 0 and suffix_pattern[0] == '*') {
-            const ext = suffix_pattern[1..];
-            return std.mem.endsWith(u8, path, ext);
-        }
-        const basename = std.fs.path.basename(path);
-        return matchSimple(suffix_pattern, basename);
+fn isIgnored(path: []const u8, ignore_patterns: []const []const u8) bool {
+    for (ignore_patterns) |pattern| {
+        if (zlob.fnmatch.fnmatch(pattern, path, .{})) return true;
     }
-    return matchSimple(pattern, path);
+    return false;
 }
 
-fn matchSimple(pattern: []const u8, str: []const u8) bool {
-    if (std.mem.indexOf(u8, pattern, "*")) |star_pos| {
-        const prefix = pattern[0..star_pos];
-        const suffix = pattern[star_pos + 1 ..];
-        return std.mem.startsWith(u8, str, prefix) and std.mem.endsWith(u8, str, suffix);
-    }
-    return std.mem.eql(u8, pattern, str);
-}
 
 // Tests
 
-test "matchGlob basic patterns" {
-    try std.testing.expect(matchGlob("**/*.md", "session-01.md"));
-    try std.testing.expect(matchGlob("**/*.md", "sessions/01.md"));
-    try std.testing.expect(matchGlob("**/*.md", "deep/nested/path/file.md"));
-    try std.testing.expect(!matchGlob("**/*.md", "file.txt"));
-    try std.testing.expect(!matchGlob("**/*.md", "file.markdown"));
+test "collectFiles with zlob glob matching" {
+    const allocator = std.testing.allocator;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    try tmp.dir.writeFile(.{ .sub_path = "session.md", .data = "# Session 1\n" });
+    try tmp.dir.makeDir("notes");
+    try tmp.dir.writeFile(.{ .sub_path = "notes/npcs.md", .data = "# NPCs\n" });
+    try tmp.dir.writeFile(.{ .sub_path = "readme.txt", .data = "not markdown\n" });
+
+    const root = try tmp.dir.realpathAlloc(allocator, ".");
+    defer allocator.free(root);
+
+    var result = try collectFiles(allocator, root, .{
+        .files = &.{"**/*.md"},
+        .ignore = &.{},
+    });
+    defer {
+        for (result.items) |p| allocator.free(p);
+        result.deinit(allocator);
+    }
+
+    try std.testing.expectEqual(@as(usize, 2), result.items.len);
+    for (result.items) |path| {
+        try std.testing.expect(std.mem.endsWith(u8, path, ".md"));
+    }
 }
 
-test "matchGlob simple patterns" {
-    try std.testing.expect(matchGlob("*.md", "file.md"));
-    try std.testing.expect(!matchGlob("*.md", "dir/file.md"));
-    try std.testing.expect(matchGlob("sessions/*", "sessions/01.md"));
+test "collectFiles respects ignore patterns" {
+    const allocator = std.testing.allocator;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    try tmp.dir.writeFile(.{ .sub_path = "session.md", .data = "# Session 1\n" });
+    try tmp.dir.makeDir("archive");
+    try tmp.dir.writeFile(.{ .sub_path = "archive/old.md", .data = "# Old\n" });
+
+    const root = try tmp.dir.realpathAlloc(allocator, ".");
+    defer allocator.free(root);
+
+    var result = try collectFiles(allocator, root, .{
+        .files = &.{"**/*.md"},
+        .ignore = &.{"archive/**"},
+    });
+    defer {
+        for (result.items) |p| allocator.free(p);
+        result.deinit(allocator);
+    }
+
+    try std.testing.expectEqual(@as(usize, 1), result.items.len);
+    try std.testing.expectEqualStrings("session.md", result.items[0]);
+}
+
+test "collectFiles with multiple file patterns via brace expansion" {
+    const allocator = std.testing.allocator;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    try tmp.dir.writeFile(.{ .sub_path = "session.md", .data = "" });
+    try tmp.dir.writeFile(.{ .sub_path = "world.lore", .data = "" });
+    try tmp.dir.writeFile(.{ .sub_path = "notes.txt", .data = "" });
+
+    const root = try tmp.dir.realpathAlloc(allocator, ".");
+    defer allocator.free(root);
+
+    var result = try collectFiles(allocator, root, .{
+        .files = &.{ "**/*.md", "**/*.lore" },
+        .ignore = &.{},
+    });
+    defer {
+        for (result.items) |p| allocator.free(p);
+        result.deinit(allocator);
+    }
+
+    try std.testing.expectEqual(@as(usize, 2), result.items.len);
+    try std.testing.expectEqualStrings("session.md", result.items[0]);
+    try std.testing.expectEqualStrings("world.lore", result.items[1]);
+}
+
+test "collectFiles with deeply nested paths" {
+    const allocator = std.testing.allocator;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    try tmp.dir.makeDir("campaigns");
+    try tmp.dir.makePath("campaigns/strahd/sessions");
+    try tmp.dir.writeFile(.{ .sub_path = "campaigns/strahd/sessions/01.md", .data = "" });
+    try tmp.dir.writeFile(.{ .sub_path = "campaigns/strahd/glossary.md", .data = "" });
+    try tmp.dir.writeFile(.{ .sub_path = "campaigns/notes.md", .data = "" });
+
+    const root = try tmp.dir.realpathAlloc(allocator, ".");
+    defer allocator.free(root);
+
+    var result = try collectFiles(allocator, root, .{
+        .files = &.{"**/*.md"},
+        .ignore = &.{},
+    });
+    defer {
+        for (result.items) |p| allocator.free(p);
+        result.deinit(allocator);
+    }
+
+    try std.testing.expectEqual(@as(usize, 3), result.items.len);
+    // Sorted alphabetically
+    try std.testing.expectEqualStrings("campaigns/notes.md", result.items[0]);
+    try std.testing.expectEqualStrings("campaigns/strahd/glossary.md", result.items[1]);
+    try std.testing.expectEqualStrings("campaigns/strahd/sessions/01.md", result.items[2]);
+}
+
+test "collectFiles ignores by extension glob" {
+    const allocator = std.testing.allocator;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    try tmp.dir.writeFile(.{ .sub_path = "session.md", .data = "" });
+    try tmp.dir.writeFile(.{ .sub_path = "backup.md.bak", .data = "" });
+    try tmp.dir.writeFile(.{ .sub_path = "notes.md", .data = "" });
+
+    const root = try tmp.dir.realpathAlloc(allocator, ".");
+    defer allocator.free(root);
+
+    var result = try collectFiles(allocator, root, .{
+        .files = &.{"*"},
+        .ignore = &.{"*.bak"},
+    });
+    defer {
+        for (result.items) |p| allocator.free(p);
+        result.deinit(allocator);
+    }
+
+    try std.testing.expectEqual(@as(usize, 2), result.items.len);
+    for (result.items) |path| {
+        try std.testing.expect(!std.mem.endsWith(u8, path, ".bak"));
+    }
+}
+
+test "collectFiles with multiple ignore patterns" {
+    const allocator = std.testing.allocator;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    try tmp.dir.writeFile(.{ .sub_path = "session.md", .data = "" });
+    try tmp.dir.makeDir("archive");
+    try tmp.dir.writeFile(.{ .sub_path = "archive/old.md", .data = "" });
+    try tmp.dir.makeDir("drafts");
+    try tmp.dir.writeFile(.{ .sub_path = "drafts/wip.md", .data = "" });
+    try tmp.dir.writeFile(.{ .sub_path = "notes.md", .data = "" });
+
+    const root = try tmp.dir.realpathAlloc(allocator, ".");
+    defer allocator.free(root);
+
+    var result = try collectFiles(allocator, root, .{
+        .files = &.{"**/*.md"},
+        .ignore = &.{ "archive/**", "drafts/**" },
+    });
+    defer {
+        for (result.items) |p| allocator.free(p);
+        result.deinit(allocator);
+    }
+
+    try std.testing.expectEqual(@as(usize, 2), result.items.len);
+    try std.testing.expectEqualStrings("notes.md", result.items[0]);
+    try std.testing.expectEqualStrings("session.md", result.items[1]);
+}
+
+test "collectFiles with no matching files returns empty" {
+    const allocator = std.testing.allocator;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    try tmp.dir.writeFile(.{ .sub_path = "readme.txt", .data = "" });
+
+    const root = try tmp.dir.realpathAlloc(allocator, ".");
+    defer allocator.free(root);
+
+    var result = try collectFiles(allocator, root, .{
+        .files = &.{"**/*.md"},
+        .ignore = &.{},
+    });
+    defer {
+        for (result.items) |p| allocator.free(p);
+        result.deinit(allocator);
+    }
+
+    try std.testing.expectEqual(@as(usize, 0), result.items.len);
+}
+
+test "collectFiles ignore pattern does not affect non-matching paths" {
+    const allocator = std.testing.allocator;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    try tmp.dir.writeFile(.{ .sub_path = "session.md", .data = "" });
+    try tmp.dir.writeFile(.{ .sub_path = "notes.md", .data = "" });
+
+    const root = try tmp.dir.realpathAlloc(allocator, ".");
+    defer allocator.free(root);
+
+    // Ignore pattern that matches nothing present
+    var result = try collectFiles(allocator, root, .{
+        .files = &.{"**/*.md"},
+        .ignore = &.{"archive/**"},
+    });
+    defer {
+        for (result.items) |p| allocator.free(p);
+        result.deinit(allocator);
+    }
+
+    try std.testing.expectEqual(@as(usize, 2), result.items.len);
 }
 
 test "parseStringArray" {

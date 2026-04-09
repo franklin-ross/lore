@@ -4,9 +4,17 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    const zlob_dep = b.dependency("zlob", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
     const mod = b.addModule("lore", .{
         .root_source_file = b.path("src/root.zig"),
         .target = target,
+        .imports = &.{
+            .{ .name = "zlob", .module = zlob_dep.module("zlob") },
+        },
     });
 
     const exe = b.addExecutable(.{
