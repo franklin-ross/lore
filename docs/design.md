@@ -133,11 +133,19 @@ lore check                # report undefined references
 - **Parser + CLI + LSP server:** Go
 - **VSCode extension:** TypeScript wrapper that spawns the Go binary
 
+## Build Commands
+
+```
+go build -o lore ./cmd      # build the CLI binary
+go test ./...               # run all tests
+go run ./cmd list           # run without building
+```
+
 ## Build Order
 
-### Phase 1 — Parser + CLI
+### Phase 1 — Parser + CLI (done)
 
-1. `lore.toml` loading (find root, parse config, resolve file globs, respect gitignore)
+1. `lore.toml` loading (find root, parse config, resolve file globs)
 2. Parser: read files → entity list + reference index
 3. CLI: `lore list`, `lore query`, `lore refs`, `lore search`, `lore check`
 4. Tests against the example files and real campaign notes

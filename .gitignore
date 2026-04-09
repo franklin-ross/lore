@@ -1,7 +1,5 @@
-# Zig build artifacts
-.zig-cache/
-zig-out/
-leak_test
+# Go build artifacts
+/bin/
 
 # IDE
 .idea/
