@@ -78,17 +78,43 @@ func (w *World) FindEntity(name string) (*Entity, error) {
 	}
 }
 
-// GetReferences returns all references to an entity (case-insensitive name lookup).
+// GetReferences returns all references to an entity (case-insensitive name lookup),
+// excluding self-references (where the entity's own definition mentions itself).
 func (w *World) GetReferences(name string) []Reference {
+	var raw []Reference
 	if refs, ok := w.References[name]; ok {
-		return refs
-	}
-	for key, refs := range w.References {
-		if strings.EqualFold(key, name) {
-			return refs
+		raw = refs
+	} else {
+		for key, refs := range w.References {
+			if strings.EqualFold(key, name) {
+				raw = refs
+				break
+			}
 		}
 	}
-	return nil
+	if len(raw) == 0 {
+		return nil
+	}
+
+	// Find the entity so we can match against its canonical name and aliases.
+	ent, err := w.FindEntity(name)
+	if err != nil {
+		return raw
+	}
+
+	filtered := make([]Reference, 0, len(raw))
+	for _, ref := range raw {
+		if ref.SourceEntity != "" && isSameEntity(ent, ref.SourceEntity) {
+			continue
+		}
+		filtered = append(filtered, ref)
+	}
+	return filtered
+}
+
+// isSameEntity reports whether sourceName matches the entity's canonical name or any alias.
+func isSameEntity(ent *Entity, sourceName string) bool {
+	return strings.EqualFold(ent.Name, sourceName) || ent.NameMatchesAlias(sourceName)
 }
 
 // Search finds entity descriptions containing the query text (case-insensitive).

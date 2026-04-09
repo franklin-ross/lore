@@ -16,7 +16,7 @@
 
 ## Future (Phase 2+)
 
-- **VSCode extension** — TextMate grammar, LSP server, syntax highlighting, autocomplete, hover, go-to-def, reverse references panel.
+- **VSCode extension** — TextMate grammar, LSP server, syntax highlighting, autocomplete, hover, go-to-def, find all references.
 - **`lore init`** — create a `lore.toml` in the current directory.
 - **Watch mode** — re-parse on file change for LSP.
 - **LLM tidy** — `lore tidy` reads session notes, suggests entity definitions.

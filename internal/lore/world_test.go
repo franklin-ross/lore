@@ -50,6 +50,57 @@ func TestDisambiguatedReferencesResolve(t *testing.T) {
 	}
 }
 
+func TestGetReferencesExcludesSelfReferences(t *testing.T) {
+	world := setupTestWorld(t, `Sildar Hallwinter (character) | Sildar: Fighter. Member of the Lords Alliance.
+
+Cragmaw Hideout (location): North of Triboar Trail. Sildar was captured here.
+
+Sildar: Told us Gundren was taken to Cragmaw Castle.
+`)
+
+	refs := world.GetReferences("Sildar Hallwinter")
+	for _, ref := range refs {
+		if ref.SourceEntity == "Sildar Hallwinter" {
+			t.Errorf("self-reference not filtered: %s:%d %q", ref.File, ref.Line, ref.Context)
+		}
+	}
+	// Should still include the cross-reference from Cragmaw Hideout.
+	found := false
+	for _, ref := range refs {
+		if ref.SourceEntity == "Cragmaw Hideout" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("expected cross-reference from Cragmaw Hideout")
+	}
+}
+
+func TestGetReferencesExcludesSelfReferencesByAlias(t *testing.T) {
+	world := setupTestWorld(t, `Sildar Hallwinter (character) | Sildar: Fighter.
+
+We met Sildar at the tavern.
+`)
+
+	// Look up by alias — self-refs should still be excluded.
+	refs := world.GetReferences("Sildar Hallwinter")
+	for _, ref := range refs {
+		if ref.SourceEntity == "Sildar Hallwinter" {
+			t.Errorf("self-reference not filtered: %s:%d %q", ref.File, ref.Line, ref.Context)
+		}
+	}
+	// Free text reference should remain.
+	found := false
+	for _, ref := range refs {
+		if ref.SourceEntity == "" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("expected free text reference")
+	}
+}
+
 func TestFindEntityAmbiguous(t *testing.T) {
 	world := setupTestWorld(t, "Barovia (town): The main town.\n\nBarovia (nation): The country.\n")
 
