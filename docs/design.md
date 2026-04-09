@@ -14,11 +14,9 @@ A `lore.toml` file marks the project root (like `.git` marks a repo). The CLI an
 # Glob patterns for files to parse (default: **/*.md)
 files = ["**/*.md"]
 
-# Paths to ignore (in addition to .gitignore)
+# Paths to ignore
 ignore = ["archive"]
 ```
-
-If a `.gitignore` is present, its rules are respected automatically.
 
 ## The Format
 
@@ -135,11 +133,7 @@ lore check                # report undefined references
 
 ## Build Commands
 
-```
-go build -o lore ./cmd      # build the CLI binary
-go test ./...               # run all tests
-go run ./cmd list           # run without building
-```
+Uses [Task](https://taskfile.dev/). Run `task` for the default pipeline (format, lint, build, test), or see `task --list` for all targets.
 
 ## Build Order
 

@@ -12,6 +12,7 @@ Types:
 - **fix** — bug fix
 - **test** — adding or updating tests
 - **docs** — documentation changes
+- **style** — purely stylistic or whitespace changes
 - **refactor** — code changes that don't add features or fix bugs
 - **chore** — build, tooling, or dependency changes
 
@@ -41,11 +42,23 @@ Work test-first: write a failing test that demonstrates the expected behaviour, 
 
 Keep source files focused and short — a few hundred lines is a good upper bound. Split by responsibility, not by size alone:
 
-- **`entity.zig`** — data types and shared helpers
-- **`world.zig`** — the `World` container and query methods
-- **`parser.zig`** — the parsing pipeline (entity definitions from text)
-- **`refs.zig`** — reference detection pass (analysis over parsed data)
-- **`config.zig`** — project config, file discovery, glob matching
-- **`main.zig`** — CLI entry point and command handlers
+- **`internal/lore/entity.go`** — data types and shared helpers
+- **`internal/lore/world.go`** — the `World` container and query methods
+- **`internal/lore/parser.go`** — the parsing pipeline (entity definitions, reference detection)
+- **`internal/lore/config.go`** — project config, file discovery, glob matching
+- **`cmd/main.go`** — CLI entry point and command handlers
 
-Unit tests stay inline in their module unless the file is already very long, then break them into module_test.zig. Integration tests that exercise the full pipeline go in `lore_test.zig`, following Zig's `_test.zig` convention.
+Unit tests are colocated with their source (`entity_test.go`, `parser_test.go`, etc.) and use `fstest.MapFS` for in-memory filesystems. End-to-end tests in `e2e_test.go` shell out to the compiled binary.
+
+## Build
+
+This project uses [Task](https://taskfile.dev/). Run `task` for the default pipeline (format, lint, build, test), or individual tasks:
+
+```
+task build       # build the binary
+task format      # gofmt
+task lint        # golangci-lint
+task test        # all tests (unit + e2e)
+task test-unit   # unit tests only
+task test-e2e    # e2e tests only
+```
