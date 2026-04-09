@@ -78,6 +78,24 @@ func FindRoot() (string, error) {
 	}
 }
 
+// DefaultConfigContent is the content written by InitConfig.
+const DefaultConfigContent = `# Glob patterns for files to parse
+files = ["**/*.md"]
+
+# Paths to ignore
+# ignore = ["archive"]
+`
+
+// InitConfig creates a lore.toml in the given directory with default settings.
+// Returns an error if the file already exists.
+func InitConfig(dir string) error {
+	path := filepath.Join(dir, configFilename)
+	if _, err := os.Stat(path); err == nil {
+		return fmt.Errorf("%s already exists", path)
+	}
+	return os.WriteFile(path, []byte(DefaultConfigContent), 0644)
+}
+
 func loadConfig(path string) (Config, error) {
 	cfg := Config{
 		Files: []string{"**/*.md"},

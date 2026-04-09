@@ -18,7 +18,11 @@ func main() {
 	cmd := os.Args[1]
 	args := os.Args[2:]
 
-	// LSP runs its own lifecycle; dispatch before loading the project.
+	// Commands that run without a loaded project.
+	if cmd == "config" {
+		cmdConfig(args)
+		return
+	}
 	if cmd == "lsp" {
 		s := lsp.NewServer()
 		if err := s.Run(); err != nil {
@@ -67,7 +71,32 @@ Commands:
   refs <name>       Show all references to an entity
   search <text>     Full-text search across all files
   check             Report undefined references
+  config init       Create a lore.toml in the current directory
 `)
+}
+
+func cmdConfig(args []string) {
+	if len(args) == 0 {
+		fmt.Fprintln(os.Stderr, "Usage: lore config <subcommand>\n\nSubcommands:\n  init    Create a lore.toml in the current directory")
+		os.Exit(1)
+	}
+
+	switch args[0] {
+	case "init":
+		dir, err := os.Getwd()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		if err := lore.InitConfig(dir); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println("Created lore.toml")
+	default:
+		fmt.Fprintf(os.Stderr, "Unknown config subcommand: %s\n", args[0])
+		os.Exit(1)
+	}
 }
 
 func cmdList(world *lore.World) {

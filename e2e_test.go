@@ -169,6 +169,37 @@ func TestE2ELSPStartsAndExits(t *testing.T) {
 	}
 }
 
+func TestE2EConfigInitCreatesToml(t *testing.T) {
+	dir := t.TempDir()
+	stdout, _, code := runLore(t, dir, "config", "init")
+
+	if code != 0 {
+		t.Fatalf("expected exit 0, got %d", code)
+	}
+	if !strings.Contains(stdout, "Created lore.toml") {
+		t.Errorf("expected confirmation message, got %q", stdout)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "lore.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "files") {
+		t.Fatalf("lore.toml missing files key: %s", data)
+	}
+}
+
+func TestE2EConfigInitRefusesOverwrite(t *testing.T) {
+	dir := setupFixtures(t) // already has lore.toml
+	_, stderr, code := runLore(t, dir, "config", "init")
+
+	if code == 0 {
+		t.Fatal("expected non-zero exit code when lore.toml exists")
+	}
+	if !strings.Contains(stderr, "already exists") {
+		t.Errorf("expected 'already exists' error, got %q", stderr)
+	}
+}
+
 func TestE2ENoArgsShowsUsage(t *testing.T) {
 	dir := setupFixtures(t)
 	stdout, _, code := runLore(t, dir)
