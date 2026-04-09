@@ -167,6 +167,39 @@ Strings are `[]const u8`. No stdlib string type. Key patterns:
 - **Owned slice**: obtained via `toOwnedSlice`, `alloc`, or `dupe` — caller must free.
 - **Duplicate**: `const owned = try allocator.dupe(u8, borrowed);`
 
+## Child Process
+
+Use `Child.init(argv, allocator)` then set fields. `collectOutput` reads
+stdout/stderr into ArrayLists.
+
+```zig
+var child = std.process.Child.init(argv, allocator);
+child.cwd = "/some/dir";
+child.stdout_behavior = .Pipe;  // Note: capitalised in 0.15
+child.stderr_behavior = .Pipe;
+
+try child.spawn();
+
+var stdout_buf: std.ArrayList(u8) = .empty;
+var stderr_buf: std.ArrayList(u8) = .empty;
+try child.collectOutput(allocator, &stdout_buf, &stderr_buf, 1024 * 1024);
+const term = try child.wait();
+```
+
+## Temp Directories in Tests
+
+```zig
+var tmp = std.testing.tmpDir(.{});
+defer tmp.cleanup();
+
+var f = try tmp.dir.createFile("test.txt", .{});
+try f.writeAll("content");
+f.close();
+
+const root = try tmp.dir.realpathAlloc(allocator, ".");
+defer allocator.free(root);
+```
+
 ## Error Handling
 
 No breaking changes to error unions or `try`/`catch` in 0.14 or 0.15. Syntax is stable:
