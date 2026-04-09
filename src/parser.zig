@@ -434,3 +434,202 @@ test "containsIgnoreCase" {
     try std.testing.expect(containsIgnoreCase("We met STRAHD", "strahd"));
     try std.testing.expect(!containsIgnoreCase("hello", "world"));
 }
+
+// Full parser integration tests — create real files and parse them.
+
+fn setupTestProject(allocator: std.mem.Allocator, files: []const struct { name: []const u8, content: []const u8 }) !config.Project {
+    var tmp = std.testing.tmpDir(.{});
+
+    // Write lore.toml
+    var toml_file = try tmp.dir.createFile("lore.toml", .{});
+    try toml_file.writeAll("files = [\"**/*.md\"]\n");
+    toml_file.close();
+
+    // Write test files
+    for (files) |f| {
+        // Create parent dirs if needed
+        if (std.fs.path.dirname(f.name)) |dir| {
+            tmp.dir.makePath(dir) catch {};
+        }
+        var file = try tmp.dir.createFile(f.name, .{});
+        try file.writeAll(f.content);
+        file.close();
+    }
+
+    // Get the real path of the tmp dir
+    const root = try tmp.dir.realpathAlloc(allocator, ".");
+
+    const cfg = config.Config{
+        .files = &.{try allocator.dupe(u8, "**/*.md")},
+        .ignore = &.{},
+    };
+
+    const file_paths = try config.collectFiles(allocator, root, cfg);
+
+    return config.Project{
+        .allocator = allocator,
+        .root = root,
+        .config = cfg,
+        .file_paths = file_paths,
+    };
+}
+
+test "parse single file with entities" {
+    const allocator = std.testing.allocator;
+    var project = try setupTestProject(allocator, &.{
+        .{ .name = "session.md", .content =
+            \\Gundren (character) | Gundren Rockseeker: A dwarf merchant.
+            \\  Hired us to deliver supplies.
+            \\
+            \\Phandalin (location): A small frontier town.
+        },
+    });
+    defer project.deinit();
+
+    var world = try parse(allocator, project);
+    defer world.deinit();
+
+    try std.testing.expectEqual(@as(usize, 2), world.entities.items.len);
+
+    const gundren = world.findEntity("Gundren").?;
+    try std.testing.expectEqualStrings("Gundren", gundren.name);
+    try std.testing.expectEqualStrings("character", gundren.entity_type.?);
+    try std.testing.expectEqual(@as(usize, 1), gundren.aliases.items.len);
+    try std.testing.expectEqualStrings("Gundren Rockseeker", gundren.aliases.items[0]);
+
+    const phandalin = world.findEntity("Phandalin").?;
+    try std.testing.expectEqualStrings("location", phandalin.entity_type.?);
+}
+
+test "parse entity lookup by alias" {
+    const allocator = std.testing.allocator;
+    var project = try setupTestProject(allocator, &.{
+        .{ .name = "test.md", .content =
+            \\Count Strahd von Zarovich (character) | Strahd: Vampire lord.
+        },
+    });
+    defer project.deinit();
+
+    var world = try parse(allocator, project);
+    defer world.deinit();
+
+    // Find by alias
+    const entity = world.findEntity("Strahd").?;
+    try std.testing.expectEqualStrings("Count Strahd von Zarovich", entity.name);
+}
+
+test "parse multi-file entity accumulation" {
+    const allocator = std.testing.allocator;
+    var project = try setupTestProject(allocator, &.{
+        .{ .name = "glossary.md", .content =
+            \\Sildar (character): Fighter.
+        },
+        .{ .name = "session.md", .content =
+            \\Sildar: Was captured at Cragmaw Hideout.
+        },
+    });
+    defer project.deinit();
+
+    var world = try parse(allocator, project);
+    defer world.deinit();
+
+    // Should be one entity with two descriptions
+    try std.testing.expectEqual(@as(usize, 1), world.entities.items.len);
+    const sildar = world.findEntity("Sildar").?;
+    try std.testing.expectEqual(@as(usize, 2), sildar.descriptions.items.len);
+}
+
+test "parse detects cross-references" {
+    const allocator = std.testing.allocator;
+    var project = try setupTestProject(allocator, &.{
+        .{ .name = "test.md", .content =
+            \\Gundren (character): A dwarf.
+            \\
+            \\Phandalin (location): Where Gundren sent us.
+        },
+    });
+    defer project.deinit();
+
+    var world = try parse(allocator, project);
+    defer world.deinit();
+
+    // Phandalin's description mentions Gundren
+    const refs = world.getReferences("Gundren");
+    try std.testing.expect(refs.items.len > 0);
+}
+
+test "parse search finds text in descriptions" {
+    const allocator = std.testing.allocator;
+    var project = try setupTestProject(allocator, &.{
+        .{ .name = "test.md", .content =
+            \\Gundren (character): A dwarf merchant from Neverwinter.
+        },
+    });
+    defer project.deinit();
+
+    var world = try parse(allocator, project);
+    defer world.deinit();
+
+    var results = world.search("Neverwinter");
+    defer results.deinit(allocator);
+    try std.testing.expectEqual(@as(usize, 1), results.items.len);
+}
+
+test "parse blank line ends entity description" {
+    const allocator = std.testing.allocator;
+    var project = try setupTestProject(allocator, &.{
+        .{ .name = "test.md", .content =
+            \\Gundren (character): A dwarf.
+            \\  More about Gundren.
+            \\
+            \\This is free text, not part of Gundren's description.
+        },
+    });
+    defer project.deinit();
+
+    var world = try parse(allocator, project);
+    defer world.deinit();
+
+    const gundren = world.findEntity("Gundren").?;
+    try std.testing.expectEqual(@as(usize, 1), gundren.descriptions.items.len);
+    try std.testing.expect(containsIgnoreCase(gundren.descriptions.items[0].text, "More about"));
+    try std.testing.expect(!containsIgnoreCase(gundren.descriptions.items[0].text, "free text"));
+}
+
+test "parse files sorted alphabetically" {
+    const allocator = std.testing.allocator;
+    var project = try setupTestProject(allocator, &.{
+        .{ .name = "b-second.md", .content =
+            \\Sildar (character): From the second file.
+        },
+        .{ .name = "a-first.md", .content =
+            \\Gundren (character): From the first file.
+        },
+    });
+    defer project.deinit();
+
+    var world = try parse(allocator, project);
+    defer world.deinit();
+
+    // Gundren should be first because a-first.md sorts before b-second.md
+    try std.testing.expectEqualStrings("Gundren", world.entities.items[0].name);
+    try std.testing.expectEqualStrings("Sildar", world.entities.items[1].name);
+}
+
+test "parse markdown headers are ignored" {
+    const allocator = std.testing.allocator;
+    var project = try setupTestProject(allocator, &.{
+        .{ .name = "test.md", .content =
+            \\# Session 1
+            \\
+            \\Gundren (character): A dwarf.
+        },
+    });
+    defer project.deinit();
+
+    var world = try parse(allocator, project);
+    defer world.deinit();
+
+    // Should only have Gundren, not "# Session 1"
+    try std.testing.expectEqual(@as(usize, 1), world.entities.items.len);
+}

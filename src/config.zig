@@ -148,7 +148,7 @@ fn parseStringArray(allocator: std.mem.Allocator, line: []const u8, key: []const
 }
 
 /// Collect all files matching the config globs, sorted alphabetically.
-fn collectFiles(allocator: std.mem.Allocator, root: []const u8, cfg: Config) !std.ArrayList([]const u8) {
+pub fn collectFiles(allocator: std.mem.Allocator, root: []const u8, cfg: Config) !std.ArrayList([]const u8) {
     var paths: std.ArrayList([]const u8) = .empty;
 
     var dir = try std.fs.cwd().openDir(root, .{ .iterate = true });
