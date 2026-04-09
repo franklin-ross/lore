@@ -30,3 +30,7 @@ chore: add zlob dependency for glob matching
 ```
 
 Keep the description short (under 72 characters), lowercase, imperative mood.
+
+## Workflow
+
+Work test-first: write a failing test that demonstrates the expected behaviour, then write the code to make it pass. This applies to bug fixes (reproduce the bug as a test first) and new features alike.
