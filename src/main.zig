@@ -85,9 +85,23 @@ fn cmdQuery(world: lore.parser.World, args: []const []const u8) void {
     }
 
     const name = args[0];
-    const entity = world.findEntity(name) orelse {
-        std.debug.print("Entity not found: {s}\n", .{name});
-        return;
+    const entity = switch (world.findEntity(name)) {
+        .found => |e| e,
+        .not_found => {
+            std.debug.print("Entity not found: {s}\n", .{name});
+            return;
+        },
+        .ambiguous => |matches| {
+            std.debug.print("\"{s}\" is ambiguous. Did you mean:\n", .{name});
+            for (matches.items()) |e| {
+                if (e.entity_type) |t| {
+                    std.debug.print("  {s} ({s})\n", .{ e.name, t });
+                } else {
+                    std.debug.print("  {s}\n", .{e.name});
+                }
+            }
+            return;
+        },
     };
 
     if (entity.entity_type) |t| {
