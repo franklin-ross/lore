@@ -2,6 +2,7 @@ version: "3"
 
 vars:
   BIN: bin/lore
+  VSIX: bin/lore.vsix
 
 tasks:
   default:
@@ -46,28 +47,29 @@ tasks:
     cmds:
       - go test ./...
 
-  build-ext:
+  build-vscode:
     desc: Build the VSCode extension
     dir: vscode-lore
     cmds:
       - npm install
       - npm run bundle
 
-  package-ext:
-    desc: Package the VSCode extension as .vsix
+  package-vscode:
+    desc: Package the VSCode extension as .vsix into bin/
     dir: vscode-lore
-    deps: [build-ext]
+    deps: [build-vscode]
     cmds:
-      - npx @vscode/vsce package
+      - npx @vscode/vsce package -o ../{{.VSIX}}
 
   clean:
     desc: Remove build artifacts
     cmds:
-      - rm -f {{.BIN}}
-      - rm -rf vscode-lore/out
+      - rm -f {{.BIN}} {{.VSIX}}
+      - rm -rf vscode-lore/out/ vscode-lore/node_modules/
 
   install:
-    desc: Build and install the binary to ~/bin/
-    deps: [build]
+    desc: Build and install the binary and VSCode extension
+    deps: [build, package-vscode]
     cmds:
       - cp ./bin/lore ~/bin/lore
+      - code --install-extension {{.VSIX}} --force
