@@ -270,6 +270,38 @@ func TestSemanticTokensHasCorrectPositions(t *testing.T) {
 	}
 }
 
+func TestFindEntityAtPositionDisambiguates(t *testing.T) {
+	content := "Barovia (town): Gothic, dark, misty.\n\nBarovia (country): Perpetually cloudy.\n\nWe entered Barovia (town) from the west.\n"
+	s := setupTestServer(t, content)
+
+	// Cursor on "Barovia" in the definition of Barovia (town) — line 0.
+	match := s.findEntityAtPosition("file:///test/test.md", protocol.Position{Line: 0, Character: 3})
+	if match == nil {
+		t.Fatal("expected match")
+	}
+	if match.Entity.Type != "town" {
+		t.Fatalf("expected town, got %q", match.Entity.Type)
+	}
+
+	// Cursor on "Barovia" in the definition of Barovia (country) — line 2.
+	match = s.findEntityAtPosition("file:///test/test.md", protocol.Position{Line: 2, Character: 3})
+	if match == nil {
+		t.Fatal("expected match")
+	}
+	if match.Entity.Type != "country" {
+		t.Fatalf("expected country, got %q", match.Entity.Type)
+	}
+
+	// Cursor on "Barovia (town)" in free text — line 4.
+	match = s.findEntityAtPosition("file:///test/test.md", protocol.Position{Line: 4, Character: 14})
+	if match == nil {
+		t.Fatal("expected match")
+	}
+	if match.Entity.Type != "town" {
+		t.Fatalf("expected town from disambiguated reference, got %q", match.Entity.Type)
+	}
+}
+
 func TestFindEntityAtPositionLongestMatch(t *testing.T) {
 	content := "Count Strahd von Zarovich (character) | Strahd: Vampire lord.\n"
 	s := setupTestServer(t, content)

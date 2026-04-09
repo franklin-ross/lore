@@ -15,7 +15,9 @@ type entityMatch struct {
 	End    int
 }
 
-// findEntityAtPosition identifies which entity the cursor is on, preferring the longest match.
+// findEntityAtPosition identifies which entity the cursor is on, preferring
+// disambiguated matches ("Name (type)") over bare name matches, and longer
+// matches over shorter ones.
 func (s *Server) findEntityAtPosition(uri string, pos protocol.Position) *entityMatch {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -35,16 +37,56 @@ func (s *Server) findEntityAtPosition(uri string, pos protocol.Position) *entity
 		for _, name := range names {
 			for _, start := range findAllIgnoreCase(line, name) {
 				end := start + len(name)
-				if col >= start && col <= end {
-					if best == nil || (end-start) > (best.End-best.Start) {
-						best = &entityMatch{Entity: ent, Start: start, End: end}
+				if col < start || col > end {
+					continue
+				}
+
+				matchEnt := ent
+				matchEnd := end
+
+				// Check if this is a disambiguated reference: "Name (type)".
+				if ent.Type != "" {
+					disambig := name + " (" + ent.Type + ")"
+					if start+len(disambig) <= len(line) &&
+						strings.EqualFold(line[start:start+len(disambig)], disambig) {
+						matchEnd = start + len(disambig)
 					}
+				}
+
+				// Also check if the text has a (type) suffix that resolves to a
+				// *different* entity than the one we matched by bare name.
+				if disambigEnd := findDisambigEnd(line, start, name); disambigEnd > end {
+					disambigText := line[start:disambigEnd]
+					if resolved, err := s.world.FindEntity(disambigText); err == nil {
+						matchEnt = resolved
+						matchEnd = disambigEnd
+					}
+				}
+
+				span := matchEnd - start
+				if best == nil || span > (best.End-best.Start) {
+					best = &entityMatch{Entity: matchEnt, Start: start, End: matchEnd}
 				}
 			}
 		}
 	}
 
 	return best
+}
+
+// findDisambigEnd checks whether line[start:] begins with "name (word)" and
+// returns the end index (after the closing paren), or -1 if not.
+func findDisambigEnd(line string, start int, name string) int {
+	after := start + len(name)
+	rest := line[after:]
+	if !strings.HasPrefix(rest, " (") {
+		return -1
+	}
+	close := strings.Index(rest, ")")
+	if close < 0 {
+		return -1
+	}
+	return after + close + 1
 }
 
 // allNames returns the canonical name followed by all aliases.
