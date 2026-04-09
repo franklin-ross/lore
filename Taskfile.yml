@@ -16,6 +16,8 @@ tasks:
     desc: Build the CLI binary
     cmds:
       - go build -o {{.BIN}} ./cmd
+    generates:
+      - "{{.BIN}}"
 
   format:
     desc: Format all Go source files and tidy dependencies
@@ -49,11 +51,12 @@ tasks:
     dir: vscode-lore
     cmds:
       - npm install
-      - npm run compile
+      - npm run bundle
 
   package-ext:
     desc: Package the VSCode extension as .vsix
     dir: vscode-lore
+    deps: [build-ext]
     cmds:
       - npx @vscode/vsce package
 
@@ -62,3 +65,9 @@ tasks:
     cmds:
       - rm -f {{.BIN}}
       - rm -rf vscode-lore/out
+
+  install:
+    desc: Build and install the binary to ~/bin/
+    deps: [build]
+    cmds:
+      - cp ./bin/lore ~/bin/lore

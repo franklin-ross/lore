@@ -1,24 +1,25 @@
 import * as vscode from "vscode";
 import {
   LanguageClient,
-  LanguageClientOptions,
-  ServerOptions,
   TransportKind,
 } from "vscode-languageclient/node";
 
-let client: LanguageClient | undefined;
+/** @type {LanguageClient | undefined} */
+let client;
 
-export function activate(context: vscode.ExtensionContext) {
+export function activate(/** @type {vscode.ExtensionContext} */ context) {
   const config = vscode.workspace.getConfiguration("lore");
-  const serverPath = config.get<string>("serverPath") || "lore";
+  const serverPath = config.get("serverPath") || "lore";
 
-  const serverOptions: ServerOptions = {
+  /** @type {import("vscode-languageclient/node").ServerOptions} */
+  const serverOptions = {
     command: serverPath,
     args: ["lsp"],
     transport: TransportKind.stdio,
   };
 
-  const clientOptions: LanguageClientOptions = {
+  /** @type {import("vscode-languageclient/node").LanguageClientOptions} */
+  const clientOptions = {
     documentSelector: [{ scheme: "file", language: "markdown" }],
     synchronize: {
       fileEvents: vscode.workspace.createFileSystemWatcher("**/*.md"),
@@ -33,13 +34,9 @@ export function activate(context: vscode.ExtensionContext) {
   );
 
   client.start();
-  context.subscriptions.push({
-    dispose: () => {
-      client?.stop();
-    },
-  });
+  context.subscriptions.push({ dispose: () => client?.stop() });
 }
 
-export function deactivate(): Thenable<void> | undefined {
+export function deactivate() {
   return client?.stop();
 }
