@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"lore/internal/lore"
+	"lore/internal/lsp"
 )
 
 func main() {
@@ -16,6 +17,16 @@ func main() {
 
 	cmd := os.Args[1]
 	args := os.Args[2:]
+
+	// LSP runs its own lifecycle; dispatch before loading the project.
+	if cmd == "lsp" {
+		s := lsp.NewServer()
+		if err := s.Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "LSP error: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
 
 	project, err := lore.FindAndLoad()
 	if err != nil {

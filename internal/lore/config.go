@@ -34,7 +34,11 @@ func FindAndLoad() (*Project, error) {
 	if err != nil {
 		return nil, err
 	}
+	return FindAndLoadFrom(root)
+}
 
+// FindAndLoadFrom loads a lore project from the given root directory.
+func FindAndLoadFrom(root string) (*Project, error) {
 	cfg, err := loadConfig(filepath.Join(root, configFilename))
 	if err != nil {
 		return nil, fmt.Errorf("loading config: %w", err)
