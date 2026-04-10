@@ -230,6 +230,74 @@ func TestParseMarkdownHeadersIgnored(t *testing.T) {
 	}
 }
 
+func TestDisambiguatedReferenceToleratesSpacing(t *testing.T) {
+	project := setupTestProject(t, map[string]string{
+		"test.md": "Barovia (town): A village.\n\nBarovia (nation): A gothic land.\n\nWe entered Barovia(town) at dusk.\nLater we arrived in Barovia   (nation).\nFinally we saw Barovia ( town ) from the hills.\n",
+	})
+
+	world, err := Parse(project)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	town, err := world.FindEntity("Barovia (town)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	nation, err := world.FindEntity("Barovia (nation)")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tight := false
+	padded := false
+	for _, ref := range world.GetReferences(town.Name) {
+		if ContainsIgnoreCase(ref.Context, "Barovia(town)") {
+			tight = true
+		}
+		if ContainsIgnoreCase(ref.Context, "Barovia ( town )") {
+			padded = true
+		}
+	}
+	if !tight {
+		t.Fatal("expected 'Barovia(town)' to be recognised as a disambiguated reference")
+	}
+	if !padded {
+		t.Fatal("expected 'Barovia ( town )' to be recognised as a disambiguated reference")
+	}
+
+	foundNation := false
+	for _, ref := range world.GetReferences(nation.Name) {
+		if ContainsIgnoreCase(ref.Context, "Barovia   (nation)") {
+			foundNation = true
+		}
+	}
+	if !foundNation {
+		t.Fatal("expected 'Barovia   (nation)' to be recognised as a disambiguated reference")
+	}
+}
+
+func TestReferencesRespectWordBoundaries(t *testing.T) {
+	project := setupTestProject(t, map[string]string{
+		"test.md": "Pip (character): A halfling rogue.\n\nThe soup was piping hot.\n\nPip waved.\n",
+	})
+
+	world, err := Parse(project)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	refs := world.GetReferences("Pip")
+	for _, ref := range refs {
+		if ContainsIgnoreCase(ref.Context, "piping") {
+			t.Fatalf("ref should not match 'piping': %+v", ref)
+		}
+	}
+	if len(refs) == 0 {
+		t.Fatal("expected at least one reference to Pip (from 'Pip waved.')")
+	}
+}
+
 func TestKnownEntityRedefinitionWithoutType(t *testing.T) {
 	world := setupTestWorld(t, "Strahd (character): Vampire lord.\n\nStrahd: Showed up at the funeral with flowers.\n")
 

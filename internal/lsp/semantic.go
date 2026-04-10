@@ -58,26 +58,28 @@ type rawToken struct {
 
 func (s *Server) semanticTokensFull(_ *glsp.Context, params *protocol.SemanticTokensParams) (*protocol.SemanticTokens, error) {
 	world := s.world()
+	if world.Match == nil {
+		return &protocol.SemanticTokens{Data: []uint32{}}, nil
+	}
+
 	content := s.getDocumentContent(params.TextDocument.URI)
 	lines := strings.Split(content, "\n")
 
-	var tokens []rawToken
+	// Rendered colour bits stay stable for the life of the world; compute
+	// once outside the line loop.
+	modBits := make([]uint32, len(world.Entities))
 	for i := range world.Entities {
-		ent := &world.Entities[i]
-		colourIdx := entityColourIndex(ent)
-		modBits := uint32(1) << colourIdx
-		names := allNames(ent)
-		for lineIdx, line := range lines {
-			for _, name := range names {
-				for _, col := range findAllIgnoreCase(line, name) {
-					tokens = append(tokens, rawToken{
-						line:      uint32(lineIdx),
-						startChar: uint32(col),
-						length:    uint32(len(name)),
-						tokenType: 0, // index into token types: "loreEntity"
-						modifiers: modBits,
-					})
-				}
+		modBits[i] = uint32(1) << entityColourIndex(&world.Entities[i])
+	}
+
+	var tokens []rawToken
+	for lineIdx, line := range lines {
+		lowerLine := strings.ToLower(line)
+		for i := range world.Match.Entities {
+			em := &world.Match.Entities[i]
+			appendMatches(&tokens, lineIdx, lowerLine, em.LowerName, modBits[i])
+			for _, la := range em.LowerAliases {
+				appendMatches(&tokens, lineIdx, lowerLine, la, modBits[i])
 			}
 		}
 	}
@@ -91,6 +93,26 @@ func (s *Server) semanticTokensFull(_ *glsp.Context, params *protocol.SemanticTo
 
 	data := encodeTokens(tokens)
 	return &protocol.SemanticTokens{Data: data}, nil
+}
+
+// appendMatches scans one already-lowered line for a single needle and emits
+// a rawToken per hit. Needle length is also the token length because byte
+// offsets line up between the original and the lowered line for ASCII, and
+// upper-case multi-byte characters have the same byte length under
+// Go's strings.ToLower for every rune we care about here.
+func appendMatches(out *[]rawToken, lineIdx int, lowerLine, lowerNeedle string, modBits uint32) {
+	if lowerNeedle == "" {
+		return
+	}
+	for _, col := range lore.FindWordMatches(lowerLine, lowerNeedle) {
+		*out = append(*out, rawToken{
+			line:      uint32(lineIdx),
+			startChar: uint32(col),
+			length:    uint32(len(lowerNeedle)),
+			tokenType: 0,
+			modifiers: modBits,
+		})
+	}
 }
 
 // encodeTokens converts absolute token positions to the delta-encoded format

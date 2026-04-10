@@ -10,6 +10,11 @@ import (
 type World struct {
 	Entities   []Entity
 	References map[string][]Reference
+	// Match is a pre-lowered lookup cache built by Merge. It stays in lock
+	// step with Entities — rebuilt whenever Merge runs — so callers that
+	// scan text for entity mentions don't need to re-lowercase on every
+	// iteration of their hot loop.
+	Match *MatchIndex
 }
 
 // NewWorld creates an empty World.

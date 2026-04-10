@@ -127,6 +127,11 @@ func Merge(files []*FileParse) *World {
 		}
 	}
 
+	// Build the lookup cache now that all entities (and their descriptions)
+	// are established. Phase 3 relies on it, and external callers — semantic
+	// token rendering, cursor lookup — read it directly off the world.
+	world.Match = buildMatchIndex(world)
+
 	// Phase 3: cross-reference scan over raw content.
 	for _, fp := range sorted {
 		findReferences(world, fp.Content, fp.Path)
@@ -152,8 +157,14 @@ func findOrCreateEntity(world *World, name, entityType string) *Entity {
 }
 
 // findReferences scans file content for mentions of known entities and adds
-// them to the world's reference index.
+// them to the world's reference index. It reads the pre-lowered lookup data
+// off world.Match, so the hot loop never re-lowercases an entity name.
 func findReferences(world *World, content, file string) {
+	mi := world.Match
+	if mi == nil || len(mi.Entities) == 0 {
+		return
+	}
+
 	lines := strings.Split(content, "\n")
 
 	for lineIdx, line := range lines {
@@ -162,50 +173,57 @@ func findReferences(world *World, content, file string) {
 		if trimmed == "" {
 			continue
 		}
+		lowerTrimmed := strings.ToLower(trimmed)
 
 		disambigMatched := make(map[int]bool)
 
-		// Pass 1: disambiguated references like "Barovia (town)".
-		for i := range world.Entities {
-			ent := &world.Entities[i]
-			if ent.Type == "" {
+		// Pass 1: disambiguated references like "Barovia (town)" — any number
+		// of spaces between the name and the `(type)` are accepted.
+		for i := range mi.Entities {
+			em := &mi.Entities[i]
+			if em.LowerType == "" {
 				continue
 			}
-			if containsDisambiguatedRef(trimmed, ent.Name, ent.Type) {
+			for _, pos := range FindWordMatches(lowerTrimmed, em.LowerName) {
+				end := pos + len(em.LowerName)
+				if matchesTypeSuffix(lowerTrimmed, end, em.LowerType) < 0 {
+					continue
+				}
 				disambigMatched[i] = true
-				world.AddReference(ent.Name, Reference{
+				world.AddReference(world.Entities[i].Name, Reference{
 					File:         file,
 					Line:         lineNum,
 					SourceEntity: findEntityAtLine(world, file, lineNum),
 					Context:      trimmed,
 				})
+				break
 			}
 		}
 
 		// Pass 2: plain name or alias matching, excluding anything already
 		// counted as a disambiguated reference on this line.
-		for i := range world.Entities {
+		for i := range mi.Entities {
 			if disambigMatched[i] {
 				continue
 			}
-			ent := &world.Entities[i]
+			em := &mi.Entities[i]
 
 			matched := false
-			if ContainsIgnoreCase(trimmed, ent.Name) {
-				if !isOnlyDisambiguated(trimmed, ent.Name, world) {
+			if HasWordMatch(lowerTrimmed, em.LowerName) {
+				if !isOnlyDisambiguated(lowerTrimmed, em.LowerName, mi.Types) {
 					matched = true
 				}
 			}
 			if !matched {
-				for _, alias := range ent.Aliases {
-					if ContainsIgnoreCase(trimmed, alias) {
+				for _, la := range em.LowerAliases {
+					if HasWordMatch(lowerTrimmed, la) {
 						matched = true
 						break
 					}
 				}
 			}
 			if matched {
-				world.AddReference(ent.Name, Reference{
+				world.AddReference(world.Entities[i].Name, Reference{
 					File:         file,
 					Line:         lineNum,
 					SourceEntity: findEntityAtLine(world, file, lineNum),
@@ -216,49 +234,70 @@ func findReferences(world *World, content, file string) {
 	}
 }
 
-// containsDisambiguatedRef checks if text contains "name (type)".
-func containsDisambiguatedRef(haystack, name, entityType string) bool {
-	lower := strings.ToLower(haystack)
-	target := strings.ToLower(name) + " (" + strings.ToLower(entityType) + ")"
-	return strings.Contains(lower, target)
-}
-
-// isOnlyDisambiguated reports whether every occurrence of name in text is
-// already followed by a "(type)" suffix for some known entity type — i.e.
-// there are no bare references on this line.
-func isOnlyDisambiguated(text, name string, world *World) bool {
-	lower := strings.ToLower(text)
-	lowerName := strings.ToLower(name)
-
-	idx := 0
-	for {
-		pos := strings.Index(lower[idx:], lowerName)
-		if pos < 0 {
-			return true
-		}
-		pos += idx
-
-		after := pos + len(lowerName)
-		if after+2 < len(lower) && lower[after] == ' ' && lower[after+1] == '(' {
-			if closePos := strings.Index(lower[after+2:], ")"); closePos >= 0 {
-				candidateType := lower[after+2 : after+2+closePos]
-				if isKnownEntityType(world, candidateType) {
-					idx = after + 2 + closePos + 1
-					continue
-				}
-			}
-		}
-		return false
-	}
-}
-
-func isKnownEntityType(world *World, candidateType string) bool {
-	for _, ent := range world.Entities {
-		if strings.EqualFold(ent.Type, candidateType) {
-			return true
+// isOnlyDisambiguated reports whether every standalone-word occurrence of
+// name in text is already followed by optional spaces and a "(type)"
+// suffix for some known entity type. All inputs must already be lowercased.
+func isOnlyDisambiguated(lowerText, lowerName string, lowerTypes map[string]struct{}) bool {
+	for _, pos := range FindWordMatches(lowerText, lowerName) {
+		end := pos + len(lowerName)
+		if matchesAnyTypeSuffix(lowerText, end, lowerTypes) < 0 {
+			return false
 		}
 	}
-	return false
+	return true
+}
+
+// SkipSpaces returns the first index at or after pos that isn't a plain
+// space character. Tabs and other whitespace are intentionally not skipped —
+// a disambiguator is a user-facing inline construct, not a layout element.
+func SkipSpaces(s string, pos int) int {
+	for pos < len(s) && s[pos] == ' ' {
+		pos++
+	}
+	return pos
+}
+
+// matchesTypeSuffix checks whether lowerText at position pos is followed by
+// any number of spaces and "(lowerType)", where spaces are also allowed
+// directly after the opening paren and before the closing paren. Returns
+// the index after the closing paren, or -1 if the pattern doesn't match.
+func matchesTypeSuffix(lowerText string, pos int, lowerType string) int {
+	i := SkipSpaces(lowerText, pos)
+	if i >= len(lowerText) || lowerText[i] != '(' {
+		return -1
+	}
+	i = SkipSpaces(lowerText, i+1)
+	if i+len(lowerType) > len(lowerText) || lowerText[i:i+len(lowerType)] != lowerType {
+		return -1
+	}
+	i = SkipSpaces(lowerText, i+len(lowerType))
+	if i >= len(lowerText) || lowerText[i] != ')' {
+		return -1
+	}
+	return i + 1
+}
+
+// matchesAnyTypeSuffix is like matchesTypeSuffix but accepts any known
+// entity type inside the parentheses. Spaces are allowed between the name
+// and the paren, just inside the parens, and just before the close.
+func matchesAnyTypeSuffix(lowerText string, pos int, lowerTypes map[string]struct{}) int {
+	i := SkipSpaces(lowerText, pos)
+	if i >= len(lowerText) || lowerText[i] != '(' {
+		return -1
+	}
+	typeStart := SkipSpaces(lowerText, i+1)
+	closeOffset := strings.Index(lowerText[typeStart:], ")")
+	if closeOffset < 0 {
+		return -1
+	}
+	typeEnd := typeStart + closeOffset
+	for typeEnd > typeStart && lowerText[typeEnd-1] == ' ' {
+		typeEnd--
+	}
+	if _, ok := lowerTypes[lowerText[typeStart:typeEnd]]; !ok {
+		return -1
+	}
+	return typeStart + closeOffset + 1
 }
 
 // findEntityAtLine returns the name of the entity whose header sits on the

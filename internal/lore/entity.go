@@ -1,6 +1,10 @@
 package lore
 
-import "strings"
+import (
+	"strings"
+	"unicode"
+	"unicode/utf8"
+)
 
 // Entity is a named thing in the world: a character, location, quest, etc.
 type Entity struct {
@@ -70,6 +74,61 @@ func ParseDisambiguation(input string) (Disambiguation, bool) {
 // ContainsIgnoreCase reports whether haystack contains needle, ignoring case.
 func ContainsIgnoreCase(haystack, needle string) bool {
 	return strings.Contains(strings.ToLower(haystack), strings.ToLower(needle))
+}
+
+// FindWordMatches returns the byte offsets at which needle appears in
+// haystack as a standalone word. BOTH arguments must already be lowercased;
+// callers that scan many needles against the same haystack (or vice versa)
+// should ToLower each value once and reuse the result instead of paying for
+// repeated allocations inside this function.
+//
+// Word boundaries are the string edges or any character that isn't a letter,
+// digit, or underscore — so "pip" won't match inside "piping", but will
+// match in "a pip-sized dog".
+func FindWordMatches(lowerHaystack, lowerNeedle string) []int {
+	if lowerNeedle == "" {
+		return nil
+	}
+	var out []int
+	start := 0
+	for {
+		idx := strings.Index(lowerHaystack[start:], lowerNeedle)
+		if idx < 0 {
+			return out
+		}
+		pos := start + idx
+		end := pos + len(lowerNeedle)
+		if isWordBoundaryBefore(lowerHaystack, pos) && isWordBoundaryAfter(lowerHaystack, end) {
+			out = append(out, pos)
+		}
+		start = pos + 1
+	}
+}
+
+// HasWordMatch reports whether needle appears in haystack as a standalone
+// word. Like FindWordMatches, both arguments must already be lowercased.
+func HasWordMatch(lowerHaystack, lowerNeedle string) bool {
+	return len(FindWordMatches(lowerHaystack, lowerNeedle)) > 0
+}
+
+func isWordBoundaryBefore(s string, pos int) bool {
+	if pos == 0 {
+		return true
+	}
+	r, _ := utf8.DecodeLastRuneInString(s[:pos])
+	return !isWordRune(r)
+}
+
+func isWordBoundaryAfter(s string, pos int) bool {
+	if pos >= len(s) {
+		return true
+	}
+	r, _ := utf8.DecodeRuneInString(s[pos:])
+	return !isWordRune(r)
+}
+
+func isWordRune(r rune) bool {
+	return unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_'
 }
 
 // NameMatchesAlias reports whether any of the entity's aliases match name (case-insensitive).
