@@ -33,16 +33,14 @@ func setupTestServer(t *testing.T, content string) *Server {
 	}
 	project := &lore.Project{FS: fsys, Config: lore.Config{Files: []string{"**/*.md"}}, FilePaths: paths}
 
-	world, err := lore.Parse(project)
-	if err != nil {
-		t.Fatal(err)
-	}
-
 	s := NewServer()
 	s.root = "/test"
 	s.project = project
-	s.world = world
-	s.docs["file:///test/test.md"] = content
+	if err := s.index.LoadProject(project); err != nil {
+		t.Fatal(err)
+	}
+	// Editor buffer test URIs use /test as the root; mirror the content there.
+	s.index.SetFile("test.md", content)
 	return s
 }
 

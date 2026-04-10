@@ -11,9 +11,6 @@ func (s *Server) references(_ *glsp.Context, params *protocol.ReferenceParams) (
 		return nil, nil
 	}
 
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
 	var locations []protocol.Location
 
 	if params.Context.IncludeDeclaration {
@@ -25,7 +22,7 @@ func (s *Server) references(_ *glsp.Context, params *protocol.ReferenceParams) (
 		}
 	}
 
-	refs := s.world.GetReferences(match.Entity.Name)
+	refs := s.world().GetReferences(match.Entity.Name)
 	for _, ref := range refs {
 		locations = append(locations, protocol.Location{
 			URI:   s.fileToURI(ref.File),

@@ -2,11 +2,9 @@ package lsp
 
 import (
 	"fmt"
-	"io/fs"
 	"net/url"
 	"path/filepath"
 	"strings"
-	"sync"
 
 	"lore/internal/lore"
 
@@ -20,18 +18,16 @@ const serverName = "lore"
 
 // Server is the lore LSP server.
 type Server struct {
-	mu      sync.RWMutex
 	root    string // absolute filesystem path
 	project *lore.Project
-	world   *lore.World
-	docs    map[string]string // URI -> content for open documents
-	notify  glsp.NotifyFunc   // set during initialize
+	index   *Index
+	notify  glsp.NotifyFunc // set during initialize
 }
 
 // NewServer creates a new LSP server.
 func NewServer() *Server {
 	return &Server{
-		docs: make(map[string]string),
+		index: NewIndex(),
 	}
 }
 
@@ -65,7 +61,7 @@ func (s *Server) initialize(ctx *glsp.Context, params *protocol.InitializeParams
 	s.root = uriToPath(params.RootURI)
 
 	s.logInfo("initialising with root: %s", s.root)
-	s.reparse()
+	s.loadProject()
 
 	syncKind := protocol.TextDocumentSyncKindFull
 	return protocol.InitializeResult{
@@ -98,28 +94,29 @@ func (s *Server) shutdown(_ *glsp.Context) error {
 	return nil
 }
 
-func (s *Server) reparse() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
+// loadProject (re)reads the lore.toml and every on-disk file into the index.
+// Called once at initialize time; editor buffers arrive via didOpen/didChange.
+func (s *Server) loadProject() {
 	if s.root == "" {
 		return
 	}
-
 	project, err := lore.FindAndLoadFrom(s.root)
 	if err != nil {
 		s.logWarning("failed to load project: %v", err)
 		return
 	}
 	s.project = project
-
-	world, err := lore.Parse(project)
-	if err != nil {
-		s.logWarning("failed to parse: %v", err)
+	if err := s.index.LoadProject(project); err != nil {
+		s.logWarning("failed to index project: %v", err)
 		return
 	}
-	s.world = world
-	s.logInfo("parsed %d entities from %d files", len(world.Entities), len(project.FilePaths))
+	world := s.index.World()
+	s.logInfo("indexed %d entities from %d files", len(world.Entities), s.index.FileCount())
+}
+
+// world returns the current merged world for query handlers.
+func (s *Server) world() *lore.World {
+	return s.index.World()
 }
 
 // logInfo sends an informational message to the client's output channel.
@@ -148,14 +145,15 @@ func (s *Server) fileToURI(relPath string) string {
 	return "file://" + abs
 }
 
-// uriToRelPath converts a file:// URI to a project-relative path.
+// uriToRelPath converts a file:// URI to a project-relative path using
+// forward slashes (matching fs.FS conventions).
 func (s *Server) uriToRelPath(uri string) string {
 	abs := uriToPath(&uri)
 	rel, err := filepath.Rel(s.root, abs)
 	if err != nil {
 		return abs
 	}
-	return rel
+	return filepath.ToSlash(rel)
 }
 
 // getLine returns the line at the given 0-based index from a document URI.
@@ -168,21 +166,12 @@ func (s *Server) getLine(uri string, line uint32) string {
 	return lines[line]
 }
 
-// getDocumentContent returns the content for a URI, preferring the open document buffer.
+// getDocumentContent returns the current content for a URI straight from
+// the index (which is the authoritative store for both open buffers and
+// on-disk files).
 func (s *Server) getDocumentContent(uri string) string {
-	if content, ok := s.docs[uri]; ok {
-		return content
-	}
-	// Fall back to reading from the parsed project files.
-	relPath := s.uriToRelPath(uri)
-	if s.project == nil {
-		return ""
-	}
-	data, err := fs.ReadFile(s.project.FS, relPath)
-	if err != nil {
-		return ""
-	}
-	return string(data)
+	content, _ := s.index.Content(s.uriToRelPath(uri))
+	return content
 }
 
 func uriToPath(uri *string) string {

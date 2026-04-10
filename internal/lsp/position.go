@@ -19,20 +19,14 @@ type entityMatch struct {
 // disambiguated matches ("Name (type)") over bare name matches, and longer
 // matches over shorter ones.
 func (s *Server) findEntityAtPosition(uri string, pos protocol.Position) *entityMatch {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	if s.world == nil {
-		return nil
-	}
-
+	world := s.world()
 	line := s.getLine(uri, pos.Line)
 	col := int(pos.Character)
 
 	var best *entityMatch
 
-	for i := range s.world.Entities {
-		ent := &s.world.Entities[i]
+	for i := range world.Entities {
+		ent := &world.Entities[i]
 		names := allNames(ent)
 		for _, name := range names {
 			for _, start := range findAllIgnoreCase(line, name) {
@@ -57,7 +51,7 @@ func (s *Server) findEntityAtPosition(uri string, pos protocol.Position) *entity
 				// *different* entity than the one we matched by bare name.
 				if disambigEnd := findDisambigEnd(line, start, name); disambigEnd > end {
 					disambigText := line[start:disambigEnd]
-					if resolved, err := s.world.FindEntity(disambigText); err == nil {
+					if resolved, err := world.FindEntity(disambigText); err == nil {
 						matchEnt = resolved
 						matchEnd = disambigEnd
 					}

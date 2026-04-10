@@ -57,19 +57,13 @@ type rawToken struct {
 }
 
 func (s *Server) semanticTokensFull(_ *glsp.Context, params *protocol.SemanticTokensParams) (*protocol.SemanticTokens, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	if s.world == nil {
-		return &protocol.SemanticTokens{Data: []uint32{}}, nil
-	}
-
+	world := s.world()
 	content := s.getDocumentContent(params.TextDocument.URI)
 	lines := strings.Split(content, "\n")
 
 	var tokens []rawToken
-	for i := range s.world.Entities {
-		ent := &s.world.Entities[i]
+	for i := range world.Entities {
+		ent := &world.Entities[i]
 		colourIdx := entityColourIndex(ent)
 		modBits := uint32(1) << colourIdx
 		names := allNames(ent)

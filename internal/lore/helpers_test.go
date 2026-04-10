@@ -28,8 +28,5 @@ func setupTestProject(t *testing.T, files map[string]string) *Project {
 // setupTestWorld creates a World from a single content string.
 func setupTestWorld(t *testing.T, content string) *World {
 	t.Helper()
-	world := NewWorld()
-	parseEntities(world, content, "test.md")
-	findReferences(world, content, "test.md")
-	return world
+	return Merge([]*FileParse{ParseFile("test.md", content)})
 }

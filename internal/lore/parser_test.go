@@ -2,59 +2,63 @@ package lore
 
 import "testing"
 
-func TestParseEntityHeaderWithTypeAndAlias(t *testing.T) {
-	h, ok := parseEntityHeader("Sildar Hallwinter (character) | Sildar: Fighter.")
+func TestParseHeaderWithTypeAndAlias(t *testing.T) {
+	h, ok := ParseHeader("Sildar Hallwinter (character) | Sildar: Fighter.")
 	if !ok {
 		t.Fatal("expected ok")
 	}
-	if h.name != "Sildar Hallwinter" {
-		t.Fatalf("name = %q", h.name)
+	if h.Name != "Sildar Hallwinter" {
+		t.Fatalf("name = %q", h.Name)
 	}
-	if h.entityType != "character" {
-		t.Fatalf("type = %q", h.entityType)
+	if h.Type != "character" {
+		t.Fatalf("type = %q", h.Type)
 	}
-	if len(h.aliases) != 1 || h.aliases[0] != "Sildar" {
-		t.Fatalf("aliases = %v", h.aliases)
+	if len(h.Aliases) != 1 || h.Aliases[0] != "Sildar" {
+		t.Fatalf("aliases = %v", h.Aliases)
 	}
-	if h.descriptionStart != "Fighter." {
-		t.Fatalf("desc = %q", h.descriptionStart)
+	if h.DescStart != "Fighter." {
+		t.Fatalf("desc = %q", h.DescStart)
 	}
 }
 
-func TestParseEntityHeaderTypeAtStart(t *testing.T) {
-	h, ok := parseEntityHeader("(location) Cragmaw Hideout: North of trail.")
+func TestParseHeaderTypeAtStart(t *testing.T) {
+	h, ok := ParseHeader("(location) Cragmaw Hideout: North of trail.")
 	if !ok {
 		t.Fatal("expected ok")
 	}
-	if h.name != "Cragmaw Hideout" {
-		t.Fatalf("name = %q", h.name)
+	if h.Name != "Cragmaw Hideout" {
+		t.Fatalf("name = %q", h.Name)
 	}
-	if h.entityType != "location" {
-		t.Fatalf("type = %q", h.entityType)
+	if h.Type != "location" {
+		t.Fatalf("type = %q", h.Type)
 	}
 }
 
-func TestParseEntityHeaderTypeInMiddle(t *testing.T) {
-	h, ok := parseEntityHeader("Count Strahd (character) | Strahd: Vampire.")
+func TestParseHeaderTypeInMiddle(t *testing.T) {
+	h, ok := ParseHeader("Count Strahd (character) | Strahd: Vampire.")
 	if !ok {
 		t.Fatal("expected ok")
 	}
-	if h.name != "Count Strahd" {
-		t.Fatalf("name = %q", h.name)
+	if h.Name != "Count Strahd" {
+		t.Fatalf("name = %q", h.Name)
 	}
-	if len(h.aliases) != 1 || h.aliases[0] != "Strahd" {
-		t.Fatalf("aliases = %v", h.aliases)
-	}
-}
-
-func TestParseEntityHeaderNoType(t *testing.T) {
-	if _, ok := parseEntityHeader("Just some text with a colon: here"); ok {
-		t.Fatal("expected not ok without type")
+	if len(h.Aliases) != 1 || h.Aliases[0] != "Strahd" {
+		t.Fatalf("aliases = %v", h.Aliases)
 	}
 }
 
-func TestParseEntityHeaderNoColon(t *testing.T) {
-	if _, ok := parseEntityHeader("No colon here"); ok {
+func TestParseHeaderUntyped(t *testing.T) {
+	h, ok := ParseHeader("Sildar: Was captured at Cragmaw Hideout.")
+	if !ok {
+		t.Fatal("expected ok")
+	}
+	if h.Name != "Sildar" || h.Type != "" {
+		t.Fatalf("got %+v", h)
+	}
+}
+
+func TestParseHeaderNoColon(t *testing.T) {
+	if _, ok := ParseHeader("No colon here"); ok {
 		t.Fatal("expected not ok without colon")
 	}
 }

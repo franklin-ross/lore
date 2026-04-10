@@ -6,18 +6,12 @@ import (
 )
 
 func (s *Server) completion(_ *glsp.Context, _ *protocol.CompletionParams) (any, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	if s.world == nil {
-		return nil, nil
-	}
-
+	world := s.world()
 	kind := protocol.CompletionItemKindText
 	var items []protocol.CompletionItem
 
-	for i := range s.world.Entities {
-		ent := &s.world.Entities[i]
+	for i := range world.Entities {
+		ent := &world.Entities[i]
 		doc := ""
 		if len(ent.Descriptions) > 0 {
 			doc = truncate(ent.Descriptions[0].Text, 200)
