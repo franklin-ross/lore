@@ -5,11 +5,8 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"sort"
-	"strings"
 
 	"github.com/BurntSushi/toml"
-	"github.com/bmatcuk/doublestar/v4"
 )
 
 const configFilename = "lore.toml"
@@ -20,11 +17,13 @@ type Config struct {
 	Ignore []string `toml:"ignore"`
 }
 
-// Project is a loaded lore project: its filesystem, config, and collected file paths.
+// Project is a loaded lore project: its filesystem, config, matcher, and
+// collected file paths.
 type Project struct {
 	FS        fs.FS
 	Config    Config
-	FilePaths []string // relative to FS root, sorted alphabetically
+	Matcher   Matcher
+	FilePaths []string // relative to FS root, ordered by glob pattern then alpha
 }
 
 // FindAndLoad walks up from the current directory to find lore.toml, parses it,
@@ -45,13 +44,14 @@ func FindAndLoadFrom(root string) (*Project, error) {
 	}
 
 	fsys := os.DirFS(root)
+	matcher := Matcher{Patterns: cfg.Files, Ignore: cfg.Ignore}
 
-	paths, err := CollectFiles(fsys, cfg)
+	paths, err := matcher.Find(fsys)
 	if err != nil {
 		return nil, fmt.Errorf("collecting files: %w", err)
 	}
 
-	return &Project{FS: fsys, Config: cfg, FilePaths: paths}, nil
+	return &Project{FS: fsys, Config: cfg, Matcher: matcher, FilePaths: paths}, nil
 }
 
 // FindRoot walks up from the working directory looking for lore.toml.
@@ -79,10 +79,9 @@ func FindRoot() (string, error) {
 }
 
 // DefaultConfigContent is the content written by InitConfig.
-const DefaultConfigContent = `# Glob patterns for files to parse
+const DefaultConfigContent = `# Glob files to parse. Pattern order defines parse order, then alphabetic.
 files = ["**/*.md"]
 
-# Paths to ignore
 # ignore = ["archive"]
 `
 
@@ -118,50 +117,4 @@ func loadConfig(path string) (Config, error) {
 	}
 
 	return cfg, nil
-}
-
-// CollectFiles finds all files matching the config globs within fsys,
-// respecting ignore patterns. Returns relative paths, sorted.
-func CollectFiles(fsys fs.FS, cfg Config) ([]string, error) {
-	// Combine multiple patterns into a single brace expression so doublestar
-	// walks the filesystem once: {"**/*.md","**/*.lore"} → {**/*.md,**/*.lore}
-	pattern := cfg.Files[0]
-	if len(cfg.Files) > 1 {
-		pattern = "{" + strings.Join(cfg.Files, ",") + "}"
-	}
-
-	seen := make(map[string]bool)
-	var paths []string
-
-	err := doublestar.GlobWalk(fsys, pattern, func(rel string, d fs.DirEntry) error {
-		if seen[rel] || isIgnored(rel, cfg.Ignore) {
-			return nil
-		}
-		seen[rel] = true
-		paths = append(paths, rel)
-		return nil
-	}, doublestar.WithFilesOnly())
-	if err != nil {
-		return nil, err
-	}
-
-	sort.Strings(paths)
-	return paths, nil
-}
-
-func isIgnored(path string, patterns []string) bool {
-	for _, pattern := range patterns {
-		if matched, _ := doublestar.Match(pattern, path); matched {
-			return true
-		}
-		// Also try matching against just the first path component for directory patterns.
-		if strings.Contains(pattern, "/") {
-			continue
-		}
-		dir := strings.SplitN(path, string(filepath.Separator), 2)[0]
-		if matched, _ := doublestar.Match(pattern, dir); matched {
-			return true
-		}
-	}
-	return false
 }

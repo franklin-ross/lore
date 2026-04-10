@@ -18,11 +18,13 @@ func testFS(files map[string]string) fstest.MapFS {
 func setupTestProject(t *testing.T, files map[string]string) *Project {
 	t.Helper()
 	fsys := testFS(files)
-	paths, err := CollectFiles(fsys, Config{Files: []string{"**/*.md"}})
+	cfg := Config{Files: []string{"**/*.md"}}
+	matcher := Matcher{Patterns: cfg.Files}
+	paths, err := matcher.Find(fsys)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &Project{FS: fsys, Config: Config{Files: []string{"**/*.md"}}, FilePaths: paths}
+	return &Project{FS: fsys, Config: cfg, Matcher: matcher, FilePaths: paths}
 }
 
 // setupTestWorld creates a World from a single content string.

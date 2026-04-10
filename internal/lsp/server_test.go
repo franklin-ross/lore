@@ -27,11 +27,13 @@ func setupTestServer(t *testing.T, content string) *Server {
 	fsys["lore.toml"] = &fstest.MapFile{Data: []byte(`files = ["**/*.md"]`)}
 	fsys["test.md"] = &fstest.MapFile{Data: []byte(content)}
 
-	paths, err := lore.CollectFiles(fsys, lore.Config{Files: []string{"**/*.md"}})
+	cfg := lore.Config{Files: []string{"**/*.md"}}
+	matcher := lore.Matcher{Patterns: cfg.Files}
+	paths, err := matcher.Find(fsys)
 	if err != nil {
 		t.Fatal(err)
 	}
-	project := &lore.Project{FS: fsys, Config: lore.Config{Files: []string{"**/*.md"}}, FilePaths: paths}
+	project := &lore.Project{FS: fsys, Config: cfg, Matcher: matcher, FilePaths: paths}
 
 	s := NewServer()
 	s.root = "/test"
