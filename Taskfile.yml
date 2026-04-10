@@ -59,7 +59,7 @@ tasks:
     dir: vscode-lore
     deps: [build-vscode]
     cmds:
-      - npx @vscode/vsce package -o ../{{.VSIX}}
+      - npx @vscode/vsce package -o ../{{.VSIX}} --allow-missing-repository
 
   clean:
     desc: Remove build artifacts

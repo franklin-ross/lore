@@ -4,7 +4,7 @@
     "description": "Entity definitions, cross-references, and semantic highlighting for TTRPG campaign notes",
     "version": "0.1.0",
     "publisher": "franklinross",
-    "license": "MIT",
+    "license": "UNLICENSE",
     "engines": {
         "vscode": "^1.85.0"
     },
