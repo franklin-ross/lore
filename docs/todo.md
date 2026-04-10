@@ -3,7 +3,7 @@
 ## Bugs
 
 - ~~**Self-references are noisy** — fixed: `GetReferences` now filters self-references.~~
-- **`(type)` must sit adjacent to the name** — the header parser currently accepts a `(type)` anywhere on a line that also has a colon, so a prose paragraph containing a parenthesised word and a later colon gets misread as an entity definition. The `(type)` annotation should only be recognised immediately before or after the name or an alias, not floating in the middle of a sentence.
+- ~~**`(type)` must sit adjacent to the name** — fixed: header parser now requires `(type)` to be at the leading or trailing edge of a `|`-segment; mid-segment parens disqualify the line from typed parsing.~~
 
 ## Incomplete Features
 

@@ -57,6 +57,31 @@ func TestParseHeaderUntyped(t *testing.T) {
 	}
 }
 
+func TestParseHeaderRejectsMidSentenceParens(t *testing.T) {
+	// A prose line that happens to contain a parenthesised aside and a later
+	// colon must not be misread as a typed entity definition.
+	h, ok := ParseHeader("We took shelter (it was raining) and waited: nobody came.")
+	if !ok {
+		t.Fatal("expected untyped header (lookup name) for prose-with-colon line")
+	}
+	if h.Type != "" {
+		t.Fatalf("expected no type, got %q", h.Type)
+	}
+	if h.Name != "We took shelter (it was raining) and waited" {
+		t.Fatalf("name = %q", h.Name)
+	}
+}
+
+func TestParseHeaderProseEntityNotCreated(t *testing.T) {
+	// End-to-end: a free-text line with parens-then-colon must not become an
+	// entity. Previously the parser extracted "it was raining" as a type and
+	// created an entity called "We took shelter".
+	world := setupTestWorld(t, "We took shelter (it was raining) and waited: nobody came.\n")
+	if len(world.Entities) != 0 {
+		t.Fatalf("expected 0 entities, got %d: %+v", len(world.Entities), world.Entities)
+	}
+}
+
 func TestParseHeaderNoColon(t *testing.T) {
 	if _, ok := ParseHeader("No colon here"); ok {
 		t.Fatal("expected not ok without colon")
