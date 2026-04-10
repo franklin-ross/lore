@@ -213,6 +213,63 @@ func TestCompletionReturnsAllEntitiesAndAliases(t *testing.T) {
 	}
 }
 
+func TestCompletionQualifiesAmbiguousLabels(t *testing.T) {
+	content := `# Session 2
+
+Barovia (town) | The Village: Misty, walled, gothic.
+
+Barovia (region): The whole dreary country.
+
+Strahd (character) | Barovia: Vampire lord, rules the country.
+`
+	s := setupTestServer(t, content)
+
+	result, err := s.completion(nil, &protocol.CompletionParams{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	list := result.(*protocol.CompletionList)
+
+	got := make(map[string]bool, len(list.Items))
+	for _, item := range list.Items {
+		if got[item.Label] {
+			t.Fatalf("duplicate completion label %q", item.Label)
+		}
+		got[item.Label] = true
+	}
+
+	// "Barovia" is shared by the town, the region, and Strahd's alias, so
+	// every occurrence must be qualified. "The Village" and "Strahd" appear
+	// only once, so they stay bare.
+	want := []string{
+		"Barovia (town)",
+		"The Village",
+		"Barovia (region)",
+		"Strahd",
+		"Barovia (character)",
+	}
+	for _, label := range want {
+		if !got[label] {
+			t.Errorf("missing completion label %q; got %v", label, keys(got))
+		}
+	}
+	// The bare "Barovia" must never be offered — it's ambiguous.
+	if got["Barovia"] {
+		t.Errorf("bare ambiguous label %q should not be suggested", "Barovia")
+	}
+	if len(list.Items) != len(want) {
+		t.Errorf("expected %d items, got %d: %v", len(want), len(list.Items), keys(got))
+	}
+}
+
+func keys(m map[string]bool) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
+}
+
 func TestSemanticTokensStableColour(t *testing.T) {
 	s := setupTestServer(t, testContent)
 

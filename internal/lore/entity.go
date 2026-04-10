@@ -9,7 +9,7 @@ import (
 // Entity is a named thing in the world: a character, location, quest, etc.
 type Entity struct {
 	Name         string
-	Type         string // empty if untyped
+	Type         string // non-empty for any entity reachable via a World returned by Merge
 	Aliases      []string
 	Descriptions []Description
 }

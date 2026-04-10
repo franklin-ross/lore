@@ -6,7 +6,9 @@ import (
 	"strings"
 )
 
-// World holds the parsed entity graph and reference index.
+// World holds the parsed entity graph and reference index. Every element of
+// Entities has a non-empty Type after Merge returns — untyped header lines are
+// either attached to an existing typed entity or dropped.
 type World struct {
 	Entities   []Entity
 	References map[string][]Reference

@@ -3,6 +3,7 @@
 ## Bugs
 
 - ~~**Self-references are noisy** — fixed: `GetReferences` now filters self-references.~~
+- **`(type)` must sit adjacent to the name** — the header parser currently accepts a `(type)` anywhere on a line that also has a colon, so a prose paragraph containing a parenthesised word and a later colon gets misread as an entity definition. The `(type)` annotation should only be recognised immediately before or after the name or an alias, not floating in the middle of a sentence.
 
 ## Incomplete Features
 
@@ -17,6 +18,7 @@
 ## Future (Phase 2+)
 
 - ~~**VSCode extension** — done: LSP server (`lore lsp`) with hover, go-to-def, references, autocomplete, semantic tokens. VSCode extension in `vscode-lore/`.~~
+- **Bundle the `lore` binary with the VSIX** — the extension currently spawns bare `lore`, which fails with `ENOENT` whenever VS Code's PATH doesn't include wherever the user installed it (e.g., launched from Finder). Ship the Go binary inside the extension and resolve it by absolute path so it works out of the box.
 - **`lore init`** — create a `lore.toml` in the current directory.
 - **Watch mode** — re-parse on file change for LSP.
 - **LLM tidy** — `lore tidy` reads session notes, suggests entity definitions.
