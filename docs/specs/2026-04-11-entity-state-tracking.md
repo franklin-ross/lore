@@ -43,13 +43,13 @@ Two kinds of state, both attached to entities:
    `on-fire`. A tag is either set or not; there is no value.
 2. **Fields** — named values. A field is one of two **kinds**, fixed by its
    first assignment:
-   - **Numeric** — holds a single number. Supports arithmetic: `= 5`,
-     `+= 5`, `-= 5`. Example: `population = 100`.
-   - **Text** — holds an ordered list of strings. A length-1 list and a
-     "scalar" are the same thing; the display logic renders short lists
-     as scalars. Supports `= x` (reset the list to `[x]`), `+= x`
-     (append), `-= x` (remove). Examples: `status = alive`,
-     `inventory = "sword", "shield"`.
+    - **Numeric** — holds a single number. Supports arithmetic: `= 5`,
+      `+= 5`, `-= 5`. Example: `population = 100`.
+    - **Text** — holds an ordered list of strings. A length-1 list and a
+      "scalar" are the same thing; the display logic renders short lists
+      as scalars. Supports `= x` (reset the list to `[x]`), `+= x`
+      (append), `-= x` (remove). Examples: `status = alive`,
+      `inventory = "sword", "shield"`.
 
 The kind is determined by the **syntactic form** of the first value, not by
 what it parses to:
@@ -251,8 +251,8 @@ inventory += "two handed sword" helm.
 
 ### Practical Guidance
 
-- **One directive per sentence.** Use `;` if you really need two in a
-  row.
+- **Use directive sentences.** Use a directive per sentence, or separate
+  related directives in a sentence with `;`.
 - **End list directives with sentence punctuation** before continuing
   prose. This is natural English and keeps the parser unambiguous.
 - **Quote items that contain punctuation**. Everything else can be
@@ -282,6 +282,10 @@ Rules:
 - **Field lines** — one per field, alphabetically sorted. Numeric fields
   render as `name: N`. Text fields render as `name: value` if the list
   has one item, or `name: a, b, c` (items alphabetical) if multiple.
+  Items that contain `,`, `.`, `!`, `?`, `;`, or a literal `"` are
+  rendered with surrounding quotes so the reader can tell separators
+  from item content. For example, a list containing the items
+  `potion, red` and `sword` renders as `inventory: "potion, red", sword`.
   Omitted if no fields exist.
 - **Separator** — `---` between the state block and the description, only
   when a state block is present.
