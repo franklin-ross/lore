@@ -2,13 +2,82 @@ package lsp
 
 import (
 	"fmt"
+	"sort"
 	"strings"
+
+	"lore/internal/lore"
 
 	"github.com/tliron/glsp"
 	protocol "github.com/tliron/glsp/protocol_3_16"
 )
 
-func (s *Server) completion(_ *glsp.Context, _ *protocol.CompletionParams) (any, error) {
+func (s *Server) completion(_ *glsp.Context, params *protocol.CompletionParams) (any, error) {
+	// Inspect the character immediately before the cursor to decide which
+	// completion kind to offer.
+	line := s.getLine(params.TextDocument.URI, params.Position.Line)
+	char := int(params.Position.Character)
+	if char > 0 && char <= len(line) {
+		prev := line[char-1]
+		if prev == '+' {
+			return s.tagCompletionsAllKnown(), nil
+		}
+		if prev == '-' {
+			return s.tagCompletionsActive(), nil
+		}
+	}
+	return s.entityCompletions(), nil
+}
+
+// tagCompletionsAllKnown returns a CompletionList of every tag name ever
+// seen in any entity's state history, alphabetically sorted.
+func (s *Server) tagCompletionsAllKnown() *protocol.CompletionList {
+	world := s.world()
+	seen := make(map[string]struct{})
+	for i := range world.Entities {
+		for _, ev := range world.Entities[i].StateHistory {
+			if ev.Value != nil {
+				continue
+			}
+			if ev.Op == lore.StateOpAdd || ev.Op == lore.StateOpRemove {
+				seen[ev.Target] = struct{}{}
+			}
+		}
+	}
+	return makeTagCompletionList(seen)
+}
+
+// tagCompletionsActive returns a CompletionList of tags currently active on
+// any entity (after full resolution).
+func (s *Server) tagCompletionsActive() *protocol.CompletionList {
+	world := s.world()
+	seen := make(map[string]struct{})
+	for i := range world.Entities {
+		for tag := range world.Entities[i].Tags {
+			seen[tag] = struct{}{}
+		}
+	}
+	return makeTagCompletionList(seen)
+}
+
+func makeTagCompletionList(seen map[string]struct{}) *protocol.CompletionList {
+	names := make([]string, 0, len(seen))
+	for n := range seen {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	kind := protocol.CompletionItemKindKeyword
+	items := make([]protocol.CompletionItem, 0, len(names))
+	for _, n := range names {
+		items = append(items, protocol.CompletionItem{
+			Label: n,
+			Kind:  &kind,
+		})
+	}
+	return &protocol.CompletionList{Items: items}
+}
+
+// entityCompletions returns the existing entity-name suggestion list.
+func (s *Server) entityCompletions() *protocol.CompletionList {
 	world := s.world()
 	kind := protocol.CompletionItemKindText
 
@@ -59,5 +128,5 @@ func (s *Server) completion(_ *glsp.Context, _ *protocol.CompletionParams) (any,
 	return &protocol.CompletionList{
 		IsIncomplete: false,
 		Items:        items,
-	}, nil
+	}
 }

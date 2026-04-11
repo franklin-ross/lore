@@ -438,3 +438,110 @@ func TestFindEntityAtPositionLongestMatch(t *testing.T) {
 		t.Fatalf("expected longest match, got %q", match.Entity.Name)
 	}
 }
+
+func TestCompletionSuggestsTagsAfterPlus(t *testing.T) {
+	s, uriFor := setupLifecycleServer(t, map[string]string{
+		"a.md": "Sildar (character): Fighter. +injured +bleeding\n",
+		"b.md": "Gundren (character): A dwarf.\n",
+	})
+	uri := uriFor("cursor.md")
+	openDoc(t, s, uri, "+\n")
+
+	result, err := s.completion(nil, &protocol.CompletionParams{
+		TextDocumentPositionParams: protocol.TextDocumentPositionParams{
+			TextDocument: protocol.TextDocumentIdentifier{URI: uri},
+			Position:     protocol.Position{Line: 0, Character: 1},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	list, ok := result.(*protocol.CompletionList)
+	if !ok {
+		t.Fatalf("unexpected result type: %T", result)
+	}
+	var labels []string
+	for _, item := range list.Items {
+		labels = append(labels, item.Label)
+	}
+	// Both tags must be suggested.
+	want := map[string]bool{"injured": true, "bleeding": true}
+	found := 0
+	for _, l := range labels {
+		if want[l] {
+			found++
+		}
+	}
+	if found != 2 {
+		t.Fatalf("expected both tags in %v", labels)
+	}
+}
+
+func TestCompletionSuggestsActiveTagsAfterMinus(t *testing.T) {
+	s, uriFor := setupLifecycleServer(t, map[string]string{
+		"a.md": "Sildar (character): Fighter. +injured +bleeding -bleeding\n",
+	})
+	// After the resolution pass, Sildar has only 'injured' active.
+	uri := uriFor("cursor.md")
+	openDoc(t, s, uri, "-\n")
+
+	result, err := s.completion(nil, &protocol.CompletionParams{
+		TextDocumentPositionParams: protocol.TextDocumentPositionParams{
+			TextDocument: protocol.TextDocumentIdentifier{URI: uri},
+			Position:     protocol.Position{Line: 0, Character: 1},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	list := result.(*protocol.CompletionList)
+	var labels []string
+	for _, item := range list.Items {
+		labels = append(labels, item.Label)
+	}
+	hasInjured := false
+	hasBleeding := false
+	for _, l := range labels {
+		if l == "injured" {
+			hasInjured = true
+		}
+		if l == "bleeding" {
+			hasBleeding = true
+		}
+	}
+	if !hasInjured {
+		t.Fatalf("expected 'injured' (currently active) in %v", labels)
+	}
+	if hasBleeding {
+		t.Fatalf("did not expect 'bleeding' (not currently active) in %v", labels)
+	}
+}
+
+func TestCompletionFallsBackToEntitiesWithoutSigil(t *testing.T) {
+	s, uriFor := setupLifecycleServer(t, map[string]string{
+		"a.md": "Sildar (character): Fighter.\n",
+	})
+	uri := uriFor("cursor.md")
+	openDoc(t, s, uri, "Sil\n")
+
+	result, err := s.completion(nil, &protocol.CompletionParams{
+		TextDocumentPositionParams: protocol.TextDocumentPositionParams{
+			TextDocument: protocol.TextDocumentIdentifier{URI: uri},
+			Position:     protocol.Position{Line: 0, Character: 3},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	list := result.(*protocol.CompletionList)
+	// The existing entity completion should include "Sildar".
+	found := false
+	for _, item := range list.Items {
+		if item.Label == "Sildar" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("expected Sildar in entity completions")
+	}
+}
