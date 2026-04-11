@@ -133,14 +133,33 @@ Sildar: Gives the sword to Gundren. inventory -= "longsword"
 - `field -= value` — for numeric fields, decrement. For text fields,
   remove the matching item.
 - Field names follow the same identifier rule as tags.
-- Values are one of:
-  - A number literal (`100`, `-5`, `3.14`) — makes the field numeric.
-  - A bareword identifier (`alive`, `active`) — makes the field text.
-  - A quoted string (`"two handed sword"`) — makes the field text.
-    Multi-word values **must** be quoted.
-- A text list may be initialised from multiple comma-separated values:
-  `inventory = "longsword", "shield", "torch"`. Quoted strings are atomic
-  and may contain commas.
+
+**Values.** A value is one of:
+
+- A **number literal** (`100`, `-5`, `3.14`) — makes the field numeric.
+  Numbers use max-munch: `100.` alone parses as `100` followed by a
+  terminator, while `100.5` parses as the number `100.5`.
+- A **bareword run** — one or more whitespace-separated words made of
+  Unicode letters, digits, `_`, and `-`. The run extends up to the next
+  comma, terminator, or quoted string. Leading and trailing whitespace is
+  trimmed. Makes the field text. Examples: `alive`, `two-handed sword`,
+  `wounded and dying`.
+- A **quoted string** (`"two handed sword"`, `"potion, red"`) — atomic,
+  may contain commas and punctuation. Makes the field text. Required only
+  when the value contains `,`, `.`, `!`, `?`, `;`, or a literal `"`.
+
+**Lists.** A text list is a comma-separated sequence of items. Each item is
+a bareword run, a quoted string, or a number literal — pick one kind per
+item, no mixing within a single item. Examples:
+
+```
+inventory = helm, boots, two-handed sword
+inventory += "potion, red", torch
+```
+
+The first parses as `["helm", "boots", "two-handed sword"]`. The second
+appends `["potion, red", "torch"]` — the comma inside the quoted string is
+part of the item, the comma after it is a separator.
 
 ### Resetting a List
 
@@ -171,33 +190,75 @@ the directive body. Prose after the terminator is unaffected.
 Sildar: Took an arrow. +injured He's in bad shape.
 ```
 
-Here `+injured` ends at the space before `He's` because tags are
-single-token directives. Field and list directives extend further:
+Tags are single-token; they end at the whitespace after the tag name.
+Field and list directives extend up to the next terminator:
 
 ```
-We looted the body. inventory += "sword", "rations x2". We kept walking.
+Heck yeah, inventory += helm, boots, two-handed sword. We kept walking.
 ```
 
-- `inventory += "sword", "rations x2"` is the directive; it terminates
-  at the `.` after `"rations x2"`.
+- `inventory += helm, boots, two-handed sword` is the directive,
+  terminating at the `.`.
+- Parsed as `["helm", "boots", "two-handed sword"]`.
 - `We kept walking.` is prose.
 
 The `.` inside `population = 3.14` is part of the number literal and does
-not terminate. The `,` inside `"rations x2"` (if there were one) would be
-part of the quoted string.
+not terminate. Commas inside `"rations, red"` are part of the quoted
+string.
 
-If a directive contains invalid grammar before its terminator — a trailing
-comma, a comma followed by a non-value, a malformed number — it is
-reported as a diagnostic and the offending span is highlighted. This means
-an author writing `inventory += sword, shield, and we kept walking.` will
-see a squiggle: `and` parses as a bareword value, but `we` has no
-preceding comma, so the directive is malformed. The fix is to end the
-directive sooner (`inventory += sword, shield. And we kept walking.`) or
-quote properly.
+### Multiple Directives on One Line
 
-The practical guidance is simple: **end list directives with sentence
-punctuation before continuing prose**. This is natural to write and keeps
-the parser predictable.
+Use `;` to separate directives in the same sentence. Since `;` is already
+a terminator, this works with no special rules:
+
+```
+Sildar: He's hurt. inventory += helm; health -= 3. We head home.
+```
+
+Parses as two directives (`inventory += helm`, then `health -= 3`)
+followed by prose.
+
+Back-to-back directives without a separator produce a valid-but-wrong
+parse (the second "directive" is absorbed as a value). These are caught
+as diagnostics rather than parse errors:
+
+- `inventory += helm health -= 3.` — parses as `inventory += ["helm health -= 3"]`.
+  Diagnostic on the value: "value contains operator `-=`; did you mean
+  `inventory += helm; health -= 3`?"
+- `inventory += helm, health -= 3.` — parses as
+  `inventory += ["helm", "health -= 3"]`. Same diagnostic on the second
+  item.
+
+The trigger is simple: any text value whose content contains `=`, `+=`,
+or `-=` outside a quoted region fires the hint.
+
+### Quoted String Adjacency
+
+A list item is **one kind**: bareword run, quoted string, or number. You
+cannot concatenate a quoted string with an adjacent bareword in the same
+item. If the parser sees a quoted string followed by a bareword (or vice
+versa) without a comma between them, it emits a diagnostic suggesting the
+missing separator:
+
+```
+inventory += "two handed sword" helm.
+```
+
+- First item: `"two handed sword"`.
+- Next token: `helm` — bareword, no preceding comma.
+- Diagnostic on `helm`: "expected `,` or terminator after list item; did
+  you mean `"two handed sword", helm`?"
+
+### Practical Guidance
+
+- **One directive per sentence.** Use `;` if you really need two in a
+  row.
+- **End list directives with sentence punctuation** before continuing
+  prose. This is natural English and keeps the parser unambiguous.
+- **Quote items that contain punctuation**. Everything else can be
+  bareword.
+- **The state block is your proof.** If a directive parses wrong, the
+  current-state display will show the weird result immediately.
 
 ## Display
 
@@ -258,7 +319,14 @@ Surfaced as squiggly underlines in the editor and warnings in `lore check`:
   (e.g. `population += "sword"` after `population = 100`, or
   `status = 42` after `status = alive`). The diagnostic points at the
   offending value and cites the initial assignment's location.
-- Casing drift: `+Injured` here but `+injured` elsewhere → info-level hint.
+- **Directive run-on**: a text value whose content contains `=`, `+=`,
+  or `-=` outside a quoted region. Info-level hint: "value looks like a
+  directive; separate with `;`".
+- **Missing list separator**: a quoted string adjacent to a bareword
+  (or vice versa) inside a list item, with no comma between them. Points
+  at the second token with a suggested comma insertion.
+- **Casing drift**: `+Injured` here but `+injured` elsewhere →
+  info-level hint.
 
 Every diagnostic points at the offending token (tag, value, or field name),
 not the whole directive.
