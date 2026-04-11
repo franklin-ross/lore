@@ -479,6 +479,11 @@ func (s *directiveScanner) hasFieldOpAhead() bool {
 	if s.text[i] == '+' && i+1 < len(s.text) && s.text[i+1] == '=' {
 		return true
 	}
+	// Check for a bare `=`, which is the "`field = value` follows" case
+	// without a repeated identifier (e.g. `inventory += helm = 5`).
+	if s.text[i] == '=' {
+		return true
+	}
 	// Check for a bare identifier followed by an operator.
 	// The identifier must start with a letter.
 	r, w := utf8.DecodeRuneInString(s.text[i:])

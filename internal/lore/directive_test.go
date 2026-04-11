@@ -404,3 +404,13 @@ func TestParseDirectivesNoRunOnForEqualsInSingleWord(t *testing.T) {
 		t.Fatalf("unexpected issues: %+v", issues)
 	}
 }
+
+func TestParseDirectivesRunOnBareEquals(t *testing.T) {
+	// `inventory += helm = 5` — after reading `helm`, the next non-space
+	// token is a bare `=`, which is itself the start of another field
+	// directive. The diagnostic must fire.
+	_, issues := ParseDirectives("inventory += helm = 5.", "test.md", 1)
+	if len(issues) == 0 {
+		t.Fatal("expected a run-on diagnostic for bare '='")
+	}
+}
