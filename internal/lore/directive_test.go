@@ -362,3 +362,45 @@ func TestParseDirectivesTrailingCommaAccepted(t *testing.T) {
 		t.Fatalf("events: %+v", events)
 	}
 }
+
+func TestParseDirectivesRunOnDiagnostic(t *testing.T) {
+	// `inventory += helm health -= 3.` parses the whole thing as one text value.
+	_, issues := ParseDirectives("inventory += helm health -= 3.", "test.md", 1)
+	if len(issues) == 0 {
+		t.Fatal("expected a run-on diagnostic")
+	}
+	found := false
+	for _, iss := range issues {
+		if strings.Contains(iss.Message, ";") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("no `;` suggestion in issues: %+v", issues)
+	}
+}
+
+func TestParseDirectivesRunOnDiagnosticInListItem(t *testing.T) {
+	// `inventory += helm, health -= 3.` — second list item is "health -= 3".
+	_, issues := ParseDirectives("inventory += helm, health -= 3.", "test.md", 1)
+	if len(issues) == 0 {
+		t.Fatal("expected a run-on diagnostic")
+	}
+}
+
+func TestParseDirectivesNoRunOnWhenQuoted(t *testing.T) {
+	// A value that LOOKS like a directive but is quoted should not fire.
+	_, issues := ParseDirectives(`note = "health -= 3 is how we track it"`, "test.md", 1)
+	if len(issues) != 0 {
+		t.Fatalf("unexpected issues: %+v", issues)
+	}
+}
+
+func TestParseDirectivesNoRunOnForEqualsInSingleWord(t *testing.T) {
+	// A single-word bareword value without any operator character should not fire.
+	_, issues := ParseDirectives("status = alive", "test.md", 1)
+	if len(issues) != 0 {
+		t.Fatalf("unexpected issues: %+v", issues)
+	}
+}

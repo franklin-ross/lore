@@ -320,10 +320,17 @@ func (s *directiveScanner) readListItem() (string, bool) {
 		s.checkQuotedAdjacency()
 		return item, true
 	}
+	itemStart := s.pos
 	item, ok := s.readBarewordRun()
 	if !ok {
 		return "", false
 	}
+	s.checkRunOn(item, StateSpan{
+		File:      s.file,
+		Line:      s.line,
+		StartByte: itemStart,
+		EndByte:   s.pos,
+	})
 	// After a bareword run, check for a stray quoted string (the reverse
 	// adjacency). If found, emit the same diagnostic.
 	s.skipSpacesTabs()
@@ -430,6 +437,88 @@ func (s *directiveScanner) readBarewordRun() (string, bool) {
 	// whitespace skipping before checking for commas/terminators.
 	s.pos = lastWordEnd
 	return strings.TrimSpace(s.text[start:lastWordEnd]), true
+}
+
+// checkRunOn emits an info-level diagnostic if the text after the current
+// position (after optional whitespace) looks like another field directive
+// (identifier followed by =, +=, or -=). This catches "run-on" directives
+// where the author forgot a ';' separator. Example:
+//
+//	inventory += helm health -= 3.
+//
+// After reading the bareword "helm health", s.pos is left after "health".
+// The remaining text is " -= 3." — but without the leading identifier in
+// this case. More generally, after reading a list item the remaining text
+// may be "identifier <op>" before the author's intended second directive.
+//
+// Quoted values are exempt because readListItem handles them separately and
+// does not call this function.
+func (s *directiveScanner) checkRunOn(item string, span StateSpan) {
+	// Scan ahead from s.pos (without consuming) to detect a field-op pattern.
+	if s.hasFieldOpAhead() {
+		s.addIssue(SeverityInfo, "value contains operator; separate directives with ';'", span)
+	}
+}
+
+// hasFieldOpAhead peeks ahead from s.pos (without moving it) and returns
+// true if the remaining text (after optional spaces/tabs) contains a field
+// directive operator (=, +=, or -=) before any terminator. This is the
+// signal for a run-on directive.
+func (s *directiveScanner) hasFieldOpAhead() bool {
+	i := s.pos
+	// Skip spaces and tabs.
+	for i < len(s.text) && (s.text[i] == ' ' || s.text[i] == '\t') {
+		i++
+	}
+	if i >= len(s.text) {
+		return false
+	}
+	// Check for -=
+	if s.text[i] == '-' && i+1 < len(s.text) && s.text[i+1] == '=' {
+		return true
+	}
+	// Check for +=
+	if s.text[i] == '+' && i+1 < len(s.text) && s.text[i+1] == '=' {
+		return true
+	}
+	// Check for a bare identifier followed by an operator.
+	// The identifier must start with a letter.
+	r, w := utf8.DecodeRuneInString(s.text[i:])
+	if !unicode.IsLetter(r) {
+		return false
+	}
+	i += w
+	for i < len(s.text) {
+		r, w = utf8.DecodeRuneInString(s.text[i:])
+		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' || r == '-' {
+			i += w
+			continue
+		}
+		break
+	}
+	// Skip spaces after the identifier.
+	for i < len(s.text) && (s.text[i] == ' ' || s.text[i] == '\t') {
+		i++
+	}
+	if i >= len(s.text) {
+		return false
+	}
+	c := s.text[i]
+	if c == '=' {
+		return true
+	}
+	if (c == '+' || c == '-') && i+1 < len(s.text) && s.text[i+1] == '=' {
+		return true
+	}
+	return false
+}
+
+// containsOperator reports whether s contains any of the state directive
+// operator substrings. The '=' test catches both '=' and the second
+// character of '+='/'-='; the leading-character tests pick up the '+='
+// and '-=' forms without false-positives on lone '+' or '-'.
+func containsOperator(s string) bool {
+	return strings.Contains(s, "+=") || strings.Contains(s, "-=") || strings.Contains(s, "=")
 }
 
 // tryNumber matches an optional leading `-`, then one or more digits, then
