@@ -12,13 +12,24 @@ type Entity struct {
 	Type         string // non-empty for any entity reachable via a World returned by Merge
 	Aliases      []string
 	Descriptions []Description
+
+	// Resolved state, populated by Merge after all descriptions are attached.
+	Tags         map[string]bool
+	Fields       map[string]FieldValue
+	StateHistory []StateEvent
+	StateIssues  []StateIssue
 }
 
-// Description is a block of prose attached to an entity, with its source location.
+// Description is a block of prose attached to an entity, with its source
+// location. Events holds any state directives parsed out of the description
+// text, in source order. LexIssues holds any diagnostics produced while
+// parsing directives from the description.
 type Description struct {
-	Text string
-	File string
-	Line int
+	Text      string
+	File      string
+	Line      int
+	Events    []StateEvent
+	LexIssues []StateIssue
 }
 
 // Reference records a mention of an entity in a file.
