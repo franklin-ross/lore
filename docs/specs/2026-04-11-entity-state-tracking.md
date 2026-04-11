@@ -52,9 +52,32 @@ Two kinds of state, both attached to entities:
      `inventory = "sword", "shield"`.
 
 The kind is determined by the **syntactic form** of the first value, not by
-what it parses to. A bare number literal (`100`, `-5`, `3.14`) is numeric.
-A bareword identifier (`alive`) or quoted string (`"100"`) is text. So
-`code = "100"` is a text field whose value happens to look like a number.
+what it parses to:
+
+- **Numeric** if and only if the first value is an unquoted number literal
+  (`100`, `-5`, `3.14`).
+- **Text** in every other case: a bareword identifier (`alive`), a single
+  quoted string (`"sword"`), or a comma-separated list of those
+  (`"sword", "shield"`).
+
+A quoted digit string is **always** text, even though it looks like a
+number:
+
+```
+room-code = "123"             # text field, single item ["123"]
+room-code += "456"            # text append → ["123", "456"]
+room-code -= "123"            # text remove → ["456"]
+
+population = 100              # numeric field
+population += 50              # numeric → 150
+population += "50"            # error: cannot append text to numeric field
+```
+
+This rule is deliberately mechanical. A reader looking at a single
+directive can always tell the field's kind from the surface form without
+needing to know what the author meant. The cost is that
+`something = "123"` is a text field even if you meant a number — a small
+price for predictability. If you want a number, drop the quotes.
 
 Mixing kinds is the only type error: `population += "sword"` after
 `population = 100` is a diagnostic, as is `status = 42` after
