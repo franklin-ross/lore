@@ -1,6 +1,7 @@
 package lore
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -204,5 +205,125 @@ func TestParseDirectivesFieldNameWithHyphen(t *testing.T) {
 	events, _ := ParseDirectives("max-hp = 30", "test.md", 1)
 	if len(events) != 1 || events[0].Target != "max-hp" {
 		t.Fatalf("events: %+v", events)
+	}
+}
+
+func TestParseDirectivesTextScalarBareword(t *testing.T) {
+	events, _ := ParseDirectives("status = alive", "test.md", 1)
+	if len(events) != 1 {
+		t.Fatalf("events: %+v", events)
+	}
+	v := events[0].Value
+	if v == nil || v.Kind != FieldText || len(v.Text) != 1 || v.Text[0] != "alive" {
+		t.Fatalf("value: %+v", v)
+	}
+}
+
+func TestParseDirectivesTextScalarQuoted(t *testing.T) {
+	events, _ := ParseDirectives(`weapon = "two handed sword"`, "test.md", 1)
+	if len(events) != 1 {
+		t.Fatalf("events: %+v", events)
+	}
+	v := events[0].Value
+	if v == nil || v.Kind != FieldText || len(v.Text) != 1 || v.Text[0] != "two handed sword" {
+		t.Fatalf("value: %+v", v)
+	}
+}
+
+func TestParseDirectivesTextMultiWordBareword(t *testing.T) {
+	events, _ := ParseDirectives("status = wounded and dying. Blah.", "test.md", 1)
+	if len(events) != 1 {
+		t.Fatalf("events: %+v", events)
+	}
+	if events[0].Value.Text[0] != "wounded and dying" {
+		t.Fatalf("text: %+v", events[0].Value.Text)
+	}
+}
+
+func TestParseDirectivesTextList(t *testing.T) {
+	events, _ := ParseDirectives("inventory = helm, boots, two-handed sword. We left.", "test.md", 1)
+	if len(events) != 1 {
+		t.Fatalf("events: %+v", events)
+	}
+	v := events[0].Value
+	if len(v.Text) != 3 {
+		t.Fatalf("items: %+v", v.Text)
+	}
+	if v.Text[0] != "helm" || v.Text[1] != "boots" || v.Text[2] != "two-handed sword" {
+		t.Fatalf("items: %+v", v.Text)
+	}
+}
+
+func TestParseDirectivesTextListQuotedWithComma(t *testing.T) {
+	events, _ := ParseDirectives(`inventory += "potion, red", torch`, "test.md", 1)
+	if len(events) != 1 {
+		t.Fatalf("events: %+v", events)
+	}
+	v := events[0].Value
+	if len(v.Text) != 2 {
+		t.Fatalf("items: %+v", v.Text)
+	}
+	if v.Text[0] != "potion, red" || v.Text[1] != "torch" {
+		t.Fatalf("items: %+v", v.Text)
+	}
+}
+
+func TestParseDirectivesTextAppend(t *testing.T) {
+	events, _ := ParseDirectives(`inventory += "longsword"`, "test.md", 1)
+	if len(events) != 1 || events[0].Op != StateOpIncrement {
+		t.Fatalf("events: %+v", events)
+	}
+}
+
+func TestParseDirectivesTerminatorSemicolon(t *testing.T) {
+	events, _ := ParseDirectives("inventory += helm; health -= 3. Done.", "test.md", 1)
+	if len(events) != 2 {
+		t.Fatalf("events: %+v", events)
+	}
+	if events[0].Target != "inventory" || events[0].Op != StateOpIncrement {
+		t.Fatalf("first: %+v", events[0])
+	}
+	if events[1].Target != "health" || events[1].Op != StateOpRemove {
+		t.Fatalf("second: %+v", events[1])
+	}
+}
+
+func TestParseDirectivesTerminatorSentencePunctuation(t *testing.T) {
+	for _, term := range []string{".", "!", "?"} {
+		text := "status = alive" + term + " And something else."
+		events, _ := ParseDirectives(text, "test.md", 1)
+		if len(events) != 1 {
+			t.Fatalf("term %q events: %+v", term, events)
+		}
+		if events[0].Value.Text[0] != "alive" {
+			t.Fatalf("term %q value: %+v", term, events[0].Value.Text)
+		}
+	}
+}
+
+func TestParseDirectivesMissingListSeparatorDiagnostic(t *testing.T) {
+	events, issues := ParseDirectives(`inventory += "two handed sword" helm.`, "test.md", 1)
+	if len(events) != 1 {
+		t.Fatalf("events: %+v", events)
+	}
+	if len(issues) == 0 {
+		t.Fatalf("expected a missing-separator diagnostic")
+	}
+	found := false
+	for _, iss := range issues {
+		if strings.Contains(iss.Message, "separator") || strings.Contains(iss.Message, "comma") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("issue messages: %+v", issues)
+	}
+}
+
+func TestParseDirectivesQuotedListItemAfterBareword(t *testing.T) {
+	_, issues := ParseDirectives(`inventory += helm "longsword".`, "test.md", 1)
+	if len(issues) == 0 {
+		t.Fatalf("expected a missing-separator diagnostic, got nothing")
 	}
 }

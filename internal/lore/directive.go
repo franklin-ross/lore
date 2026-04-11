@@ -232,17 +232,198 @@ func (s *directiveScanner) skipSpacesTabs() {
 	}
 }
 
-// readValue reads a value after a field operator. For this task, only
-// numeric literals are handled; text values are added in the next task.
+// readValue reads a value after a field operator. Returns the parsed value
+// and advances past its final token. Stops at a terminator (`.`, `!`, `?`,
+// `;`, newline, end of text). Emits issues for missing list separators.
+//
+// For a numeric literal (first non-space char looks like a number), returns
+// a numeric FieldValue. Otherwise reads a comma-separated sequence of text
+// items; the result is always a text FieldValue with at least one item.
 func (s *directiveScanner) readValue() (*FieldValue, bool) {
 	s.skipSpacesTabs()
-	if s.pos >= len(s.text) {
+	if s.pos >= len(s.text) || s.isTerminator(s.text[s.pos]) {
 		return nil, false
 	}
-	if n, ok := s.tryNumber(); ok {
-		return &FieldValue{Kind: FieldNumeric, Number: n}, true
+
+	// Numeric literal path: only if the text immediately looks like a number.
+	// We probe without committing so a leading '-' followed by non-digit
+	// falls through to bareword reading.
+	if s.looksLikeNumber() {
+		if n, ok := s.tryNumber(); ok {
+			return &FieldValue{Kind: FieldNumeric, Number: n}, true
+		}
 	}
-	return nil, false
+
+	// Text value: read comma-separated items until a terminator.
+	var items []string
+	for {
+		s.skipSpacesTabs()
+		if s.pos >= len(s.text) || s.isTerminator(s.text[s.pos]) {
+			break
+		}
+		item, ok := s.readListItem()
+		if !ok {
+			break
+		}
+		items = append(items, item)
+		s.skipSpacesTabs()
+		if s.pos >= len(s.text) || s.isTerminator(s.text[s.pos]) {
+			break
+		}
+		if s.text[s.pos] == ',' {
+			s.pos++
+			continue
+		}
+		// Neither terminator nor comma at this position — list is done.
+		// (The missing-separator diagnostic is emitted inside readListItem
+		// when it notices a quoted-adjacent-bareword within one item.)
+		break
+	}
+
+	if len(items) == 0 {
+		return nil, false
+	}
+	return &FieldValue{Kind: FieldText, Text: items}, true
+}
+
+// looksLikeNumber reports whether the current position begins a number
+// literal (optional '-' then at least one digit).
+func (s *directiveScanner) looksLikeNumber() bool {
+	i := s.pos
+	if i < len(s.text) && s.text[i] == '-' {
+		i++
+	}
+	return i < len(s.text) && s.text[i] >= '0' && s.text[i] <= '9'
+}
+
+// isTerminator reports whether b ends a directive at the top level.
+func (s *directiveScanner) isTerminator(b byte) bool {
+	return b == '.' || b == '!' || b == '?' || b == ';' || b == '\n' || b == '\r'
+}
+
+// readListItem reads a single list item: either a quoted string or a
+// whitespace-containing bareword run. Emits a missing-separator diagnostic
+// if it detects a quoted-adjacent-bareword (or bareword-adjacent-quoted)
+// sequence with no comma between them.
+func (s *directiveScanner) readListItem() (string, bool) {
+	if s.pos >= len(s.text) {
+		return "", false
+	}
+	if s.text[s.pos] == '"' {
+		item, ok := s.readQuotedString()
+		if !ok {
+			return "", false
+		}
+		s.checkQuotedAdjacency()
+		return item, true
+	}
+	item, ok := s.readBarewordRun()
+	if !ok {
+		return "", false
+	}
+	// After a bareword run, check for a stray quoted string (the reverse
+	// adjacency). If found, emit the same diagnostic.
+	s.skipSpacesTabs()
+	if s.pos < len(s.text) && s.text[s.pos] == '"' {
+		s.addIssue(SeverityWarning, "expected ',' or terminator before quoted list item; did you forget a comma?", StateSpan{
+			File:      s.file,
+			Line:      s.line,
+			StartByte: s.pos,
+			EndByte:   s.pos,
+		})
+	}
+	return item, true
+}
+
+// checkQuotedAdjacency is called after reading a quoted string. If the next
+// non-space character is a bareword letter, the author forgot a comma.
+// Emit a diagnostic.
+func (s *directiveScanner) checkQuotedAdjacency() {
+	save := s.pos
+	s.skipSpacesTabs()
+	if s.pos >= len(s.text) {
+		s.pos = save
+		return
+	}
+	c := s.text[s.pos]
+	if c == ',' || s.isTerminator(c) {
+		s.pos = save
+		return
+	}
+	// Non-separator, non-terminator — probably a bareword.
+	r, _ := utf8.DecodeRuneInString(s.text[s.pos:])
+	if unicode.IsLetter(r) {
+		s.addIssue(SeverityWarning, "expected ',' or terminator after quoted list item; did you forget a comma?", StateSpan{
+			File:      s.file,
+			Line:      s.line,
+			StartByte: s.pos,
+			EndByte:   s.pos,
+		})
+	}
+	s.pos = save
+}
+
+// readQuotedString reads `"...contents..."`. Assumes the current byte is `"`.
+// Returns the inner contents verbatim. Unterminated strings return false.
+func (s *directiveScanner) readQuotedString() (string, bool) {
+	if s.pos >= len(s.text) || s.text[s.pos] != '"' {
+		return "", false
+	}
+	s.pos++
+	start := s.pos
+	for s.pos < len(s.text) && s.text[s.pos] != '"' {
+		s.pos++
+	}
+	if s.pos >= len(s.text) {
+		return "", false
+	}
+	raw := s.text[start:s.pos]
+	s.pos++ // closing quote
+	return raw, true
+}
+
+// readBarewordRun reads a run of words separated by single spaces, stopping
+// at a comma, terminator, or quoted string. Internal whitespace is
+// preserved; edge whitespace is trimmed. Returns the trimmed text.
+//
+// A "word" here is a maximal run of letters, digits, underscores, and
+// hyphens. Words are joined by runs of ASCII space/tab, which are preserved
+// as single characters in the output but collapsed at the edges.
+func (s *directiveScanner) readBarewordRun() (string, bool) {
+	start := s.pos
+	lastWordEnd := s.pos
+	for s.pos < len(s.text) {
+		r, w := utf8.DecodeRuneInString(s.text[s.pos:])
+		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' || r == '-' {
+			s.pos += w
+			lastWordEnd = s.pos
+			continue
+		}
+		if r == ' ' || r == '\t' {
+			// Peek ahead: if another word character follows, keep going.
+			savedPos := s.pos
+			s.skipSpacesTabs()
+			if s.pos >= len(s.text) {
+				s.pos = savedPos
+				break
+			}
+			next, _ := utf8.DecodeRuneInString(s.text[s.pos:])
+			if unicode.IsLetter(next) || unicode.IsDigit(next) {
+				continue
+			}
+			s.pos = savedPos
+			break
+		}
+		break
+	}
+	if lastWordEnd == start {
+		return "", false
+	}
+	// Rewind s.pos back to the last word's end so trailing whitespace after
+	// the bareword run doesn't get consumed here. Callers do their own
+	// whitespace skipping before checking for commas/terminators.
+	s.pos = lastWordEnd
+	return strings.TrimSpace(s.text[start:lastWordEnd]), true
 }
 
 // tryNumber matches an optional leading `-`, then one or more digits, then
