@@ -282,10 +282,12 @@ Rules:
 - **Field lines** — one per field, alphabetically sorted. Numeric fields
   render as `name: N`. Text fields render as `name: value` if the list
   has one item, or `name: a, b, c` (items alphabetical) if multiple.
-  Items that contain `,`, `.`, `!`, `?`, `;`, or a literal `"` are
+  Items that contain `,`, `.`, `!`, `?`, `;`, `=`, or a literal `"` are
   rendered with surrounding quotes so the reader can tell separators
-  from item content. For example, a list containing the items
-  `potion, red` and `sword` renders as `inventory: "potion, red", sword`.
+  from item content. `+` and `-` are left unquoted because they appear
+  naturally in compound words (`two-handed-sword`). Example: a list
+  containing the items `potion, red` and `sword` renders as
+  `inventory: "potion, red", sword`.
   Omitted if no fields exist.
 - **Separator** — `---` between the state block and the description, only
   when a state block is present.
