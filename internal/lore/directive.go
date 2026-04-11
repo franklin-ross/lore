@@ -325,7 +325,7 @@ func (s *directiveScanner) readListItem() (string, bool) {
 	if !ok {
 		return "", false
 	}
-	s.checkRunOn(item, StateSpan{
+	s.checkRunOn(StateSpan{
 		File:      s.file,
 		Line:      s.line,
 		StartByte: itemStart,
@@ -439,22 +439,20 @@ func (s *directiveScanner) readBarewordRun() (string, bool) {
 	return strings.TrimSpace(s.text[start:lastWordEnd]), true
 }
 
-// checkRunOn emits an info-level diagnostic if the text after the current
-// position (after optional whitespace) looks like another field directive
-// (identifier followed by =, +=, or -=). This catches "run-on" directives
-// where the author forgot a ';' separator. Example:
+// checkRunOn emits an info-level diagnostic on the bareword item just read
+// (covered by span) if the text immediately after it looks like another
+// field directive. This catches "run-on" directives where the author
+// forgot a ';' separator. Example:
 //
 //	inventory += helm health -= 3.
 //
-// After reading the bareword "helm health", s.pos is left after "health".
-// The remaining text is " -= 3." — but without the leading identifier in
-// this case. More generally, after reading a list item the remaining text
-// may be "identifier <op>" before the author's intended second directive.
+// After reading the bareword "helm health", s.pos sits before " -= 3.".
+// hasFieldOpAhead detects that and we flag the preceding item so the editor
+// can squiggle it.
 //
 // Quoted values are exempt because readListItem handles them separately and
 // does not call this function.
-func (s *directiveScanner) checkRunOn(item string, span StateSpan) {
-	// Scan ahead from s.pos (without consuming) to detect a field-op pattern.
+func (s *directiveScanner) checkRunOn(span StateSpan) {
 	if s.hasFieldOpAhead() {
 		s.addIssue(SeverityInfo, "value contains operator; separate directives with ';'", span)
 	}
@@ -511,14 +509,6 @@ func (s *directiveScanner) hasFieldOpAhead() bool {
 		return true
 	}
 	return false
-}
-
-// containsOperator reports whether s contains any of the state directive
-// operator substrings. The '=' test catches both '=' and the second
-// character of '+='/'-='; the leading-character tests pick up the '+='
-// and '-=' forms without false-positives on lone '+' or '-'.
-func containsOperator(s string) bool {
-	return strings.Contains(s, "+=") || strings.Contains(s, "-=") || strings.Contains(s, "=")
 }
 
 // tryNumber matches an optional leading `-`, then one or more digits, then
