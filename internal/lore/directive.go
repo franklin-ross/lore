@@ -21,10 +21,10 @@ func ParseDirectives(text, file string, line int) (events []StateEvent, issues [
 	}
 	for s.pos < len(s.text) {
 		if ev, ok := s.tryDirective(); ok {
+			issues = append(issues, s.takeIssues()...)
 			events = append(events, ev)
 			continue
 		}
-		// Consume issues accumulated while trying to match.
 		issues = append(issues, s.takeIssues()...)
 		s.advanceRune()
 	}
@@ -47,6 +47,9 @@ func (s *directiveScanner) tryDirective() (StateEvent, bool) {
 	start := s.pos
 	// Tag directive: `+tag` or `-tag`, possibly `+"quoted"` or `-"quoted"`.
 	if s.pos < len(s.text) && (s.text[s.pos] == '+' || s.text[s.pos] == '-') {
+		if !s.atWordBoundaryLeft() {
+			return StateEvent{}, false
+		}
 		op := StateOpAdd
 		if s.text[s.pos] == '-' {
 			op = StateOpRemove
@@ -115,7 +118,23 @@ func (s *directiveScanner) readQuotedTag() (string, bool) {
 	}
 	raw := s.text[start:s.pos]
 	s.pos++ // consume closing quote
-	return strings.ReplaceAll(strings.TrimSpace(raw), " ", "-"), true
+	tag := strings.ReplaceAll(strings.TrimSpace(raw), " ", "-")
+	if tag == "" {
+		return "", false
+	}
+	return tag, true
+}
+
+// atWordBoundaryLeft reports whether the character immediately before s.pos
+// is a word boundary — either start-of-input or a non-word rune (non-letter,
+// non-digit, and not '_' or '-'). This prevents directive sigils from
+// firing mid-word, so `foo+injured` is prose, not a +injured directive.
+func (s *directiveScanner) atWordBoundaryLeft() bool {
+	if s.pos == 0 {
+		return true
+	}
+	r, _ := utf8.DecodeLastRuneInString(s.text[:s.pos])
+	return !(unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' || r == '-')
 }
 
 // advanceRune moves past a single rune.

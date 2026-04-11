@@ -1,7 +1,6 @@
 package lore
 
 import (
-	"reflect"
 	"testing"
 )
 
@@ -96,6 +95,41 @@ func TestParseDirectivesIgnoresStrayPlus(t *testing.T) {
 	// A '+' not followed by an identifier is prose.
 	events, _ := ParseDirectives("He had a + sign on the door.", "test.md", 1)
 	if len(events) != 0 {
-		t.Fatalf("events = %+v", reflect.ValueOf(events))
+		t.Fatalf("events = %+v", events)
+	}
+}
+
+func TestParseDirectivesEmptyQuotedTagNotDirective(t *testing.T) {
+	events, issues := ParseDirectives(`+"" He was whole.`, "test.md", 1)
+	if len(events) != 0 {
+		t.Fatalf("expected empty quoted tag to be ignored, got %+v", events)
+	}
+	if len(issues) != 0 {
+		t.Fatalf("expected no issues, got %+v", issues)
+	}
+}
+
+func TestParseDirectivesMidWordSigilIsProse(t *testing.T) {
+	// 'foo+injured' must not parse as a +injured directive — the '+' is
+	// not at a word boundary.
+	events, _ := ParseDirectives("foo+injured bar", "test.md", 1)
+	if len(events) != 0 {
+		t.Fatalf("expected no directives, got %+v", events)
+	}
+}
+
+func TestParseDirectivesSigilAtStartOfInputIsDirective(t *testing.T) {
+	// Start of input is a word boundary, so a leading '+tag' parses fine.
+	events, _ := ParseDirectives("+injured", "test.md", 1)
+	if len(events) != 1 || events[0].Target != "injured" {
+		t.Fatalf("events: %+v", events)
+	}
+}
+
+func TestParseDirectivesSigilAfterPunctuationIsDirective(t *testing.T) {
+	// Punctuation is a word boundary too.
+	events, _ := ParseDirectives("(+injured)", "test.md", 1)
+	if len(events) != 1 || events[0].Target != "injured" {
+		t.Fatalf("events: %+v", events)
 	}
 }
