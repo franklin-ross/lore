@@ -146,7 +146,9 @@ Sildar: Gives the sword to Gundren. inventory -= "longsword"
   `wounded and dying`.
 - A **quoted string** (`"two handed sword"`, `"potion, red"`) — atomic,
   may contain commas and punctuation. Makes the field text. Required only
-  when the value contains `,`, `.`, `!`, `?`, `;`, or a literal `"`.
+  when the value contains `,`, `.`, `!`, `?`, or `;`. A literal `"` is
+  not permitted inside a value; there is no escape syntax. Authors
+  needing a quotation mark should rephrase.
 
 **Lists.** A text list is a comma-separated sequence of items. Each item is
 a bareword run, a quoted string, or a number literal — pick one kind per
@@ -282,9 +284,8 @@ Rules:
 - **Field lines** — one per field, alphabetically sorted. Numeric fields
   render as `name: N`. Text fields render as `name: value` if the list
   has one item, or `name: a, b, c` (items alphabetical) if multiple.
-  Items that contain `,`, `.`, `!`, `?`, `;`, `=`, or a literal `"` are
-  rendered with surrounding quotes so the reader can tell separators
-  from item content. `+` and `-` are left unquoted because they appear
+  Items that contain `,`, `.`, `!`, `?`, `;`, or `=` are rendered with
+  surrounding quotes so the reader can tell separators from item content. `+` and `-` are left unquoted because they appear
   naturally in compound words (`two-handed-sword`). Example: a list
   containing the items `potion, red` and `sword` renders as
   `inventory: "potion, red", sword`.
