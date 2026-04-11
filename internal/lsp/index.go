@@ -2,7 +2,6 @@ package lsp
 
 import (
 	"io/fs"
-	"sync"
 
 	"lore/internal/lore"
 )
@@ -11,8 +10,12 @@ import (
 // parse cache keyed by project-relative path, and rebuilds the merged World
 // lazily on demand. Editor buffers and on-disk files both flow through the
 // same SetFile path — the LSP server decides which content wins.
+//
+// All mutations come from LSP handlers, which glsp dispatches serially on a
+// single goroutine, so no locking is needed. If we ever parallelise parsing,
+// workers should fan out and merge on a single owner rather than mutating
+// this structure concurrently.
 type Index struct {
-	mu    sync.Mutex
 	files map[string]*lore.FileParse
 	world *lore.World // cached merged world; nil when stale
 }
@@ -26,9 +29,6 @@ func NewIndex() *Index {
 // entries are discarded. Use this on initialize before any editor buffers
 // have been registered.
 func (idx *Index) LoadProject(project *lore.Project) error {
-	idx.mu.Lock()
-	defer idx.mu.Unlock()
-
 	idx.files = make(map[string]*lore.FileParse, len(project.FilePaths))
 	for _, rel := range project.FilePaths {
 		data, err := fs.ReadFile(project.FS, rel)
@@ -44,16 +44,12 @@ func (idx *Index) LoadProject(project *lore.Project) error {
 // SetFile replaces the per-file parse for path with a fresh one built from
 // content, and invalidates the cached world.
 func (idx *Index) SetFile(path, content string) {
-	idx.mu.Lock()
-	defer idx.mu.Unlock()
 	idx.files[path] = lore.ParseFile(path, content)
 	idx.world = nil
 }
 
 // RemoveFile drops a file from the index.
 func (idx *Index) RemoveFile(path string) {
-	idx.mu.Lock()
-	defer idx.mu.Unlock()
 	if _, ok := idx.files[path]; !ok {
 		return
 	}
@@ -64,8 +60,6 @@ func (idx *Index) RemoveFile(path string) {
 // World returns the merged world for the current set of files, rebuilding
 // it if any mutation has occurred since the last call.
 func (idx *Index) World() *lore.World {
-	idx.mu.Lock()
-	defer idx.mu.Unlock()
 	if idx.world != nil {
 		return idx.world
 	}
@@ -80,8 +74,6 @@ func (idx *Index) World() *lore.World {
 // Content returns the raw content currently tracked for path, or "" false
 // if the index has no entry for it.
 func (idx *Index) Content(path string) (string, bool) {
-	idx.mu.Lock()
-	defer idx.mu.Unlock()
 	fp, ok := idx.files[path]
 	if !ok {
 		return "", false
@@ -91,7 +83,5 @@ func (idx *Index) Content(path string) (string, bool) {
 
 // FileCount returns the number of files currently tracked, for logging.
 func (idx *Index) FileCount() int {
-	idx.mu.Lock()
-	defer idx.mu.Unlock()
 	return len(idx.files)
 }

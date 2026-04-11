@@ -16,19 +16,41 @@ import (
 
 const serverName = "lore"
 
-// Server is the lore LSP server.
+// Server is the lore LSP server. glsp dispatches notifications one at a time
+// on a single goroutine, so handler state (including `open`) is only touched
+// serially — no locking required.
 type Server struct {
 	root    string // absolute filesystem path
 	project *lore.Project
 	index   *Index
 	notify  glsp.NotifyFunc // set during initialize
+	call    glsp.CallFunc   // set during initialize
+
+	open map[string]struct{} // project-relative paths with a live editor buffer
 }
 
 // NewServer creates a new LSP server.
 func NewServer() *Server {
 	return &Server{
 		index: NewIndex(),
+		open:  make(map[string]struct{}),
 	}
+}
+
+// markOpen records that path is being edited in a client buffer.
+func (s *Server) markOpen(path string) {
+	s.open[path] = struct{}{}
+}
+
+// markClosed clears the open-buffer flag for path.
+func (s *Server) markClosed(path string) {
+	delete(s.open, path)
+}
+
+// isOpen reports whether path is currently being edited in a client buffer.
+func (s *Server) isOpen(path string) bool {
+	_, ok := s.open[path]
+	return ok
 }
 
 // Run starts the server on stdin/stdout.
@@ -53,11 +75,13 @@ func (s *Server) newHandler() *protocol.Handler {
 	handler.TextDocumentReferences = s.references
 	handler.TextDocumentCompletion = s.completion
 	handler.TextDocumentSemanticTokensFull = s.semanticTokensFull
+	handler.WorkspaceDidChangeWatchedFiles = s.didChangeWatchedFiles
 	return handler
 }
 
 func (s *Server) initialize(ctx *glsp.Context, params *protocol.InitializeParams) (any, error) {
 	s.notify = ctx.Notify
+	s.call = ctx.Call
 	s.root = uriToPath(params.RootURI)
 
 	s.logInfo("initialising with root: %s", s.root)
@@ -87,6 +111,7 @@ func (s *Server) initialize(ctx *glsp.Context, params *protocol.InitializeParams
 }
 
 func (s *Server) initialized(_ *glsp.Context, _ *protocol.InitializedParams) error {
+	s.registerFileWatchers()
 	return nil
 }
 
@@ -95,7 +120,9 @@ func (s *Server) shutdown(_ *glsp.Context) error {
 }
 
 // loadProject (re)reads the lore.toml and every on-disk file into the index.
-// Called once at initialize time; editor buffers arrive via didOpen/didChange.
+// Called at initialize time and whenever lore.toml changes on disk. Any files
+// currently open in the editor keep their buffer contents — the editor stays
+// authoritative until didClose.
 func (s *Server) loadProject() {
 	if s.root == "" {
 		return
@@ -105,11 +132,26 @@ func (s *Server) loadProject() {
 		s.logWarning("failed to load project: %v", err)
 		return
 	}
+
+	// Snapshot open-buffer contents before we rebuild the index from disk.
+	openContents := make(map[string]string, len(s.open))
+	for rel := range s.open {
+		if content, ok := s.index.Content(rel); ok {
+			openContents[rel] = content
+		}
+	}
+
 	s.project = project
 	if err := s.index.LoadProject(project); err != nil {
 		s.logWarning("failed to index project: %v", err)
 		return
 	}
+
+	// Re-apply buffered content so the editor's view wins over disk.
+	for rel, content := range openContents {
+		s.index.SetFile(rel, content)
+	}
+
 	world := s.index.World()
 	s.logInfo("indexed %d entities from %d files", len(world.Entities), s.index.FileCount())
 }

@@ -47,6 +47,12 @@ func (m Matcher) Find(fsys fs.FS) ([]string, error) {
 	return paths, nil
 }
 
+// Matches reports whether path is selected by the matcher's patterns and not
+// excluded by its ignore rules.
+func (m Matcher) Matches(path string) bool {
+	return m.patternIndex(path) >= 0
+}
+
 // SortAndFilter returns the subset of paths that match a pattern and aren't
 // ignored, sorted in pattern-then-alpha order. The input slice is not modified.
 func (m Matcher) SortAndFilter(paths []string) []string {

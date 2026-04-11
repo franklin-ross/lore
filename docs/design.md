@@ -113,6 +113,10 @@ Performance: even with hundreds of files, parsing is milliseconds. No caching ne
 - **LSP** for the smart features (autocomplete, hover, go-to-def, references)
 - **VSCode extension** in TypeScript, spawns the Go LSP server binary
 
+### Concurrency Model
+
+The LSP runs single-threaded. glsp dispatches every notification and request serially on one goroutine, so handler state (the index, open-buffer set, project) is only ever touched by one handler at a time. Don't add mutexes to these structures — they're dead weight. If parsing ever becomes a bottleneck, fan work out to workers and merge results on a single owner, rather than introducing concurrent mutation of shared state.
+
 ## CLI
 
 Secondary to the extension, but useful for terminal and scripting:
