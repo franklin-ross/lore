@@ -73,6 +73,63 @@ Sildar: Was captured at Cragmaw Hideout; we rescued him. Gave
 
 Both descriptions are combined when you query Sildar.
 
+## State Directives
+
+Entity descriptions can include **state directives** — compact tags and
+fields that track the current state of an entity across sessions. The
+resolved state is shown at the top of the entity in `lore query` output
+and in VSCode hover tooltips.
+
+### Tags
+
+Bare labels you add or remove:
+
+```
+Sildar: Took an arrow to the knee. +injured
+Sildar: Patched up by the cleric. -injured
+Sildar: Got hit again, and it's bad this time. +critically-injured
+```
+
+Multi-word tags use hyphens. Quoted escape works too: `+"critically
+injured"` is the same tag as `+critically-injured`.
+
+### Fields
+
+Named values. Numeric fields support arithmetic; text fields hold ordered
+lists (a single-value list renders as a scalar):
+
+```
+Phandalin (location): Sleepy frontier town. population = 100
+Phandalin: Redbrands raid the square. population -= 50
+
+Sildar: Hands us his longsword. inventory += longsword
+Sildar: Gives the sword to Gundren. inventory -= longsword
+```
+
+Multi-word bareword values are fine: `inventory += two-handed sword`.
+Quotes are only needed when the value contains punctuation like a comma
+or period.
+
+### Terminators
+
+Directives end at the first of `.`, `!`, `?`, `;`, or end-of-line.
+Separate multiple directives in one sentence with `;`:
+
+```
+Sildar: He's hurt. inventory += helm; health -= 3. We head home.
+```
+
+### Diagnostics
+
+The parser warns about likely mistakes: removing a tag that isn't set,
+decrementing a field that was never initialised, kind conflicts
+(e.g. `population += "sword"` after `population = 100`), missing list
+separators between quoted and bareword items, and run-on directives
+(`inventory += helm health -= 3.`) where a `;` was probably intended.
+
+See [`docs/specs/2026-04-11-entity-state-tracking.md`](specs/2026-04-11-entity-state-tracking.md)
+for the full specification.
+
 ## Free Text
 
 Any text that isn't an entity definition. Separated from entity definitions by blank lines. Treated as narrative — searchable, and entity references within it are detected, but it's not attached to any particular entity.
