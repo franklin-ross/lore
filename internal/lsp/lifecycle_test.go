@@ -3,6 +3,7 @@ package lsp
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"lore/internal/lore"
@@ -217,5 +218,39 @@ func TestLifecycleHoverSeesBufferedChanges(t *testing.T) {
 	}
 	if !lore.ContainsIgnoreCase(mc.Value, "Klarg") {
 		t.Fatalf("hover content should mention Klarg, got %q", mc.Value)
+	}
+}
+
+func TestPublishDiagnosticsForStateIssues(t *testing.T) {
+	s, uriFor := setupLifecycleServer(t, nil)
+
+	// Capture published diagnostics.
+	type published struct {
+		uri         string
+		diagnostics []protocol.Diagnostic
+	}
+	var got []published
+	s.notify = func(method string, params any) {
+		if method != "textDocument/publishDiagnostics" {
+			return
+		}
+		p, ok := params.(*protocol.PublishDiagnosticsParams)
+		if !ok {
+			t.Fatalf("unexpected params type: %T", params)
+		}
+		got = append(got, published{uri: p.URI, diagnostics: p.Diagnostics})
+	}
+
+	openDoc(t, s, uriFor("sildar.md"), "Sildar (character): Fighter. -injured\n")
+
+	if len(got) == 0 {
+		t.Fatal("expected at least one publishDiagnostics notification")
+	}
+	last := got[len(got)-1]
+	if len(last.diagnostics) != 1 {
+		t.Fatalf("diagnostics: %+v", last.diagnostics)
+	}
+	if !strings.Contains(last.diagnostics[0].Message, "injured") {
+		t.Fatalf("message: %q", last.diagnostics[0].Message)
 	}
 }

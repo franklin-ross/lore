@@ -11,6 +11,7 @@ func (s *Server) didOpen(_ *glsp.Context, params *protocol.DidOpenTextDocumentPa
 	rel := s.uriToRelPath(params.TextDocument.URI)
 	s.markOpen(rel)
 	s.index.SetFile(rel, params.TextDocument.Text)
+	s.publishDiagnostics(rel, params.TextDocument.URI)
 	return nil
 }
 
@@ -26,12 +27,16 @@ func (s *Server) didChange(_ *glsp.Context, params *protocol.DidChangeTextDocume
 	}
 	rel := s.uriToRelPath(params.TextDocument.URI)
 	s.index.SetFile(rel, change.Text)
+	s.publishDiagnostics(rel, params.TextDocument.URI)
 	return nil
 }
 
-func (s *Server) didSave(_ *glsp.Context, _ *protocol.DidSaveTextDocumentParams) error {
+func (s *Server) didSave(_ *glsp.Context, params *protocol.DidSaveTextDocumentParams) error {
 	// Buffer contents and on-disk file are identical after a save; the index
-	// already reflects the latest keystroke via didChange, so nothing to do.
+	// already reflects the latest keystroke via didChange. Re-publish
+	// diagnostics anyway in case the client wants a fresh push.
+	rel := s.uriToRelPath(params.TextDocument.URI)
+	s.publishDiagnostics(rel, params.TextDocument.URI)
 	return nil
 }
 

@@ -228,6 +228,53 @@ func uriToPath(uri *string) string {
 	return u.Path
 }
 
+// publishDiagnostics sends textDocument/publishDiagnostics for the given
+// file, including every state issue that belongs to that file. It is a
+// no-op if the server has no notify channel (e.g. before initialize).
+func (s *Server) publishDiagnostics(path, uri string) {
+	if s.notify == nil {
+		return
+	}
+	world := s.index.World()
+	var items []protocol.Diagnostic
+	for _, ent := range world.Entities {
+		for _, si := range ent.StateIssues {
+			if si.Span.File != path {
+				continue
+			}
+			items = append(items, toProtocolDiagnostic(si))
+		}
+	}
+	s.notify(protocol.ServerTextDocumentPublishDiagnostics, &protocol.PublishDiagnosticsParams{
+		URI:         uri,
+		Diagnostics: items,
+	})
+}
+
+func toProtocolDiagnostic(si lore.StateIssue) protocol.Diagnostic {
+	sev := protocol.DiagnosticSeverityInformation
+	switch si.Severity {
+	case lore.SeverityWarning:
+		sev = protocol.DiagnosticSeverityWarning
+	case lore.SeverityError:
+		sev = protocol.DiagnosticSeverityError
+	}
+	line := uint32(0)
+	if si.Span.Line > 0 {
+		line = uint32(si.Span.Line - 1)
+	}
+	source := "lore"
+	return protocol.Diagnostic{
+		Range: protocol.Range{
+			Start: protocol.Position{Line: line, Character: uint32(si.Span.StartByte)},
+			End:   protocol.Position{Line: line, Character: uint32(si.Span.EndByte)},
+		},
+		Severity: &sev,
+		Source:   &source,
+		Message:  si.Message,
+	}
+}
+
 func boolPtr(b bool) *bool { return &b }
 
 func lineRange(line int) protocol.Range {
