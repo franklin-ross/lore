@@ -6,9 +6,6 @@ import "fmt"
 // resolved tag set, field map, and any issues produced by the resolution
 // phase. Lexer-time issues are not returned here — callers combine them
 // with the returned resolution issues.
-//
-// Text field events (append/remove on text fields) are partially handled:
-// numeric paths are complete, but text append/remove is deferred to Task 8.
 func ResolveState(events []StateEvent) (map[string]bool, map[string]FieldValue, []StateIssue) {
 	tags := make(map[string]bool)
 	fields := make(map[string]FieldValue)
@@ -39,9 +36,6 @@ func ResolveState(events []StateEvent) (map[string]bool, map[string]FieldValue, 
 
 // applyFieldEvent applies a single field-valued event to the fields map
 // and returns any issues produced.
-//
-// Numeric fields are fully implemented here; text fields initialise on
-// Set but append/remove are no-ops pending Task 8.
 func applyFieldEvent(fields map[string]FieldValue, ev StateEvent) []StateIssue {
 	var issues []StateIssue
 	existing, hasExisting := fields[ev.Target]
@@ -77,7 +71,12 @@ func applyFieldEvent(fields map[string]FieldValue, ev StateEvent) []StateIssue {
 			existing.Number += ev.Value.Number
 			fields[ev.Target] = existing
 		}
-		// Text append is handled in Task 8.
+		if ev.Value.Kind == FieldText {
+			combined := make([]string, 0, len(existing.Text)+len(ev.Value.Text))
+			combined = append(combined, existing.Text...)
+			combined = append(combined, ev.Value.Text...)
+			fields[ev.Target] = FieldValue{Kind: FieldText, Text: combined}
+		}
 
 	case StateOpRemove:
 		if !hasExisting {
@@ -100,7 +99,32 @@ func applyFieldEvent(fields map[string]FieldValue, ev StateEvent) []StateIssue {
 			existing.Number -= ev.Value.Number
 			fields[ev.Target] = existing
 		}
-		// Text remove is handled in Task 8.
+		if ev.Value.Kind == FieldText {
+			remaining := append([]string(nil), existing.Text...)
+			for _, itemToRemove := range ev.Value.Text {
+				idx := -1
+				for i, it := range remaining {
+					if it == itemToRemove {
+						idx = i
+						break
+					}
+				}
+				if idx < 0 {
+					issues = append(issues, StateIssue{
+						Severity: SeverityWarning,
+						Message:  fmt.Sprintf("list %q has no item %q to remove", ev.Target, itemToRemove),
+						Span:     ev.Span,
+					})
+					continue
+				}
+				remaining = append(remaining[:idx], remaining[idx+1:]...)
+			}
+			if len(remaining) == 0 {
+				delete(fields, ev.Target)
+			} else {
+				fields[ev.Target] = FieldValue{Kind: FieldText, Text: remaining}
+			}
+		}
 	}
 	return issues
 }

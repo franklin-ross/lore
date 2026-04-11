@@ -106,6 +106,82 @@ func TestResolveStateNumericUninitialisedDecrement(t *testing.T) {
 	}
 }
 
+func TestResolveStateTextSet(t *testing.T) {
+	events := []StateEvent{
+		{Op: StateOpSet, Target: "inventory", Value: &FieldValue{Kind: FieldText, Text: []string{"sword", "shield"}}},
+	}
+	_, fields, issues := ResolveState(events)
+	if len(issues) != 0 {
+		t.Fatalf("issues: %+v", issues)
+	}
+	if len(fields["inventory"].Text) != 2 {
+		t.Fatalf("items: %+v", fields["inventory"])
+	}
+}
+
+func TestResolveStateTextAppend(t *testing.T) {
+	events := []StateEvent{
+		{Op: StateOpSet, Target: "inventory", Value: &FieldValue{Kind: FieldText, Text: []string{"sword"}}},
+		{Op: StateOpIncrement, Target: "inventory", Value: &FieldValue{Kind: FieldText, Text: []string{"shield"}}},
+	}
+	_, fields, _ := ResolveState(events)
+	got := fields["inventory"].Text
+	if len(got) != 2 || got[0] != "sword" || got[1] != "shield" {
+		t.Fatalf("items: %+v", got)
+	}
+}
+
+func TestResolveStateTextRemove(t *testing.T) {
+	events := []StateEvent{
+		{Op: StateOpSet, Target: "inventory", Value: &FieldValue{Kind: FieldText, Text: []string{"sword", "shield"}}},
+		{Op: StateOpRemove, Target: "inventory", Value: &FieldValue{Kind: FieldText, Text: []string{"sword"}}},
+	}
+	_, fields, issues := ResolveState(events)
+	if len(issues) != 0 {
+		t.Fatalf("issues: %+v", issues)
+	}
+	got := fields["inventory"].Text
+	if len(got) != 1 || got[0] != "shield" {
+		t.Fatalf("items: %+v", got)
+	}
+}
+
+func TestResolveStateTextRemoveMissingItemDiagnostic(t *testing.T) {
+	events := []StateEvent{
+		{Op: StateOpSet, Target: "inventory", Value: &FieldValue{Kind: FieldText, Text: []string{"sword"}}},
+		{Op: StateOpRemove, Target: "inventory", Value: &FieldValue{Kind: FieldText, Text: []string{"shield"}}},
+	}
+	_, _, issues := ResolveState(events)
+	if len(issues) != 1 || issues[0].Severity != SeverityWarning {
+		t.Fatalf("issues: %+v", issues)
+	}
+}
+
+func TestResolveStateTextRemoveEmptiesField(t *testing.T) {
+	events := []StateEvent{
+		{Op: StateOpSet, Target: "inventory", Value: &FieldValue{Kind: FieldText, Text: []string{"sword"}}},
+		{Op: StateOpRemove, Target: "inventory", Value: &FieldValue{Kind: FieldText, Text: []string{"sword"}}},
+	}
+	_, fields, _ := ResolveState(events)
+	if _, ok := fields["inventory"]; ok {
+		t.Fatalf("expected field to be deleted, got %+v", fields)
+	}
+}
+
+func TestResolveStateTextKindConflict(t *testing.T) {
+	events := []StateEvent{
+		{Op: StateOpSet, Target: "x", Value: &FieldValue{Kind: FieldText, Text: []string{"alive"}}},
+		{Op: StateOpSet, Target: "x", Value: &FieldValue{Kind: FieldNumeric, Number: 42}},
+	}
+	_, fields, issues := ResolveState(events)
+	if len(issues) != 1 {
+		t.Fatalf("issues: %+v", issues)
+	}
+	if fields["x"].Kind != FieldText {
+		t.Fatalf("field: %+v", fields["x"])
+	}
+}
+
 func TestResolveStateKindConflictNumericThenText(t *testing.T) {
 	events := []StateEvent{
 		{Op: StateOpSet, Target: "x", Value: &FieldValue{Kind: FieldNumeric, Number: 100}},
