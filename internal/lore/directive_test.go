@@ -133,3 +133,76 @@ func TestParseDirectivesSigilAfterPunctuationIsDirective(t *testing.T) {
 		t.Fatalf("events: %+v", events)
 	}
 }
+
+func TestParseDirectivesNumericSet(t *testing.T) {
+	events, issues := ParseDirectives("population = 100", "test.md", 1)
+	if len(issues) != 0 {
+		t.Fatalf("issues: %+v", issues)
+	}
+	if len(events) != 1 {
+		t.Fatalf("events: %+v", events)
+	}
+	ev := events[0]
+	if ev.Op != StateOpSet || ev.Target != "population" {
+		t.Fatalf("event: %+v", ev)
+	}
+	if ev.Value == nil || ev.Value.Kind != FieldNumeric || ev.Value.Number != 100 {
+		t.Fatalf("value: %+v", ev.Value)
+	}
+}
+
+func TestParseDirectivesNumericIncrement(t *testing.T) {
+	events, _ := ParseDirectives("population += 50", "test.md", 1)
+	if len(events) != 1 || events[0].Op != StateOpIncrement {
+		t.Fatalf("events: %+v", events)
+	}
+	if events[0].Value.Number != 50 {
+		t.Fatalf("value: %+v", events[0].Value)
+	}
+}
+
+func TestParseDirectivesNumericDecrement(t *testing.T) {
+	events, _ := ParseDirectives("population -= 25", "test.md", 1)
+	if len(events) != 1 || events[0].Op != StateOpRemove {
+		t.Fatalf("events: %+v", events)
+	}
+	if events[0].Value.Number != 25 {
+		t.Fatalf("value: %+v", events[0].Value)
+	}
+}
+
+func TestParseDirectivesNumericDecimal(t *testing.T) {
+	events, _ := ParseDirectives("weight = 3.14", "test.md", 1)
+	if len(events) != 1 || events[0].Value.Number != 3.14 {
+		t.Fatalf("events: %+v", events)
+	}
+}
+
+func TestParseDirectivesNumericNegative(t *testing.T) {
+	events, _ := ParseDirectives("temperature = -5", "test.md", 1)
+	if len(events) != 1 {
+		t.Fatalf("events: %+v", events)
+	}
+	if events[0].Value.Number != -5 {
+		t.Fatalf("value: %+v", events[0].Value)
+	}
+}
+
+func TestParseDirectivesNumericTrailingDotIsTerminator(t *testing.T) {
+	// `population = 100.` should parse as "100" followed by a terminating ".".
+	// The period is NOT part of the number (no max-munch across trailing dot).
+	events, _ := ParseDirectives("population = 100. Plus more.", "test.md", 1)
+	if len(events) != 1 {
+		t.Fatalf("events: %+v", events)
+	}
+	if events[0].Value.Number != 100 {
+		t.Fatalf("value: %+v", events[0].Value)
+	}
+}
+
+func TestParseDirectivesFieldNameWithHyphen(t *testing.T) {
+	events, _ := ParseDirectives("max-hp = 30", "test.md", 1)
+	if len(events) != 1 || events[0].Target != "max-hp" {
+		t.Fatalf("events: %+v", events)
+	}
+}

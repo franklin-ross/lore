@@ -1,6 +1,7 @@
 package lore
 
 import (
+	"strconv"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -64,6 +65,21 @@ func (s *directiveScanner) tryDirective() (StateEvent, bool) {
 			}, true
 		}
 		s.pos = savedPos
+	}
+	// Field directive: `name`, optional WS, operator `=` / `+=` / `-=`, optional WS, value.
+	if target, op, ok := s.tryFieldOp(); ok {
+		value, vok := s.readValue()
+		if !vok {
+			// Failed to read a value — rewind to start.
+			s.pos = start
+			return StateEvent{}, false
+		}
+		return StateEvent{
+			Op:     op,
+			Target: target,
+			Value:  value,
+			Span:   s.spanFrom(start),
+		}, true
 	}
 	return StateEvent{}, false
 }
@@ -170,4 +186,92 @@ func (s *directiveScanner) addIssue(severity StateIssueSeverity, message string,
 		Message:  message,
 		Span:     span,
 	})
+}
+
+// tryFieldOp looks for `identifier <ws>? <op>` at the current position. On
+// success it returns the target name and operator and advances past the
+// operator. On failure it rewinds to the original position.
+func (s *directiveScanner) tryFieldOp() (string, StateOp, bool) {
+	saved := s.pos
+	if !s.atWordBoundaryLeft() {
+		return "", StateOpUnknown, false
+	}
+	name, ok := s.readIdentifier()
+	if !ok {
+		return "", StateOpUnknown, false
+	}
+	s.skipSpacesTabs()
+	if s.pos >= len(s.text) {
+		s.pos = saved
+		return "", StateOpUnknown, false
+	}
+	c := s.text[s.pos]
+	switch c {
+	case '=':
+		s.pos++
+		return name, StateOpSet, true
+	case '+':
+		if s.pos+1 < len(s.text) && s.text[s.pos+1] == '=' {
+			s.pos += 2
+			return name, StateOpIncrement, true
+		}
+	case '-':
+		if s.pos+1 < len(s.text) && s.text[s.pos+1] == '=' {
+			s.pos += 2
+			return name, StateOpRemove, true
+		}
+	}
+	s.pos = saved
+	return "", StateOpUnknown, false
+}
+
+// skipSpacesTabs advances past ASCII spaces and tabs.
+func (s *directiveScanner) skipSpacesTabs() {
+	for s.pos < len(s.text) && (s.text[s.pos] == ' ' || s.text[s.pos] == '\t') {
+		s.pos++
+	}
+}
+
+// readValue reads a value after a field operator. For this task, only
+// numeric literals are handled; text values are added in the next task.
+func (s *directiveScanner) readValue() (*FieldValue, bool) {
+	s.skipSpacesTabs()
+	if s.pos >= len(s.text) {
+		return nil, false
+	}
+	if n, ok := s.tryNumber(); ok {
+		return &FieldValue{Kind: FieldNumeric, Number: n}, true
+	}
+	return nil, false
+}
+
+// tryNumber matches an optional leading `-`, then one or more digits, then
+// an optional `.` followed by one or more digits. Max-munch, but a trailing
+// `.` without digits is NOT consumed (so `100.` leaves the `.` as a
+// terminator and parses `100`).
+func (s *directiveScanner) tryNumber() (float64, bool) {
+	start := s.pos
+	i := start
+	if i < len(s.text) && s.text[i] == '-' {
+		i++
+	}
+	digitsStart := i
+	for i < len(s.text) && s.text[i] >= '0' && s.text[i] <= '9' {
+		i++
+	}
+	if i == digitsStart {
+		return 0, false
+	}
+	if i+1 < len(s.text) && s.text[i] == '.' && s.text[i+1] >= '0' && s.text[i+1] <= '9' {
+		i++
+		for i < len(s.text) && s.text[i] >= '0' && s.text[i] <= '9' {
+			i++
+		}
+	}
+	n, err := strconv.ParseFloat(s.text[start:i], 64)
+	if err != nil {
+		return 0, false
+	}
+	s.pos = i
+	return n, true
 }
