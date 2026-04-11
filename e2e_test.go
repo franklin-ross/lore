@@ -200,6 +200,24 @@ func TestE2EConfigInitRefusesOverwrite(t *testing.T) {
 	}
 }
 
+func TestQueryIncludesStateBlock(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "lore.toml"), []byte("files = [\"**/*.md\"]\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	content := "Sildar (character): Fighter. +injured population = 3\n"
+	if err := os.WriteFile(filepath.Join(dir, "sildar.md"), []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+	stdout, _, _ := runLore(t, dir, "query", "Sildar")
+	if !strings.Contains(stdout, "+injured") {
+		t.Fatalf("query output missing tag: %q", stdout)
+	}
+	if !strings.Contains(stdout, "population: 3") {
+		t.Fatalf("query output missing field: %q", stdout)
+	}
+}
+
 func TestE2ENoArgsShowsUsage(t *testing.T) {
 	dir := setupFixtures(t)
 	stdout, _, code := runLore(t, dir)

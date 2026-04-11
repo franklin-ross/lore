@@ -143,6 +143,11 @@ func cmdQuery(world *lore.World, args []string) {
 		fmt.Printf("Also known as: %s\n\n", strings.Join(ent.Aliases, ", "))
 	}
 
+	if state := lore.FormatStateBlock(ent.Tags, ent.Fields); state != "" {
+		fmt.Println(state)
+		fmt.Println()
+	}
+
 	for _, desc := range ent.Descriptions {
 		fmt.Println(desc.Text)
 		fmt.Printf("  — %s:%d\n\n", desc.File, desc.Line)
