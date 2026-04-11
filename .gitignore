@@ -1,6 +1,7 @@
 # Go build artifacts
 /bin/
 /.gocache/
+/.go-cache/
 
 # IDE
 .idea/
