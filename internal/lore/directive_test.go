@@ -414,3 +414,60 @@ func TestParseDirectivesRunOnBareEquals(t *testing.T) {
 		t.Fatal("expected a run-on diagnostic for bare '='")
 	}
 }
+
+func TestParseDirectivesFieldWithMissingValueDiagnoses(t *testing.T) {
+	// `inventory =` with nothing after is a malformed field directive.
+	// It must not silently parse as prose — the author should see a
+	// warning that a value was expected.
+	events, issues := ParseDirectives("inventory =", "test.md", 1)
+	if len(events) != 0 {
+		t.Fatalf("expected no event, got %+v", events)
+	}
+	if len(issues) != 1 || issues[0].Severity != SeverityWarning {
+		t.Fatalf("issues: %+v", issues)
+	}
+}
+
+func TestParseDirectivesFieldWithSigilValueDiagnoses(t *testing.T) {
+	// `inventory = +sword` is almost certainly a typo for `inventory +=
+	// sword`. The field directive must fail, produce a warning, and NOT
+	// leak `+sword` as a tag — skipping to the terminator swallows it.
+	events, issues := ParseDirectives("inventory = +sword.", "test.md", 1)
+	if len(events) != 0 {
+		t.Fatalf("expected no event, got %+v", events)
+	}
+	found := false
+	for _, iss := range issues {
+		if iss.Severity == SeverityWarning {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected a warning, got %+v", issues)
+	}
+}
+
+func TestParseDirectivesFieldWithEmptyQuoteDiagnoses(t *testing.T) {
+	// `status = ""` — empty quoted values are rejected by readQuotedString,
+	// so readValue fails and the field directive should diagnose.
+	events, issues := ParseDirectives(`status = ""`, "test.md", 1)
+	if len(events) != 0 {
+		t.Fatalf("expected no event, got %+v", events)
+	}
+	if len(issues) == 0 {
+		t.Fatal("expected a warning for empty quoted value")
+	}
+}
+
+func TestParseDirectivesValidDirectivesStillParse(t *testing.T) {
+	// Sanity check: the new missing-value diagnostic must NOT fire on
+	// valid field directives.
+	events, issues := ParseDirectives("population = 100. Next.", "test.md", 1)
+	if len(events) != 1 || events[0].Op != StateOpSet {
+		t.Fatalf("events: %+v", events)
+	}
+	if len(issues) != 0 {
+		t.Fatalf("unexpected issues: %+v", issues)
+	}
+}

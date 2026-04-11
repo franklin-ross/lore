@@ -70,8 +70,15 @@ func (s *directiveScanner) tryDirective() (StateEvent, bool) {
 	if target, op, ok := s.tryFieldOp(); ok {
 		value, vok := s.readValue()
 		if !vok {
-			// Failed to read a value — rewind to start.
-			s.pos = start
+			// The field name and operator matched, but the value is missing
+			// or malformed (e.g. `inventory =` with nothing after, or
+			// `inventory = +sword` where `+sword` isn't a valid field value).
+			// Report a diagnostic covering the attempted directive and
+			// swallow it up to the next terminator so stray sigils inside
+			// the broken value don't fire as tag directives.
+			s.skipSpacesTabs()
+			s.skipToTerminator()
+			s.addIssue(SeverityWarning, "expected a value after field operator", s.spanFrom(start))
 			return StateEvent{}, false
 		}
 		return StateEvent{
@@ -82,6 +89,16 @@ func (s *directiveScanner) tryDirective() (StateEvent, bool) {
 		}, true
 	}
 	return StateEvent{}, false
+}
+
+// skipToTerminator advances s.pos past everything up to (but not including)
+// the next top-level directive terminator. Used to recover from a broken
+// directive so its malformed tail doesn't seed spurious directives further
+// along.
+func (s *directiveScanner) skipToTerminator() {
+	for s.pos < len(s.text) && !s.isTerminator(s.text[s.pos]) {
+		s.advanceRune()
+	}
 }
 
 // readTagName reads either an identifier (bareword) or a quoted-tag escape
