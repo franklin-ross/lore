@@ -218,7 +218,11 @@ func formatEntityHover(ent *lore.Entity) string {
 	}
 	if len(ent.Descriptions) > 0 {
 		b.WriteString("\n\n---\n\n")
-		b.WriteString(truncate(ent.Descriptions[0].Text, 500))
+		texts := make([]string, len(ent.Descriptions))
+		for i, d := range ent.Descriptions {
+			texts[i] = d.Text
+		}
+		b.WriteString(truncate(strings.Join(texts, "\n\n"), 2000))
 	}
 	return b.String()
 }

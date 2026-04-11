@@ -77,6 +77,35 @@ func TestHoverOnEntityName(t *testing.T) {
 	}
 }
 
+func TestHoverMergesMultipleDescriptions(t *testing.T) {
+	content := `Strahd (character): Vampire lord of Barovia.
+
+Strahd: Wields the Sunsword's nemesis.
+
+Strahd: Trapped in his castle by the mists.
+`
+	s := setupTestServer(t, content)
+
+	result, err := s.hover(nil, &protocol.HoverParams{
+		TextDocumentPositionParams: protocol.TextDocumentPositionParams{
+			TextDocument: protocol.TextDocumentIdentifier{URI: "file:///test/test.md"},
+			Position:     protocol.Position{Line: 0, Character: 2},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result == nil {
+		t.Fatal("expected hover result, got nil")
+	}
+	mc := result.Contents.(protocol.MarkupContent)
+	for _, want := range []string{"Vampire lord", "Sunsword", "Trapped"} {
+		if !lore.ContainsIgnoreCase(mc.Value, want) {
+			t.Errorf("hover should contain %q, got %q", want, mc.Value)
+		}
+	}
+}
+
 func TestHoverOnFreeText(t *testing.T) {
 	s := setupTestServer(t, testContent)
 
