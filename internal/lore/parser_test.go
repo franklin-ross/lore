@@ -409,3 +409,59 @@ func TestMergeCapturesStateHistory(t *testing.T) {
 		t.Fatalf("history: %+v", p.StateHistory)
 	}
 }
+
+func TestMergeDirectiveSpansMapToOriginalLineAndColumn(t *testing.T) {
+	// The description spans two lines. The directive `+injured` appears on
+	// the continuation line (line 2 in the file). After merge, the event's
+	// span must reflect that real file line and the column where +injured
+	// starts on that line — NOT the header line or a byte offset into the
+	// joined description.
+	content := "Sildar (character): Fighter.\n" +
+		"  Took an arrow. +injured\n"
+	world := setupTestWorld(t, content)
+	sildar, err := world.FindEntity("Sildar")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sildar.StateHistory) != 1 {
+		t.Fatalf("history: %+v", sildar.StateHistory)
+	}
+	ev := sildar.StateHistory[0]
+	if ev.Target != "injured" {
+		t.Fatalf("target: %q", ev.Target)
+	}
+	if ev.Span.Line != 2 {
+		t.Fatalf("line: %d, want 2 (continuation line)", ev.Span.Line)
+	}
+	// The continuation line is "  Took an arrow. +injured".
+	// Leading whitespace is 2 bytes, "Took an arrow. " is 15 bytes,
+	// so '+' sits at column 17 (0-based).
+	const wantCol = 17
+	if ev.Span.StartByte != wantCol {
+		t.Fatalf("start byte: %d, want %d", ev.Span.StartByte, wantCol)
+	}
+	if ev.Span.EndByte != wantCol+len("+injured") {
+		t.Fatalf("end byte: %d, want %d", ev.Span.EndByte, wantCol+len("+injured"))
+	}
+}
+
+func TestMergeDirectiveSpansOnHeaderLine(t *testing.T) {
+	// A directive on the header line itself should have Line = 1 and
+	// StartByte pointing at its column in the header line.
+	content := "Sildar (character): +injured Fighter.\n"
+	world := setupTestWorld(t, content)
+	sildar, _ := world.FindEntity("Sildar")
+	if len(sildar.StateHistory) != 1 {
+		t.Fatalf("history: %+v", sildar.StateHistory)
+	}
+	ev := sildar.StateHistory[0]
+	if ev.Span.Line != 1 {
+		t.Fatalf("line: %d", ev.Span.Line)
+	}
+	// The header is "Sildar (character): +injured Fighter."
+	// Colon + space at column 19, so '+' is at column 20.
+	const wantCol = 20
+	if ev.Span.StartByte != wantCol {
+		t.Fatalf("start byte: %d, want %d", ev.Span.StartByte, wantCol)
+	}
+}

@@ -21,6 +21,7 @@ type Definition struct {
 	Line        int // 1-based line of the header
 	Header      Header
 	Description string
+	Segments    []descSegment // maps joined-description byte ranges back to file lines/columns
 }
 
 // ParseFile runs the per-file parse: walks lines, pulls out header candidates,
@@ -42,18 +43,56 @@ func ParseFile(path, content string) *FileParse {
 		}
 
 		headerLine := i + 1
+		originalHeaderLine := lines[i]
 
 		var desc strings.Builder
+		var segments []descSegment
+
+		// Segment 0: the DescStart portion of the header line.
+		// Compute the column where DescStart begins in the original line.
+		// The original line may be trimmed for header parsing, but we need the
+		// column in the untrimmed line. Find the ':' and skip leading whitespace
+		// after it to locate DescStart's first byte.
+		headerCol := 0
+		if colonIdx := strings.Index(originalHeaderLine, ":"); colonIdx >= 0 {
+			afterColon := colonIdx + 1
+			for afterColon < len(originalHeaderLine) && (originalHeaderLine[afterColon] == ' ' || originalHeaderLine[afterColon] == '\t') {
+				afterColon++
+			}
+			headerCol = afterColon
+		}
+		if header.DescStart != "" {
+			segments = append(segments, descSegment{
+				joinedStart: 0,
+				line:        headerLine,
+				column:      headerCol,
+			})
+		}
 		desc.WriteString(header.DescStart)
+
 		for i+1 < len(lines) {
 			i++
-			next := strings.TrimSpace(lines[i])
+			rawLine := lines[i]
+			next := strings.TrimSpace(rawLine)
 			if next == "" {
 				break
 			}
+			// Compute the joiner space offset before writing it.
+			joinedStart := desc.Len()
 			if desc.Len() > 0 {
 				desc.WriteByte(' ')
+				joinedStart++ // segment starts after the joiner space
 			}
+			// Column of the first non-whitespace byte in the original line.
+			col := 0
+			for col < len(rawLine) && (rawLine[col] == ' ' || rawLine[col] == '\t') {
+				col++
+			}
+			segments = append(segments, descSegment{
+				joinedStart: joinedStart,
+				line:        i + 1, // 1-based
+				column:      col,
+			})
 			desc.WriteString(next)
 		}
 
@@ -61,6 +100,7 @@ func ParseFile(path, content string) *FileParse {
 			Line:        headerLine,
 			Header:      header,
 			Description: desc.String(),
+			Segments:    segments,
 		})
 	}
 
@@ -120,6 +160,7 @@ func Merge(files []*FileParse) *World {
 				continue
 			}
 			events, lexIssues := ParseDirectives(def.Description, fp.Path, def.Line)
+			translateSpans(events, lexIssues, def.Segments)
 			ent.Descriptions = append(ent.Descriptions, Description{
 				Text:      def.Description,
 				File:      fp.Path,
