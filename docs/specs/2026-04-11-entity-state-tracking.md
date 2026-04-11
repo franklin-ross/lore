@@ -18,7 +18,8 @@ format close to plain notes.
 
 - Show the **current state** of an entity in hover, `lore query`, and other
   renders.
-- Support **tags** (bare labels) and **fields** (named scalars or lists).
+- Support **tags** (bare labels) and **fields** (named numeric or text
+  values).
 - **Validate** state operations and surface inconsistencies as diagnostics.
 - Keep syntax natural enough to write during a live session.
 
@@ -40,14 +41,25 @@ Two kinds of state, both attached to entities:
 
 1. **Tags** — bare labels, present or absent. `injured`, `bleeding`,
    `on-fire`. A tag is either set or not; there is no value.
-2. **Fields** — named values. Each field holds one of:
-   - A scalar string (`status = alive`).
-   - A scalar number (`population = 100`).
-   - A list (`inventory = "sword", "shield"`).
+2. **Fields** — named values. A field is one of two **kinds**, fixed by its
+   first assignment:
+   - **Numeric** — holds a single number. Supports arithmetic: `= 5`,
+     `+= 5`, `-= 5`. Example: `population = 100`.
+   - **Text** — holds an ordered list of strings. A length-1 list and a
+     "scalar" are the same thing; the display logic renders short lists
+     as scalars. Supports `= x` (reset the list to `[x]`), `+= x`
+     (append), `-= x` (remove). Examples: `status = alive`,
+     `inventory = "sword", "shield"`.
 
-A field's type is inferred from its first assignment and fixed thereafter.
-Mixing types (e.g. `+=` against a scalar) is a diagnostic, not a runtime
-error.
+The kind is determined by the **syntactic form** of the first value, not by
+what it parses to. A bare number literal (`100`, `-5`, `3.14`) is numeric.
+A bareword identifier (`alive`) or quoted string (`"100"`) is text. So
+`code = "100"` is a text field whose value happens to look like a number.
+
+Mixing kinds is the only type error: `population += "sword"` after
+`population = 100` is a diagnostic, as is `status = 42` after
+`status = alive`. The spec does not convert between kinds — the author
+must be explicit.
 
 State is resolved in **file order** — the same ordering used for description
 accumulation (alphabetical by path relative to the project root). Directives
@@ -69,8 +81,11 @@ Sildar: Got hit again, and it's bad this time. +critically-injured
 
 - `+tag` sets the tag.
 - `-tag` clears the tag.
-- Tag names are identifiers: `[a-zA-Z][a-zA-Z0-9_-]*`. Multi-word tags use
-  hyphens (`critically-injured`) or the quoted escape hatch
+- Tag names are identifiers: the first character is a Unicode letter
+  (`\p{L}`), and subsequent characters are Unicode letters, Unicode
+  digits (`\p{N}`), `_`, or `-`. This accepts non-ASCII word characters
+  (`+blessèd`, `+mörkö`, `+呪われた`). Multi-word tags use hyphens
+  (`critically-injured`) or the quoted escape hatch
   (`+"critically injured"`); the quoted form is normalised by replacing
   spaces with hyphens, so `+"critically injured"` and `+critically-injured`
   refer to the same tag.
@@ -86,16 +101,21 @@ Sildar: Hands us his longsword. inventory += "longsword"
 Sildar: Gives the sword to Gundren. inventory -= "longsword"
 ```
 
-- `field = value` — set or overwrite. For lists, replaces the entire list.
-- `field += value` — increment (numeric) or append (list).
-- `field -= value` — decrement (numeric) or remove (list).
+- `field = value` — for numeric fields, set the number. For text fields,
+  reset the list to `[value]`.
+- `field = a, b, c` — only valid for text fields; resets the list to the
+  given items.
+- `field += value` — for numeric fields, increment. For text fields,
+  append.
+- `field -= value` — for numeric fields, decrement. For text fields,
+  remove the matching item.
 - Field names follow the same identifier rule as tags.
 - Values are one of:
-  - A bareword identifier (`alive`, `active`).
-  - A number literal (`100`, `-5`, `3.14`).
-  - A quoted string (`"two handed sword"`). Multi-word values **must** be
-    quoted.
-- A list may be initialised from multiple comma-separated values:
+  - A number literal (`100`, `-5`, `3.14`) — makes the field numeric.
+  - A bareword identifier (`alive`, `active`) — makes the field text.
+  - A quoted string (`"two handed sword"`) — makes the field text.
+    Multi-word values **must** be quoted.
+- A text list may be initialised from multiple comma-separated values:
   `inventory = "longsword", "shield", "torch"`. Quoted strings are atomic
   and may contain commas.
 
@@ -131,8 +151,9 @@ Rules:
 
 - **Tags line** — all active tags, each prefixed with `+`, space-separated,
   alphabetically sorted. Omitted if no tags are active.
-- **Field lines** — one per field, alphabetically sorted, `name: value`
-  format. Lists render as `name: a, b, c` (list items also alphabetical).
+- **Field lines** — one per field, alphabetically sorted. Numeric fields
+  render as `name: N`. Text fields render as `name: value` if the list
+  has one item, or `name: a, b, c` (items alphabetical) if multiple.
   Omitted if no fields exist.
 - **Separator** — `---` between the state block and the description, only
   when a state block is present.
@@ -151,9 +172,9 @@ Rules:
   point in the file (i.e., applied by directives earlier in file order).
 - `fieldname` at the start of a directive → existing fields on this entity
   first, then other fields seen project-wide.
-- `fieldname +=` where the field is a list → values seen in that field
+- `fieldname +=` where the field is text → values seen in that field
   anywhere in the project.
-- `fieldname -=` where the field is a list → only items currently in the
+- `fieldname -=` where the field is text → only items currently in the
   list for this entity at this point.
 
 All completions are context-sensitive: they consider state resolved up to
@@ -164,10 +185,12 @@ the cursor position, not end-of-file state.
 Surfaced as squiggly underlines in the editor and warnings in `lore check`:
 
 - `-tag` where the tag is not currently active on this entity.
-- `field -= value` where `value` is not in the list.
+- `field -= value` against a text field where `value` is not in the list.
 - `field -= N` or `field += N` where `field` has never been initialised.
-- Type conflict: `+=` or `-=` against a scalar, or `=` assigning a list to
-  a previously-scalar field, or vice versa.
+- Kind conflict: mixing numeric and text operations on the same field
+  (e.g. `population += "sword"` after `population = 100`, or
+  `status = 42` after `status = alive`). The diagnostic points at the
+  offending value and cites the initial assignment's location.
 - Casing drift: `+Injured` here but `+injured` elsewhere → info-level hint.
 
 Every diagnostic points at the offending token (tag, value, or field name),
@@ -195,10 +218,9 @@ type Entity struct {
 }
 
 type FieldValue struct {
-    Kind   FieldKind // scalarString, scalarNumber, list
-    String string
-    Number float64
-    List   []string
+    Kind   FieldKind // numeric, text
+    Number float64  // valid when Kind == numeric
+    Text   []string // valid when Kind == text; length >= 1
 }
 
 type StateEvent struct {
