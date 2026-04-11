@@ -4,6 +4,10 @@ vars:
   BIN: bin/lore
   VSIX: bin/lore.vsix
 
+env:
+  GOCACHE: "{{.TASKFILE_DIR}}/.gocache/build"
+  GOLANGCI_LINT_CACHE: "{{.TASKFILE_DIR}}/.gocache/lint"
+
 tasks:
   default:
     desc: Build, format, lint, and test
