@@ -155,6 +155,50 @@ exactly. Otherwise it is prose. Directives are recognised by shape, not
 position — a `+tag` sitting in the middle of a sentence is still a
 directive. Authors who want a literal `+` in prose should phrase around it.
 
+### Directive Termination
+
+A directive ends at the first **terminator** encountered outside a quoted
+string or number literal. Terminators are:
+
+- Sentence punctuation: `.`, `!`, `?`, `;`
+- End of line
+- The blank line that ends the entity definition
+
+Everything between the directive's start and its terminator is parsed as
+the directive body. Prose after the terminator is unaffected.
+
+```
+Sildar: Took an arrow. +injured He's in bad shape.
+```
+
+Here `+injured` ends at the space before `He's` because tags are
+single-token directives. Field and list directives extend further:
+
+```
+We looted the body. inventory += "sword", "rations x2". We kept walking.
+```
+
+- `inventory += "sword", "rations x2"` is the directive; it terminates
+  at the `.` after `"rations x2"`.
+- `We kept walking.` is prose.
+
+The `.` inside `population = 3.14` is part of the number literal and does
+not terminate. The `,` inside `"rations x2"` (if there were one) would be
+part of the quoted string.
+
+If a directive contains invalid grammar before its terminator — a trailing
+comma, a comma followed by a non-value, a malformed number — it is
+reported as a diagnostic and the offending span is highlighted. This means
+an author writing `inventory += sword, shield, and we kept walking.` will
+see a squiggle: `and` parses as a bareword value, but `we` has no
+preceding comma, so the directive is malformed. The fix is to end the
+directive sooner (`inventory += sword, shield. And we kept walking.`) or
+quote properly.
+
+The practical guidance is simple: **end list directives with sentence
+punctuation before continuing prose**. This is natural to write and keeps
+the parser predictable.
+
 ## Display
 
 Current state is rendered in a compact block above the description text,
