@@ -327,3 +327,38 @@ func TestParseDirectivesQuotedListItemAfterBareword(t *testing.T) {
 		t.Fatalf("expected a missing-separator diagnostic, got nothing")
 	}
 }
+
+func TestParseDirectivesEmptyQuotedValueNotAccepted(t *testing.T) {
+	// An empty quoted string as a value must not produce a text value with
+	// an empty item — that would violate FieldValue's "len >= 1" invariant.
+	events, _ := ParseDirectives(`weapon = ""`, "test.md", 1)
+	if len(events) != 0 {
+		t.Fatalf("expected no event, got %+v", events)
+	}
+}
+
+func TestParseDirectivesBarewordBarewordIsAcceptedAsMultiWord(t *testing.T) {
+	// Per the spec, bareword↔bareword without a comma is not a diagnostic.
+	// `inventory += sword, shield, and we kept walking.` parses as three
+	// items, with "and we kept walking" as the third — surprising but
+	// intended (the user can see the mistake in the state display).
+	events, issues := ParseDirectives("inventory += sword, shield, and we kept walking.", "test.md", 1)
+	if len(events) != 1 {
+		t.Fatalf("events: %+v", events)
+	}
+	if len(issues) != 0 {
+		t.Fatalf("expected no issues, got %+v", issues)
+	}
+	items := events[0].Value.Text
+	if len(items) != 3 || items[0] != "sword" || items[1] != "shield" || items[2] != "and we kept walking" {
+		t.Fatalf("items: %+v", items)
+	}
+}
+
+func TestParseDirectivesTrailingCommaAccepted(t *testing.T) {
+	// A trailing comma after the last item is silently accepted.
+	events, _ := ParseDirectives("inventory += helm,", "test.md", 1)
+	if len(events) != 1 || len(events[0].Value.Text) != 1 || events[0].Value.Text[0] != "helm" {
+		t.Fatalf("events: %+v", events)
+	}
+}

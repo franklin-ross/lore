@@ -275,8 +275,11 @@ func (s *directiveScanner) readValue() (*FieldValue, bool) {
 			continue
 		}
 		// Neither terminator nor comma at this position — list is done.
-		// (The missing-separator diagnostic is emitted inside readListItem
-		// when it notices a quoted-adjacent-bareword within one item.)
+		// Quoted↔bareword adjacency inside an item is reported by
+		// readListItem/checkQuotedAdjacency. Bareword↔bareword "missing
+		// separators" are indistinguishable from legitimate multi-word items
+		// (e.g. "two handed sword") and are accepted as-is per the spec —
+		// the current-state display will reveal the unexpected grouping.
 		break
 	}
 
@@ -379,6 +382,9 @@ func (s *directiveScanner) readQuotedString() (string, bool) {
 	}
 	raw := s.text[start:s.pos]
 	s.pos++ // closing quote
+	if raw == "" {
+		return "", false
+	}
 	return raw, true
 }
 
