@@ -20,6 +20,6 @@
 - ~~**VSCode extension** — done: LSP server (`lore lsp`) with hover, go-to-def, references, autocomplete, semantic tokens. VSCode extension in `vscode-lore/`.~~
 - **Bundle the `lore` binary with the VSIX** — the extension currently spawns bare `lore`, which fails with `ENOENT` whenever VS Code's PATH doesn't include wherever the user installed it (e.g., launched from Finder). Ship the Go binary inside the extension and resolve it by absolute path so it works out of the box.
 - **`lore init`** — create a `lore.toml` in the current directory.
-- **Watch mode** — re-parse on file change for LSP.
+- **Watch workspace for out-of-editor changes** — the LSP already re-parses on `didOpen`/`didChange`/`didSave`, but git pulls, branch switches, and files written by other tools leave the index stale until the user reopens a file. Handle `workspace/didChangeWatchedFiles` (or run an fsnotify watcher) to refresh affected files.
 - **LLM tidy** — `lore tidy` reads session notes, suggests entity definitions.
 - **Export** — generate summary documents from the entity graph.
