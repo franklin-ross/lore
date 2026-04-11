@@ -218,6 +218,22 @@ func TestQueryIncludesStateBlock(t *testing.T) {
 	}
 }
 
+func TestCheckReportsStateIssues(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "lore.toml"), []byte("files = [\"**/*.md\"]\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	// Removing an inactive tag produces a state issue.
+	content := "Sildar (character): Fighter. -injured\n"
+	if err := os.WriteFile(filepath.Join(dir, "sildar.md"), []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+	stdout, _, _ := runLore(t, dir, "check")
+	if !strings.Contains(stdout, "injured") {
+		t.Fatalf("check output missing state issue: %q", stdout)
+	}
+}
+
 func TestE2ENoArgsShowsUsage(t *testing.T) {
 	dir := setupFixtures(t)
 	stdout, _, code := runLore(t, dir)

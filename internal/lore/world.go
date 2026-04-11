@@ -141,7 +141,17 @@ func (w *World) Search(query string) []SearchResult {
 	return results
 }
 
-// Check reports issues such as undefined references. Currently a placeholder.
+// Check reports issues such as undefined references and entity state problems.
 func (w *World) Check() []Issue {
-	return nil
+	var issues []Issue
+	for _, ent := range w.Entities {
+		for _, si := range ent.StateIssues {
+			issues = append(issues, Issue{
+				File:    si.Span.File,
+				Line:    si.Span.Line,
+				Message: si.Message,
+			})
+		}
+	}
+	return issues
 }
