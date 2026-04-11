@@ -119,12 +119,33 @@ func Merge(files []*FileParse) *World {
 			if def.Description == "" {
 				continue
 			}
+			events, lexIssues := ParseDirectives(def.Description, fp.Path, def.Line)
 			ent.Descriptions = append(ent.Descriptions, Description{
-				Text: def.Description,
-				File: fp.Path,
-				Line: def.Line,
+				Text:      def.Description,
+				File:      fp.Path,
+				Line:      def.Line,
+				Events:    events,
+				LexIssues: lexIssues,
 			})
 		}
+	}
+
+	// Phase 2.5: resolve state for each entity from the accumulated descriptions.
+	// Events and lexer issues are already attached per-description by Phase 2;
+	// here we fold them in file order into the entity's resolved state.
+	for i := range world.Entities {
+		ent := &world.Entities[i]
+		var events []StateEvent
+		var lexIssues []StateIssue
+		for _, desc := range ent.Descriptions {
+			events = append(events, desc.Events...)
+			lexIssues = append(lexIssues, desc.LexIssues...)
+		}
+		tags, fields, resolveIssues := ResolveState(events)
+		ent.Tags = tags
+		ent.Fields = fields
+		ent.StateHistory = events
+		ent.StateIssues = append(lexIssues, resolveIssues...)
 	}
 
 	// Build the lookup cache now that all entities (and their descriptions)

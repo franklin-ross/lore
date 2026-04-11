@@ -335,3 +335,77 @@ func TestKnownEntityRedefinitionWithoutType(t *testing.T) {
 		t.Fatalf("expected 2 descriptions, got %d", len(strahd.Descriptions))
 	}
 }
+
+func TestParseDescriptionCapturesDirectives(t *testing.T) {
+	world := setupTestWorld(t, "Sildar (character): Fighter. +injured\n")
+	sildar, err := world.FindEntity("Sildar")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sildar.Descriptions) != 1 {
+		t.Fatalf("descriptions: %+v", sildar.Descriptions)
+	}
+	if len(sildar.Descriptions[0].Events) != 1 {
+		t.Fatalf("events: %+v", sildar.Descriptions[0].Events)
+	}
+	ev := sildar.Descriptions[0].Events[0]
+	if ev.Op != StateOpAdd || ev.Target != "injured" {
+		t.Fatalf("event: %+v", ev)
+	}
+	if ev.Span.File != "test.md" {
+		t.Fatalf("span file: %+v", ev.Span)
+	}
+}
+
+func TestMergeResolvesEntityStateNumericAccrossFiles(t *testing.T) {
+	project := setupTestProject(t, map[string]string{
+		"a-first.md":  "Phandalin (location): Sleepy. population = 100\n",
+		"b-second.md": "Phandalin: Raided. population -= 50\n",
+	})
+	world, err := Parse(project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := world.FindEntity("Phandalin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pop, ok := p.Fields["population"]
+	if !ok || pop.Number != 50 {
+		t.Fatalf("population: %+v", p.Fields)
+	}
+	if len(p.StateIssues) != 0 {
+		t.Fatalf("issues: %+v", p.StateIssues)
+	}
+}
+
+func TestMergeResolvesEntityTagsAcrossFiles(t *testing.T) {
+	project := setupTestProject(t, map[string]string{
+		"a-intro.md":   "Sildar (character): Fighter. +injured\n",
+		"b-session.md": "Sildar: Patched up. -injured\n",
+	})
+	world, err := Parse(project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sildar, _ := world.FindEntity("Sildar")
+	if sildar.Tags["injured"] {
+		t.Fatalf("expected tag to be removed, got: %+v", sildar.Tags)
+	}
+}
+
+func TestMergeSurfacesStateIssues(t *testing.T) {
+	world := setupTestWorld(t, "Sildar (character): Fighter. -injured\n")
+	sildar, _ := world.FindEntity("Sildar")
+	if len(sildar.StateIssues) != 1 {
+		t.Fatalf("issues: %+v", sildar.StateIssues)
+	}
+}
+
+func TestMergeCapturesStateHistory(t *testing.T) {
+	world := setupTestWorld(t, "Phandalin (location): Town. population = 100 population += 50\n")
+	p, _ := world.FindEntity("Phandalin")
+	if len(p.StateHistory) != 2 {
+		t.Fatalf("history: %+v", p.StateHistory)
+	}
+}
