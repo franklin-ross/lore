@@ -258,6 +258,11 @@ func formatEntityHover(ent *lore.Entity) string {
 	if len(ent.Aliases) > 0 {
 		fmt.Fprintf(&b, "\n\nAlso known as: %s", strings.Join(ent.Aliases, ", "))
 	}
+	if state := lore.FormatStateBlock(ent.Tags, ent.Fields); state != "" {
+		b.WriteString("\n\n```\n")
+		b.WriteString(state)
+		b.WriteString("\n```")
+	}
 	if len(ent.Descriptions) > 0 {
 		b.WriteString("\n\n---\n\n")
 		texts := make([]string, len(ent.Descriptions))

@@ -1,6 +1,7 @@
 package lsp
 
 import (
+	"strings"
 	"testing"
 	"testing/fstest"
 
@@ -288,6 +289,42 @@ Strahd (character) | Barovia: Vampire lord, rules the country.
 	}
 	if len(list.Items) != len(want) {
 		t.Errorf("expected %d items, got %d: %v", len(want), len(list.Items), keys(got))
+	}
+}
+
+func TestFormatEntityHoverIncludesState(t *testing.T) {
+	ent := &lore.Entity{
+		Name: "Sildar",
+		Type: "character",
+		Descriptions: []lore.Description{
+			{Text: "Fighter.", File: "t.md", Line: 1},
+		},
+		Tags: map[string]bool{"injured": true},
+		Fields: map[string]lore.FieldValue{
+			"hp": {Kind: lore.FieldNumeric, Number: 3},
+		},
+	}
+	out := formatEntityHover(ent)
+	if !strings.Contains(out, "+injured") {
+		t.Fatalf("hover missing tag: %q", out)
+	}
+	if !strings.Contains(out, "hp: 3") {
+		t.Fatalf("hover missing field: %q", out)
+	}
+}
+
+func TestFormatEntityHoverOmitsEmptyState(t *testing.T) {
+	ent := &lore.Entity{
+		Name: "Sildar",
+		Type: "character",
+		Descriptions: []lore.Description{
+			{Text: "Fighter.", File: "t.md", Line: 1},
+		},
+	}
+	out := formatEntityHover(ent)
+	// When there's no state, no empty code block should appear.
+	if strings.Contains(out, "```\n\n```") || strings.Contains(out, "```\n```") {
+		t.Fatalf("hover has empty state block: %q", out)
 	}
 }
 
