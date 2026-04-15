@@ -28,6 +28,13 @@
         "esbuild": "^0.28.0"
     },
     "contributes": {
+        "commands": [
+            {
+                "command": "lore.toggleHoverStateDirectives",
+                "title": "Lore: Toggle Hover State Directives",
+                "category": "Lore"
+            }
+        ],
         "configuration": {
             "title": "Lore",
             "properties": {
@@ -50,6 +57,11 @@
                     ],
                     "default": "both",
                     "description": "Which entity state blocks to show in the hover view."
+                },
+                "lore.hover.showStateDirectives": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Show inline state directives (+tag, field = 100) inside description prose in the hover view. Disabled by default since the resolved state is already shown at the top."
                 },
                 "lore.trace.server": {
                     "type": "string",

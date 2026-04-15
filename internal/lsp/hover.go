@@ -13,7 +13,7 @@ func (s *Server) hover(_ *glsp.Context, params *protocol.HoverParams) (*protocol
 
 	cursorFile := s.uriToRelPath(params.TextDocument.URI)
 	cursorLine := int(params.Position.Line) + 1 // LSP 0-based → lore 1-based
-	content := formatEntityHover(match.Entity, cursorFile, cursorLine, s.hoverStateMode)
+	content := formatEntityHover(match.Entity, cursorFile, cursorLine, s.hoverStateMode, s.hoverShowStateDirectives)
 	line := params.Position.Line
 	return &protocol.Hover{
 		Contents: protocol.MarkupContent{

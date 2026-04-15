@@ -47,7 +47,8 @@ type Server struct {
 	notify  glsp.NotifyFunc // set during initialize
 	call    glsp.CallFunc   // set during initialize
 
-	hoverStateMode HoverStateMode // set during initialize from initializationOptions
+	hoverStateMode           HoverStateMode // set during initialize from initializationOptions
+	hoverShowStateDirectives bool           // set during initialize from initializationOptions
 
 	open map[string]struct{} // project-relative paths with a live editor buffer
 }
@@ -55,9 +56,10 @@ type Server struct {
 // NewServer creates a new LSP server.
 func NewServer() *Server {
 	return &Server{
-		index:          NewIndex(),
-		open:           make(map[string]struct{}),
-		hoverStateMode: HoverStateModeBoth,
+		index:                    NewIndex(),
+		open:                     make(map[string]struct{}),
+		hoverStateMode:           HoverStateModeBoth,
+		hoverShowStateDirectives: false,
 	}
 }
 
@@ -108,6 +110,7 @@ func (s *Server) initialize(ctx *glsp.Context, params *protocol.InitializeParams
 	s.call = ctx.Call
 	s.root = uriToPath(params.RootURI)
 	s.hoverStateMode = hoverStateModeFromOptions(params.InitializationOptions)
+	s.hoverShowStateDirectives = hoverShowStateDirectivesFromOptions(params.InitializationOptions)
 
 	s.logInfo("initialising with root: %s", s.root)
 	s.loadProject()
@@ -259,6 +262,25 @@ func hoverStateModeFromOptions(opts any) HoverStateMode {
 	return HoverStateModeBoth
 }
 
+// hoverShowStateDirectivesFromOptions reads lore.hover.showStateDirectives
+// (or hoverShowStateDirectives) out of LSP initializationOptions. Defaults to
+// false so hovers show cleaned prose by default.
+func hoverShowStateDirectivesFromOptions(opts any) bool {
+	m, ok := opts.(map[string]any)
+	if !ok {
+		return false
+	}
+	if raw, ok := m["hoverShowStateDirectives"].(bool); ok {
+		return raw
+	}
+	if hoverRaw, ok := m["hover"].(map[string]any); ok {
+		if raw, ok := hoverRaw["showStateDirectives"].(bool); ok {
+			return raw
+		}
+	}
+	return false
+}
+
 func uriToPath(uri *string) string {
 	if uri == nil {
 		return ""
@@ -369,8 +391,10 @@ func renderHoverStateBlocks(ent *lore.Entity, cursorFile string, cursorLine int,
 
 // formatEntityHover builds markdown hover content for an entity. The cursor
 // (file, line) is used to compute the "state at cursor" block when mode
-// requests it; pass an empty cursorFile to show only the latest state.
-func formatEntityHover(ent *lore.Entity, cursorFile string, cursorLine int, mode HoverStateMode) string {
+// requests it; pass an empty cursorFile to show only the latest state. When
+// showStateDirectives is false, description prose is shown with directive
+// spans stripped, and descriptions that reduce to empty text are dropped.
+func formatEntityHover(ent *lore.Entity, cursorFile string, cursorLine int, mode HoverStateMode, showStateDirectives bool) string {
 	var b strings.Builder
 	if ent.Type != "" {
 		fmt.Fprintf(&b, "**%s** (%s)", ent.Name, ent.Type)
@@ -381,12 +405,20 @@ func formatEntityHover(ent *lore.Entity, cursorFile string, cursorLine int, mode
 		fmt.Fprintf(&b, "\n\nAlso known as: %s", strings.Join(ent.Aliases, ", "))
 	}
 	b.WriteString(renderHoverStateBlocks(ent, cursorFile, cursorLine, mode))
-	if len(ent.Descriptions) > 0 {
-		b.WriteString("\n\n---\n\n")
-		texts := make([]string, len(ent.Descriptions))
-		for i, d := range ent.Descriptions {
-			texts[i] = d.Text
+
+	texts := make([]string, 0, len(ent.Descriptions))
+	for _, d := range ent.Descriptions {
+		text := d.Text
+		if !showStateDirectives {
+			text = d.CleanText
 		}
+		if text == "" {
+			continue
+		}
+		texts = append(texts, text)
+	}
+	if len(texts) > 0 {
+		b.WriteString("\n\n---\n\n")
 		b.WriteString(truncate(strings.Join(texts, "\n\n"), 2000))
 	}
 	return b.String()

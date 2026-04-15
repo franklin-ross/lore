@@ -23,9 +23,12 @@ type Entity struct {
 // Description is a block of prose attached to an entity, with its source
 // location. Events holds any state directives parsed out of the description
 // text, in source order. LexIssues holds any diagnostics produced while
-// parsing directives from the description.
+// parsing directives from the description. CleanText is Text with directive
+// spans removed and adjacent separators cleaned up, for views that show the
+// prose without the inline state syntax.
 type Description struct {
 	Text      string
+	CleanText string
 	File      string
 	Line      int
 	Events    []StateEvent

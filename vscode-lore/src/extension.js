@@ -7,7 +7,15 @@ import {
 /** @type {LanguageClient | undefined} */
 let client;
 
-export function activate(/** @type {vscode.ExtensionContext} */ context) {
+function buildInitializationOptions() {
+  const config = vscode.workspace.getConfiguration("lore");
+  return {
+    hoverStateMode: config.get("hover.stateMode") || "both",
+    hoverShowStateDirectives: config.get("hover.showStateDirectives") === true,
+  };
+}
+
+function buildClient() {
   const config = vscode.workspace.getConfiguration("lore");
   const serverPath = config.get("serverPath") || "lore";
 
@@ -24,19 +32,49 @@ export function activate(/** @type {vscode.ExtensionContext} */ context) {
     synchronize: {
       fileEvents: vscode.workspace.createFileSystemWatcher("**/*.md"),
     },
-    initializationOptions: {
-      hoverStateMode: config.get("hover.stateMode") || "both",
-    },
+    initializationOptions: buildInitializationOptions(),
   };
 
-  client = new LanguageClient(
+  return new LanguageClient(
     "lore",
     "Lore Language Server",
     serverOptions,
     clientOptions
   );
+}
 
+async function restartClient() {
+  if (client) {
+    await client.stop();
+  }
+  client = buildClient();
+  await client.start();
+}
+
+export function activate(/** @type {vscode.ExtensionContext} */ context) {
+  client = buildClient();
   client.start();
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      "lore.toggleHoverStateDirectives",
+      async () => {
+        const config = vscode.workspace.getConfiguration("lore");
+        const current = config.get("hover.showStateDirectives") === true;
+        await config.update(
+          "hover.showStateDirectives",
+          !current,
+          vscode.ConfigurationTarget.Global
+        );
+        await restartClient();
+        vscode.window.setStatusBarMessage(
+          `Lore: hover state directives ${!current ? "on" : "off"}`,
+          2000
+        );
+      }
+    )
+  );
+
   context.subscriptions.push({ dispose: () => client?.stop() });
 }
 
