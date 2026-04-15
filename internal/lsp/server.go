@@ -345,32 +345,26 @@ func renderHoverStateBlocks(ent *lore.Entity, cursorFile string, cursorLine int,
 	showLatest := mode == HoverStateModeLatest || mode == HoverStateModeBoth
 	showAt := (mode == HoverStateModeAtCursor || mode == HoverStateModeBoth) && cursorFile != ""
 
-	if !showAt {
+	var body string
+	switch {
+	case !showAt:
 		if !showLatest {
 			return ""
 		}
-		latest := lore.FormatStateBlock(ent.Tags, ent.Fields)
-		if latest == "" {
-			return ""
-		}
-		return "\n\n```\n" + latest + "\n```"
+		body = lore.FormatStateBlock(ent.Tags, ent.Fields)
+	case mode == HoverStateModeAtCursor:
+		atTags, atFields, _ := lore.ResolveStateAt(ent.StateHistory, cursorFile, cursorLine)
+		body = lore.FormatStateBlock(atTags, atFields)
+	default:
+		atTags, atFields, _ := lore.ResolveStateAt(ent.StateHistory, cursorFile, cursorLine)
+		body = lore.FormatStateBlockMerged(atTags, ent.Tags, atFields, ent.Fields)
 	}
 
-	atTags, atFields, _ := lore.ResolveStateAt(ent.StateHistory, cursorFile, cursorLine)
-
-	if mode == HoverStateModeAtCursor {
-		atCursor := lore.FormatStateBlock(atTags, atFields)
-		if atCursor == "" {
-			return ""
-		}
-		return "\n\n```\n" + atCursor + "\n```"
-	}
-
-	merged := lore.FormatStateBlockMerged(atTags, ent.Tags, atFields, ent.Fields)
-	if merged == "" {
+	if body == "" {
 		return ""
 	}
-	return "\n\n```\n" + merged + "\n```"
+
+	return "\n\n```\n" + body + "\n```"
 }
 
 // formatEntityHover builds markdown hover content for an entity. The cursor
