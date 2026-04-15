@@ -573,6 +573,75 @@ func TestSemanticTokensHasCorrectPositions(t *testing.T) {
 	}
 }
 
+func TestSemanticTokensDisambiguatedNameSingleEmission(t *testing.T) {
+	// Two entities share the name "Barovia". A mention in free text that
+	// carries a `(town)` suffix must emit exactly one token, with the town
+	// entity's colour modifiers — not the country's, and not both overlapping.
+	content := "Barovia (town): Gloomy.\n\nBarovia (country): Cloudy.\n\nWe entered Barovia (town) from the west.\n"
+	s := setupTestServer(t, content)
+
+	result, err := s.semanticTokensFull(nil, &protocol.SemanticTokensParams{
+		TextDocument: protocol.TextDocumentIdentifier{URI: "file:///test/test.md"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Data)%5 != 0 {
+		t.Fatalf("malformed semantic token stream: %d values", len(result.Data))
+	}
+
+	world := s.world()
+	var townMods, countryMods uint32
+	for i := range world.Entities {
+		ent := &world.Entities[i]
+		if ent.Type == "town" {
+			townMods = uint32(1) << entityColourIndex(ent)
+		}
+		if ent.Type == "country" {
+			countryMods = uint32(1) << entityColourIndex(ent)
+		}
+	}
+	if townMods == 0 || countryMods == 0 {
+		t.Fatalf("expected both entities in world; got town=%d country=%d", townMods, countryMods)
+	}
+	if townMods == countryMods {
+		t.Fatal("test requires town and country to hash to distinct colours")
+	}
+
+	// Walk the delta-encoded stream and resolve each token's absolute (line, col).
+	var prevLine, prevChar uint32
+	type tok struct{ line, col, mods uint32 }
+	var toks []tok
+	for i := 0; i < len(result.Data); i += 5 {
+		deltaLine := result.Data[i]
+		deltaChar := result.Data[i+1]
+		mods := result.Data[i+4]
+		line := prevLine + deltaLine
+		col := deltaChar
+		if deltaLine == 0 {
+			col = prevChar + deltaChar
+		}
+		toks = append(toks, tok{line, col, mods})
+		prevLine = line
+		prevChar = col
+	}
+
+	// Free-text mention is on line 4 ("We entered Barovia (town) from the west.")
+	// at column 11. Collect tokens covering that position.
+	var hits []tok
+	for _, tk := range toks {
+		if tk.line == 4 && tk.col == 11 {
+			hits = append(hits, tk)
+		}
+	}
+	if len(hits) != 1 {
+		t.Fatalf("expected exactly 1 token for disambiguated free-text mention, got %d: %+v", len(hits), hits)
+	}
+	if hits[0].mods != townMods {
+		t.Fatalf("expected town colour %d at free-text mention, got %d", townMods, hits[0].mods)
+	}
+}
+
 func TestFindEntityAtPositionDisambiguates(t *testing.T) {
 	content := "Barovia (town): Gothic, dark, misty.\n\nBarovia (country): Perpetually cloudy.\n\nWe entered Barovia (town) from the west.\n"
 	s := setupTestServer(t, content)

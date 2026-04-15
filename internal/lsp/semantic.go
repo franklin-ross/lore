@@ -77,7 +77,7 @@ func (s *Server) semanticTokensFull(_ *glsp.Context, params *protocol.SemanticTo
 		lowerLine := strings.ToLower(line)
 		for i := range world.Match.Entities {
 			em := &world.Match.Entities[i]
-			appendMatches(&tokens, lineIdx, lowerLine, em.LowerName, modBits[i])
+			appendNameMatches(&tokens, lineIdx, lowerLine, em, world.Match.Types, modBits[i])
 			for _, la := range em.LowerAliases {
 				appendMatches(&tokens, lineIdx, lowerLine, la, modBits[i])
 			}
@@ -93,6 +93,43 @@ func (s *Server) semanticTokensFull(_ *glsp.Context, params *protocol.SemanticTo
 
 	data := encodeTokens(tokens)
 	return &protocol.SemanticTokens{Data: data}, nil
+}
+
+// appendNameMatches scans for occurrences of an entity's primary name and
+// emits tokens, honouring `(type)` disambiguators the same way the reference
+// scanner does. When a name occurrence is immediately followed by a matching
+// `(type)` suffix, only the entity with that type emits a token there; an
+// occurrence that carries a suffix for some *other* known type is skipped.
+// Bare-name occurrences (no disambiguator) still emit for every entity
+// sharing the name, so the resulting overlap reflects the genuine ambiguity.
+func appendNameMatches(out *[]rawToken, lineIdx int, lowerLine string, em *lore.EntityMatch, allTypes map[string]struct{}, modBits uint32) {
+	if em.LowerName == "" {
+		return
+	}
+	for _, col := range lore.FindWordMatches(lowerLine, em.LowerName) {
+		end := col + len(em.LowerName)
+		if em.LowerType != "" && lore.MatchesTypeSuffix(lowerLine, end, em.LowerType) >= 0 {
+			*out = append(*out, rawToken{
+				line:      uint32(lineIdx),
+				startChar: uint32(col),
+				length:    uint32(len(em.LowerName)),
+				tokenType: 0,
+				modifiers: modBits,
+			})
+			continue
+		}
+		if lore.MatchesAnyTypeSuffix(lowerLine, end, allTypes) >= 0 {
+			// Disambiguator points at a different entity — skip.
+			continue
+		}
+		*out = append(*out, rawToken{
+			line:      uint32(lineIdx),
+			startChar: uint32(col),
+			length:    uint32(len(em.LowerName)),
+			tokenType: 0,
+			modifiers: modBits,
+		})
+	}
 }
 
 // appendMatches scans one already-lowered line for a single needle and emits

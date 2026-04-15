@@ -250,7 +250,7 @@ func findReferences(world *World, content, file string) {
 			}
 			for _, pos := range FindWordMatches(lowerTrimmed, em.LowerName) {
 				end := pos + len(em.LowerName)
-				if matchesTypeSuffix(lowerTrimmed, end, em.LowerType) < 0 {
+				if MatchesTypeSuffix(lowerTrimmed, end, em.LowerType) < 0 {
 					continue
 				}
 				disambigMatched[i] = true
@@ -304,7 +304,7 @@ func findReferences(world *World, content, file string) {
 func isOnlyDisambiguated(lowerText, lowerName string, lowerTypes map[string]struct{}) bool {
 	for _, pos := range FindWordMatches(lowerText, lowerName) {
 		end := pos + len(lowerName)
-		if matchesAnyTypeSuffix(lowerText, end, lowerTypes) < 0 {
+		if MatchesAnyTypeSuffix(lowerText, end, lowerTypes) < 0 {
 			return false
 		}
 	}
@@ -321,11 +321,11 @@ func SkipSpaces(s string, pos int) int {
 	return pos
 }
 
-// matchesTypeSuffix checks whether lowerText at position pos is followed by
+// MatchesTypeSuffix checks whether lowerText at position pos is followed by
 // any number of spaces and "(lowerType)", where spaces are also allowed
 // directly after the opening paren and before the closing paren. Returns
 // the index after the closing paren, or -1 if the pattern doesn't match.
-func matchesTypeSuffix(lowerText string, pos int, lowerType string) int {
+func MatchesTypeSuffix(lowerText string, pos int, lowerType string) int {
 	i := SkipSpaces(lowerText, pos)
 	if i >= len(lowerText) || lowerText[i] != '(' {
 		return -1
@@ -341,10 +341,10 @@ func matchesTypeSuffix(lowerText string, pos int, lowerType string) int {
 	return i + 1
 }
 
-// matchesAnyTypeSuffix is like matchesTypeSuffix but accepts any known
+// MatchesAnyTypeSuffix is like MatchesTypeSuffix but accepts any known
 // entity type inside the parentheses. Spaces are allowed between the name
 // and the paren, just inside the parens, and just before the close.
-func matchesAnyTypeSuffix(lowerText string, pos int, lowerTypes map[string]struct{}) int {
+func MatchesAnyTypeSuffix(lowerText string, pos int, lowerTypes map[string]struct{}) int {
 	i := SkipSpaces(lowerText, pos)
 	if i >= len(lowerText) || lowerText[i] != '(' {
 		return -1
