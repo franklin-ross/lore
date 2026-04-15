@@ -36,6 +36,21 @@
                     "default": "",
                     "description": "Path to the lore binary. If empty, uses 'lore' from PATH."
                 },
+                "lore.hover.stateMode": {
+                    "type": "string",
+                    "enum": [
+                        "both",
+                        "atCursor",
+                        "latest"
+                    ],
+                    "enumDescriptions": [
+                        "Show the state at the cursor and the latest state when they differ.",
+                        "Show only the state resolved up to the cursor position.",
+                        "Show only the latest resolved state for the entity."
+                    ],
+                    "default": "both",
+                    "description": "Which entity state blocks to show in the hover view."
+                },
                 "lore.trace.server": {
                     "type": "string",
                     "enum": [

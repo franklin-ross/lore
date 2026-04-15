@@ -304,12 +304,149 @@ func TestFormatEntityHoverIncludesState(t *testing.T) {
 			"hp": {Kind: lore.FieldNumeric, Number: 3},
 		},
 	}
-	out := formatEntityHover(ent)
+	out := formatEntityHover(ent, "", 0, HoverStateModeLatest)
 	if !strings.Contains(out, "+injured") {
 		t.Fatalf("hover missing tag: %q", out)
 	}
 	if !strings.Contains(out, "hp: 3") {
 		t.Fatalf("hover missing field: %q", out)
+	}
+}
+
+func TestFormatEntityHoverBothModeNoAnnotationWhenEqual(t *testing.T) {
+	ent := &lore.Entity{
+		Name: "Sildar",
+		Type: "character",
+		Tags: map[string]bool{"injured": true},
+		StateHistory: []lore.StateEvent{
+			{Op: lore.StateOpAdd, Target: "injured", Span: lore.StateSpan{File: "t.md", Line: 5}},
+		},
+	}
+	out := formatEntityHover(ent, "t.md", 99, HoverStateModeBoth)
+	if strings.Contains(out, "(latest") {
+		t.Fatalf("expected no latest annotation when equal; got %q", out)
+	}
+	if !strings.Contains(out, "+injured") {
+		t.Fatalf("hover missing tag: %q", out)
+	}
+}
+
+func TestFormatEntityHoverBothModeAnnotatesDivergentTags(t *testing.T) {
+	ent := &lore.Entity{
+		Name: "Sildar",
+		Type: "character",
+		Tags: map[string]bool{"injured": true, "cursed": true},
+		StateHistory: []lore.StateEvent{
+			{Op: lore.StateOpAdd, Target: "injured", Span: lore.StateSpan{File: "t.md", Line: 5}},
+			{Op: lore.StateOpAdd, Target: "cursed", Span: lore.StateSpan{File: "t.md", Line: 20}},
+		},
+	}
+	out := formatEntityHover(ent, "t.md", 10, HoverStateModeBoth)
+	if !strings.Contains(out, "+injured  (latest: +cursed +injured)") {
+		t.Fatalf("expected inline tag latest annotation; got %q", out)
+	}
+}
+
+func TestFormatEntityHoverBothModeAnnotatesDivergentFields(t *testing.T) {
+	ent := &lore.Entity{
+		Name: "Barovia",
+		Type: "town",
+		Fields: map[string]lore.FieldValue{
+			"population": {Kind: lore.FieldNumeric, Number: 100},
+			"shops":      {Kind: lore.FieldText, Text: []string{"toy store", "general store"}},
+		},
+		StateHistory: []lore.StateEvent{
+			{Op: lore.StateOpSet, Target: "population", Value: &lore.FieldValue{Kind: lore.FieldNumeric, Number: 100}, Span: lore.StateSpan{File: "t.md", Line: 1}},
+			{Op: lore.StateOpSet, Target: "shops", Value: &lore.FieldValue{Kind: lore.FieldText, Text: []string{"toy store", "general store", "coffin-maker"}}, Span: lore.StateSpan{File: "t.md", Line: 2}},
+			{Op: lore.StateOpRemove, Target: "shops", Value: &lore.FieldValue{Kind: lore.FieldText, Text: []string{"coffin-maker"}}, Span: lore.StateSpan{File: "t.md", Line: 20}},
+		},
+	}
+	out := formatEntityHover(ent, "t.md", 10, HoverStateModeBoth)
+	// population equal at cursor and latest → no annotation.
+	if !strings.Contains(out, "population: 100") || strings.Contains(out, "population: 100 (latest") {
+		t.Fatalf("population should be shown without annotation; got %q", out)
+	}
+	// shops at cursor still has coffin-maker; latest dropped it.
+	if !strings.Contains(out, "shops: coffin-maker, general store, toy store (latest: general store, toy store)") {
+		t.Fatalf("shops line missing latest annotation; got %q", out)
+	}
+}
+
+func TestFormatEntityHoverAtCursorModeOnly(t *testing.T) {
+	ent := &lore.Entity{
+		Name: "Sildar",
+		Tags: map[string]bool{"injured": true, "cursed": true},
+		StateHistory: []lore.StateEvent{
+			{Op: lore.StateOpAdd, Target: "injured", Span: lore.StateSpan{File: "t.md", Line: 5}},
+			{Op: lore.StateOpAdd, Target: "cursed", Span: lore.StateSpan{File: "t.md", Line: 20}},
+		},
+	}
+	out := formatEntityHover(ent, "t.md", 10, HoverStateModeAtCursor)
+	if strings.Contains(out, "(latest") {
+		t.Fatalf("atCursor mode should not annotate; got %q", out)
+	}
+	if !strings.Contains(out, "+injured") || strings.Contains(out, "+cursed") {
+		t.Fatalf("expected only at-cursor tag; got %q", out)
+	}
+}
+
+func TestFormatEntityHoverLatestModeIgnoresCursor(t *testing.T) {
+	ent := &lore.Entity{
+		Name: "Sildar",
+		Tags: map[string]bool{"injured": true, "cursed": true},
+		StateHistory: []lore.StateEvent{
+			{Op: lore.StateOpAdd, Target: "injured", Span: lore.StateSpan{File: "t.md", Line: 5}},
+			{Op: lore.StateOpAdd, Target: "cursed", Span: lore.StateSpan{File: "t.md", Line: 20}},
+		},
+	}
+	out := formatEntityHover(ent, "t.md", 10, HoverStateModeLatest)
+	if !strings.Contains(out, "+injured") || !strings.Contains(out, "+cursed") {
+		t.Fatalf("latest mode should show both tags; got %q", out)
+	}
+	if strings.Contains(out, "(latest") {
+		t.Fatalf("latest mode should not annotate; got %q", out)
+	}
+}
+
+func TestFormatEntityHoverBothModeNoneAtCursor(t *testing.T) {
+	ent := &lore.Entity{
+		Name: "Sildar",
+		Tags: map[string]bool{"injured": true},
+		StateHistory: []lore.StateEvent{
+			{Op: lore.StateOpAdd, Target: "injured", Span: lore.StateSpan{File: "t.md", Line: 20}},
+		},
+	}
+	out := formatEntityHover(ent, "t.md", 5, HoverStateModeBoth)
+	if !strings.Contains(out, "(none)  (latest: +injured)") {
+		t.Fatalf("expected tag line with (none)  (latest: +injured); got %q", out)
+	}
+}
+
+func TestParseHoverStateMode(t *testing.T) {
+	cases := map[string]HoverStateMode{
+		"":         HoverStateModeBoth,
+		"both":     HoverStateModeBoth,
+		"atCursor": HoverStateModeAtCursor,
+		"latest":   HoverStateModeLatest,
+		"garbage":  HoverStateModeBoth,
+	}
+	for raw, want := range cases {
+		if got := parseHoverStateMode(raw); got != want {
+			t.Errorf("parseHoverStateMode(%q) = %q, want %q", raw, got, want)
+		}
+	}
+}
+
+func TestHoverStateModeFromOptions(t *testing.T) {
+	if got := hoverStateModeFromOptions(nil); got != HoverStateModeBoth {
+		t.Errorf("nil: %q", got)
+	}
+	if got := hoverStateModeFromOptions(map[string]any{"hoverStateMode": "latest"}); got != HoverStateModeLatest {
+		t.Errorf("flat: %q", got)
+	}
+	nested := map[string]any{"hover": map[string]any{"stateMode": "atCursor"}}
+	if got := hoverStateModeFromOptions(nested); got != HoverStateModeAtCursor {
+		t.Errorf("nested: %q", got)
 	}
 }
 
@@ -321,7 +458,7 @@ func TestFormatEntityHoverOmitsEmptyState(t *testing.T) {
 			{Text: "Fighter.", File: "t.md", Line: 1},
 		},
 	}
-	out := formatEntityHover(ent)
+	out := formatEntityHover(ent, "", 0, HoverStateModeLatest)
 	// When there's no state, no empty code block should appear.
 	if strings.Contains(out, "```\n\n```") || strings.Contains(out, "```\n```") {
 		t.Fatalf("hover has empty state block: %q", out)

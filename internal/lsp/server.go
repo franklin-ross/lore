@@ -16,6 +16,27 @@ import (
 
 const serverName = "lore"
 
+// HoverStateMode selects which state block(s) the hover view should show.
+type HoverStateMode string
+
+const (
+	HoverStateModeBoth     HoverStateMode = "both"
+	HoverStateModeAtCursor HoverStateMode = "atCursor"
+	HoverStateModeLatest   HoverStateMode = "latest"
+)
+
+// parseHoverStateMode returns the canonical mode, defaulting to "both" for
+// empty or unrecognised input.
+func parseHoverStateMode(raw string) HoverStateMode {
+	switch HoverStateMode(raw) {
+	case HoverStateModeAtCursor:
+		return HoverStateModeAtCursor
+	case HoverStateModeLatest:
+		return HoverStateModeLatest
+	}
+	return HoverStateModeBoth
+}
+
 // Server is the lore LSP server. glsp dispatches notifications one at a time
 // on a single goroutine, so handler state (including `open`) is only touched
 // serially — no locking required.
@@ -26,14 +47,17 @@ type Server struct {
 	notify  glsp.NotifyFunc // set during initialize
 	call    glsp.CallFunc   // set during initialize
 
+	hoverStateMode HoverStateMode // set during initialize from initializationOptions
+
 	open map[string]struct{} // project-relative paths with a live editor buffer
 }
 
 // NewServer creates a new LSP server.
 func NewServer() *Server {
 	return &Server{
-		index: NewIndex(),
-		open:  make(map[string]struct{}),
+		index:          NewIndex(),
+		open:           make(map[string]struct{}),
+		hoverStateMode: HoverStateModeBoth,
 	}
 }
 
@@ -83,6 +107,7 @@ func (s *Server) initialize(ctx *glsp.Context, params *protocol.InitializeParams
 	s.notify = ctx.Notify
 	s.call = ctx.Call
 	s.root = uriToPath(params.RootURI)
+	s.hoverStateMode = hoverStateModeFromOptions(params.InitializationOptions)
 
 	s.logInfo("initialising with root: %s", s.root)
 	s.loadProject()
@@ -216,6 +241,24 @@ func (s *Server) getDocumentContent(uri string) string {
 	return content
 }
 
+// hoverStateModeFromOptions reads lore.hover.stateMode (or hoverStateMode) out
+// of LSP initializationOptions. Unknown or missing values fall back to "both".
+func hoverStateModeFromOptions(opts any) HoverStateMode {
+	m, ok := opts.(map[string]any)
+	if !ok {
+		return HoverStateModeBoth
+	}
+	if raw, ok := m["hoverStateMode"].(string); ok {
+		return parseHoverStateMode(raw)
+	}
+	if hoverRaw, ok := m["hover"].(map[string]any); ok {
+		if raw, ok := hoverRaw["stateMode"].(string); ok {
+			return parseHoverStateMode(raw)
+		}
+	}
+	return HoverStateModeBoth
+}
+
 func uriToPath(uri *string) string {
 	if uri == nil {
 		return ""
@@ -236,7 +279,7 @@ func (s *Server) publishDiagnostics(path, uri string) {
 		return
 	}
 	world := s.index.World()
-	var items []protocol.Diagnostic
+	items := []protocol.Diagnostic{}
 	for _, ent := range world.Entities {
 		for _, si := range ent.StateIssues {
 			if si.Span.File != path {
@@ -294,8 +337,46 @@ func truncate(s string, maxLen int) string {
 	return s[:maxLen] + "..."
 }
 
-// formatEntityHover builds markdown hover content for an entity.
-func formatEntityHover(ent *lore.Entity) string {
+// renderHoverStateBlocks returns the markdown for the state section of a
+// hover. In "both" mode with a cursor, cursor state is rendered with
+// "(latest: …)" annotations inline for any fields/tags that diverge. In
+// single-view modes it just shows the selected view as one block.
+func renderHoverStateBlocks(ent *lore.Entity, cursorFile string, cursorLine int, mode HoverStateMode) string {
+	showLatest := mode == HoverStateModeLatest || mode == HoverStateModeBoth
+	showAt := (mode == HoverStateModeAtCursor || mode == HoverStateModeBoth) && cursorFile != ""
+
+	if !showAt {
+		if !showLatest {
+			return ""
+		}
+		latest := lore.FormatStateBlock(ent.Tags, ent.Fields)
+		if latest == "" {
+			return ""
+		}
+		return "\n\n```\n" + latest + "\n```"
+	}
+
+	atTags, atFields, _ := lore.ResolveStateAt(ent.StateHistory, cursorFile, cursorLine)
+
+	if mode == HoverStateModeAtCursor {
+		atCursor := lore.FormatStateBlock(atTags, atFields)
+		if atCursor == "" {
+			return ""
+		}
+		return "\n\n```\n" + atCursor + "\n```"
+	}
+
+	merged := lore.FormatStateBlockMerged(atTags, ent.Tags, atFields, ent.Fields)
+	if merged == "" {
+		return ""
+	}
+	return "\n\n```\n" + merged + "\n```"
+}
+
+// formatEntityHover builds markdown hover content for an entity. The cursor
+// (file, line) is used to compute the "state at cursor" block when mode
+// requests it; pass an empty cursorFile to show only the latest state.
+func formatEntityHover(ent *lore.Entity, cursorFile string, cursorLine int, mode HoverStateMode) string {
 	var b strings.Builder
 	if ent.Type != "" {
 		fmt.Fprintf(&b, "**%s** (%s)", ent.Name, ent.Type)
@@ -305,11 +386,7 @@ func formatEntityHover(ent *lore.Entity) string {
 	if len(ent.Aliases) > 0 {
 		fmt.Fprintf(&b, "\n\nAlso known as: %s", strings.Join(ent.Aliases, ", "))
 	}
-	if state := lore.FormatStateBlock(ent.Tags, ent.Fields); state != "" {
-		b.WriteString("\n\n```\n")
-		b.WriteString(state)
-		b.WriteString("\n```")
-	}
+	b.WriteString(renderHoverStateBlocks(ent, cursorFile, cursorLine, mode))
 	if len(ent.Descriptions) > 0 {
 		b.WriteString("\n\n---\n\n")
 		texts := make([]string, len(ent.Descriptions))

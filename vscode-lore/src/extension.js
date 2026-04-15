@@ -24,6 +24,9 @@ export function activate(/** @type {vscode.ExtensionContext} */ context) {
     synchronize: {
       fileEvents: vscode.workspace.createFileSystemWatcher("**/*.md"),
     },
+    initializationOptions: {
+      hoverStateMode: config.get("hover.stateMode") || "both",
+    },
   };
 
   client = new LanguageClient(

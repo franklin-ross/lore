@@ -2,6 +2,27 @@ package lore
 
 import "fmt"
 
+// ResolveStateAt folds events in file order up to and including the cursor
+// position (cursorFile, cursorLine). Events are compared using lexicographic
+// file order — matching the sort used by Merge — then by 1-based line number.
+// Pass an empty cursorFile to fold every event (equivalent to ResolveState).
+func ResolveStateAt(events []StateEvent, cursorFile string, cursorLine int) (map[string]bool, map[string]FieldValue, []StateIssue) {
+	if cursorFile == "" {
+		return ResolveState(events)
+	}
+	filtered := make([]StateEvent, 0, len(events))
+	for _, ev := range events {
+		if ev.Span.File < cursorFile {
+			filtered = append(filtered, ev)
+			continue
+		}
+		if ev.Span.File == cursorFile && ev.Span.Line <= cursorLine {
+			filtered = append(filtered, ev)
+		}
+	}
+	return ResolveState(filtered)
+}
+
 // ResolveState folds a sequence of state events (in file order) into a
 // resolved tag set, field map, and any issues produced by the resolution
 // phase. Lexer-time issues are not returned here — callers combine them
