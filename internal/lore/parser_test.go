@@ -410,6 +410,29 @@ func TestMergeCapturesStateHistory(t *testing.T) {
 	}
 }
 
+func TestMergeNewlineTerminatesDirectiveValue(t *testing.T) {
+	// A description that spans two lines should not let the first line's
+	// text value leak into the second line. The joiner must be a newline so
+	// `date = "2026-02-01"` terminates cleanly before `location = Barovia`
+	// starts — missing a trailing comma on line 1 is not an error.
+	world := setupTestWorld(t, "Session 01 (session):\n  date = \"2026-02-01\"\n  location = Barovia\n")
+	sess, err := world.FindEntity("Session 01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sess.StateIssues) != 0 {
+		t.Fatalf("unexpected state issues: %+v", sess.StateIssues)
+	}
+	date, ok := sess.Fields["date"]
+	if !ok || date.Kind != FieldText || len(date.Text) != 1 || date.Text[0] != "2026-02-01" {
+		t.Fatalf("date field: %+v", sess.Fields)
+	}
+	loc, ok := sess.Fields["location"]
+	if !ok || loc.Kind != FieldText || len(loc.Text) != 1 || loc.Text[0] != "Barovia" {
+		t.Fatalf("location field: %+v", sess.Fields)
+	}
+}
+
 func TestMergeDirectiveSpansMapToOriginalLineAndColumn(t *testing.T) {
 	// The description spans two lines. The directive `+injured` appears on
 	// the continuation line (line 2 in the file). After merge, the event's

@@ -77,11 +77,14 @@ func ParseFile(path, content string) *FileParse {
 			if next == "" {
 				break
 			}
-			// Compute the joiner space offset before writing it.
+			// Compute the joiner offset before writing it. Joining with `\n`
+			// (not a space) lets the directive scanner treat line breaks as
+			// terminators, so a missing comma at end-of-line doesn't swallow
+			// the next line's content into the list value.
 			joinedStart := desc.Len()
 			if desc.Len() > 0 {
-				desc.WriteByte(' ')
-				joinedStart++ // segment starts after the joiner space
+				desc.WriteByte('\n')
+				joinedStart++ // segment starts after the joiner newline
 			}
 			// Column of the first non-whitespace byte in the original line.
 			col := 0
