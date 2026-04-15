@@ -12,9 +12,11 @@ import (
 )
 
 // paletteSize is the number of distinct colours in the entity palette.
-// Token modifiers are used as a bitmask to encode the colour index.
-// With 4 modifier bits we get 16 colours (indices 0-15).
-const paletteSize = 16
+// Token modifiers are used as a bitmask to encode the colour index, one bit
+// per colour. 26 colours map cleanly to the letters A–Z used in modifier
+// names (loreColourA..loreColourZ) and fit well inside LSP's 32-bit
+// tokenModifiers field.
+const paletteSize = 26
 
 // semanticTokensLegend returns the legend for our semantic tokens.
 // We use a single token type "loreEntity" and modifier bits to encode colour index.

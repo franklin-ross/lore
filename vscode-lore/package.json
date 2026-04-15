@@ -145,6 +145,46 @@
             {
                 "id": "loreColourP",
                 "description": "Entity colour P"
+            },
+            {
+                "id": "loreColourQ",
+                "description": "Entity colour Q"
+            },
+            {
+                "id": "loreColourR",
+                "description": "Entity colour R"
+            },
+            {
+                "id": "loreColourS",
+                "description": "Entity colour S"
+            },
+            {
+                "id": "loreColourT",
+                "description": "Entity colour T"
+            },
+            {
+                "id": "loreColourU",
+                "description": "Entity colour U"
+            },
+            {
+                "id": "loreColourV",
+                "description": "Entity colour V"
+            },
+            {
+                "id": "loreColourW",
+                "description": "Entity colour W"
+            },
+            {
+                "id": "loreColourX",
+                "description": "Entity colour X"
+            },
+            {
+                "id": "loreColourY",
+                "description": "Entity colour Y"
+            },
+            {
+                "id": "loreColourZ",
+                "description": "Entity colour Z"
             }
         ],
         "semanticTokenScopes": [
@@ -162,67 +202,107 @@
                 "[*]": {
                     "rules": {
                         "loreEntity.loreColourA": {
-                            "foreground": "#4EC9B0",
+                            "foreground": "#E68989",
                             "bold": true
                         },
                         "loreEntity.loreColourB": {
-                            "foreground": "#DCDCAA",
+                            "foreground": "#7897E2",
                             "bold": true
                         },
                         "loreEntity.loreColourC": {
-                            "foreground": "#C586C0",
+                            "foreground": "#BFE689",
                             "bold": true
                         },
                         "loreEntity.loreColourD": {
-                            "foreground": "#CE9178",
+                            "foreground": "#E278D5",
                             "bold": true
                         },
                         "loreEntity.loreColourE": {
-                            "foreground": "#569CD6",
+                            "foreground": "#89E6D6",
                             "bold": true
                         },
                         "loreEntity.loreColourF": {
-                            "foreground": "#D7BA7D",
+                            "foreground": "#E2B278",
                             "bold": true
                         },
                         "loreEntity.loreColourG": {
-                            "foreground": "#9CDCFE",
+                            "foreground": "#A089E6",
                             "bold": true
                         },
                         "loreEntity.loreColourH": {
-                            "foreground": "#B5CEA8",
+                            "foreground": "#7DE278",
                             "bold": true
                         },
                         "loreEntity.loreColourI": {
-                            "foreground": "#F48771",
+                            "foreground": "#E689A8",
                             "bold": true
                         },
                         "loreEntity.loreColourJ": {
-                            "foreground": "#D4D4D4",
+                            "foreground": "#78BBE2",
                             "bold": true
                         },
                         "loreEntity.loreColourK": {
-                            "foreground": "#E8C87A",
+                            "foreground": "#DEE689",
                             "bold": true
                         },
                         "loreEntity.loreColourL": {
-                            "foreground": "#A8D8B9",
+                            "foreground": "#CC78E2",
                             "bold": true
                         },
                         "loreEntity.loreColourM": {
-                            "foreground": "#D2A0D0",
+                            "foreground": "#89E6B7",
                             "bold": true
                         },
                         "loreEntity.loreColourN": {
-                            "foreground": "#8BBCE8",
+                            "foreground": "#E28E78",
                             "bold": true
                         },
                         "loreEntity.loreColourO": {
-                            "foreground": "#E2B07A",
+                            "foreground": "#8991E6",
                             "bold": true
                         },
                         "loreEntity.loreColourP": {
-                            "foreground": "#8FD4C4",
+                            "foreground": "#A0E278",
+                            "bold": true
+                        },
+                        "loreEntity.loreColourQ": {
+                            "foreground": "#E689C7",
+                            "bold": true
+                        },
+                        "loreEntity.loreColourR": {
+                            "foreground": "#78DEE2",
+                            "bold": true
+                        },
+                        "loreEntity.loreColourS": {
+                            "foreground": "#E6CF89",
+                            "bold": true
+                        },
+                        "loreEntity.loreColourT": {
+                            "foreground": "#A978E2",
+                            "bold": true
+                        },
+                        "loreEntity.loreColourU": {
+                            "foreground": "#89E698",
+                            "bold": true
+                        },
+                        "loreEntity.loreColourV": {
+                            "foreground": "#E27886",
+                            "bold": true
+                        },
+                        "loreEntity.loreColourW": {
+                            "foreground": "#89B0E6",
+                            "bold": true
+                        },
+                        "loreEntity.loreColourX": {
+                            "foreground": "#C4E278",
+                            "bold": true
+                        },
+                        "loreEntity.loreColourY": {
+                            "foreground": "#E689E6",
+                            "bold": true
+                        },
+                        "loreEntity.loreColourZ": {
+                            "foreground": "#78E2C3",
                             "bold": true
                         }
                     }
