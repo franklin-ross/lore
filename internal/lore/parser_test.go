@@ -1,6 +1,9 @@
 package lore
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestParseHeaderWithTypeAndAlias(t *testing.T) {
 	h, ok := ParseHeader("Sildar Hallwinter (character) | Sildar: Fighter.")
@@ -505,5 +508,163 @@ func TestMergeDirectiveSpansOnHeaderLine(t *testing.T) {
 	const wantCol = 20
 	if ev.Span.StartByte != wantCol {
 		t.Fatalf("start byte: %d, want %d", ev.Span.StartByte, wantCol)
+	}
+}
+
+func TestMergeInlineAsideRoutesToNamedEntity(t *testing.T) {
+	// An inline `(Strahd: ...)` aside inside Ireena's description should
+	// land in Strahd's StateHistory, not Ireena's. Strahd's resolved state
+	// reflects the directive; Ireena's does not.
+	content := "Strahd (character): Vampire lord. hp = 100\n" +
+		"\n" +
+		"Ireena (character): She fled the keep (Strahd: hp -= 5; +smitten) and ran for cover.\n"
+	world := setupTestWorld(t, content)
+	strahd, err := world.FindEntity("Strahd")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ireena, err := world.FindEntity("Ireena")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ireena.StateHistory) != 0 {
+		t.Fatalf("ireena should have no events: %+v", ireena.StateHistory)
+	}
+	if len(strahd.StateHistory) != 3 {
+		t.Fatalf("strahd history: %+v", strahd.StateHistory)
+	}
+	if !strahd.Tags["smitten"] {
+		t.Fatalf("strahd tags: %+v", strahd.Tags)
+	}
+	hp, ok := strahd.Fields["hp"]
+	if !ok || hp.Kind != FieldNumeric || hp.Number != 95 {
+		t.Fatalf("strahd hp: %+v", strahd.Fields)
+	}
+	// Ireena's clean text loses the entire aside.
+	if len(ireena.Descriptions) != 1 {
+		t.Fatalf("ireena descriptions: %+v", ireena.Descriptions)
+	}
+	clean := ireena.Descriptions[0].CleanText
+	if clean != "She fled the keep and ran for cover." {
+		t.Fatalf("clean text: %q", clean)
+	}
+}
+
+func TestMergeInlineAsideInFreeProseIntroducesTypedEntity(t *testing.T) {
+	// Asides with a typed subject act like inline header definitions even
+	// when written in free prose between two real definitions.
+	content := "Strahd (character): Vampire lord.\n" +
+		"\n" +
+		"We meet a crying woman. (Mad Mary (npc): old lady, daughter Gertrude is missing.) Tells us things.\n" +
+		"\n" +
+		"Castle Ravenloft (location): Strahd's castle.\n"
+	world := setupTestWorld(t, content)
+
+	mary, err := world.FindEntity("Mad Mary")
+	if err != nil {
+		t.Fatalf("Mad Mary not found: %v", err)
+	}
+	if mary.Type != "npc" {
+		t.Fatalf("type = %q, want npc", mary.Type)
+	}
+	if len(mary.Descriptions) != 1 {
+		t.Fatalf("descs: %+v", mary.Descriptions)
+	}
+	if !strings.Contains(mary.Descriptions[0].Text, "old lady") {
+		t.Fatalf("desc text: %q", mary.Descriptions[0].Text)
+	}
+}
+
+func TestMergeInlineAsideRoutesDirectives(t *testing.T) {
+	// `(Strahd: hp -= 5)` in some other entity's body must route the
+	// directive to Strahd, not the owner. The owner's clean text loses the
+	// aside; the owner's events list does not include the inner directive.
+	content := "Strahd (character): hp = 100\n" +
+		"\n" +
+		"Ireena (character): She fled (Strahd: hp -= 5; +smitten) and ran.\n"
+	world := setupTestWorld(t, content)
+	strahd, _ := world.FindEntity("Strahd")
+	ireena, _ := world.FindEntity("Ireena")
+	hp := strahd.Fields["hp"]
+	if hp.Number != 95 {
+		t.Fatalf("strahd hp = %v", hp.Number)
+	}
+	if !strahd.Tags["smitten"] {
+		t.Fatalf("strahd tags: %+v", strahd.Tags)
+	}
+	for _, ev := range ireena.StateHistory {
+		if ev.Target == "hp" || ev.Target == "smitten" {
+			t.Fatalf("ireena event leaked: %+v", ev)
+		}
+	}
+	if ireena.Descriptions[0].CleanText != "She fled and ran." {
+		t.Fatalf("ireena clean: %q", ireena.Descriptions[0].CleanText)
+	}
+}
+
+func TestMergeInlineAsideUnknownSubjectSilentlyDropped(t *testing.T) {
+	// An aside whose subject doesn't resolve to any entity behaves the same
+	// way a free-floating untyped header does: it's silently skipped at
+	// merge. The aside is still removed from the owner's CleanText, since
+	// stripping is a syntactic concern that doesn't depend on resolution.
+	content := "Ireena (character): She murmured (Nobody: hp -= 5) and slipped away.\n"
+	world := setupTestWorld(t, content)
+	ireena, _ := world.FindEntity("Ireena")
+	clean := ireena.Descriptions[0].CleanText
+	if clean != "She murmured and slipped away." {
+		t.Fatalf("clean text: %q", clean)
+	}
+	if _, err := world.FindEntity("Nobody"); err == nil {
+		t.Fatal("untyped unknown subject should not auto-create an entity")
+	}
+}
+
+func TestMergeInlineAsideProseOnlyAttachesDescription(t *testing.T) {
+	// `(Strahd: hello there)` carries no directive but still attaches the
+	// body to Strahd as if `Strahd: hello there` had been written on its
+	// own line.
+	content := "Strahd (character): Vampire lord.\n" +
+		"\n" +
+		"Ireena (character): She murmured (Strahd: hello there) and walked on.\n"
+	world := setupTestWorld(t, content)
+	strahd, _ := world.FindEntity("Strahd")
+	ireena, _ := world.FindEntity("Ireena")
+	if len(strahd.Descriptions) != 2 {
+		t.Fatalf("strahd descs: %+v", strahd.Descriptions)
+	}
+	if strahd.Descriptions[1].Text != "hello there" {
+		t.Fatalf("aside desc text: %q", strahd.Descriptions[1].Text)
+	}
+	if strahd.Descriptions[1].Line != 3 {
+		t.Fatalf("aside desc line: %d, want 3", strahd.Descriptions[1].Line)
+	}
+	clean := ireena.Descriptions[0].CleanText
+	if clean != "She murmured and walked on." {
+		t.Fatalf("ireena clean: %q", clean)
+	}
+}
+
+func TestMergeInlineAsideNestedParensRoutes(t *testing.T) {
+	content := "Strahd (character): hp = 100\n" +
+		"Bill (character): NPC.\n" +
+		"\n" +
+		"Tavern (location): The bard winced (Strahd: attacked Sir Bill (npc); hp -= 5) and ran.\n"
+	world := setupTestWorld(t, content)
+	strahd, _ := world.FindEntity("Strahd")
+	tav, _ := world.FindEntity("Tavern")
+	hp := strahd.Fields["hp"]
+	if hp.Number != 95 {
+		t.Fatalf("strahd hp = %v", hp.Number)
+	}
+	if len(strahd.Descriptions) != 2 {
+		t.Fatalf("strahd descs: %+v", strahd.Descriptions)
+	}
+	body := strahd.Descriptions[1].Text
+	if !strings.Contains(body, "attacked Sir Bill (npc)") {
+		t.Fatalf("aside body: %q", body)
+	}
+	clean := tav.Descriptions[0].CleanText
+	if clean != "The bard winced and ran." {
+		t.Fatalf("tavern clean: %q", clean)
 	}
 }

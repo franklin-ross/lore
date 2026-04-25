@@ -63,6 +63,21 @@ func TestStripDirectivesFromText(t *testing.T) {
 			in:   "Sildar hands us a longsword. inventory += longsword",
 			want: "Sildar hands us a longsword.",
 		},
+		{
+			name: "inline aside removed wholesale",
+			in:   "Strahd lashed out (Strahd: hp -= 5) and laughed.",
+			want: "Strahd lashed out and laughed.",
+		},
+		{
+			name: "prose-only aside also stripped from owner",
+			in:   "Strahd thought (Strahd: hello there) about it.",
+			want: "Strahd thought about it.",
+		},
+		{
+			name: "aside with nested parens stripped wholesale",
+			in:   "He arrived (Strahd: attacked Sir Bill (npc)) without warning.",
+			want: "He arrived without warning.",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

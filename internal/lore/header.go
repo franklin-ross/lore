@@ -15,12 +15,17 @@ type Header struct {
 // no colon or no non-empty name before it. Both typed and untyped headers are
 // accepted; callers decide whether to treat untyped headers as entity
 // definitions based on surrounding context.
+//
+// The colon split happens at paren depth zero so a line like
+// `We saw her (Mad Mary (npc): old lady) wave.` reads as prose rather than a
+// header — the `:` inside the inline aside doesn't count.
 func ParseHeader(line string) (Header, bool) {
-	headerPart, descStart, ok := strings.Cut(line, ":")
-	if !ok {
+	colon := indexHeaderColon(line)
+	if colon < 0 {
 		return Header{}, false
 	}
-	descStart = strings.TrimSpace(descStart)
+	headerPart := line[:colon]
+	descStart := strings.TrimSpace(line[colon+1:])
 
 	// Typed header: a `(type)` annotation must sit adjacent to a name or alias
 	// boundary — the start or end of a `|`-segment. Parens floating in the
@@ -41,6 +46,27 @@ func ParseHeader(line string) (Header, bool) {
 		return Header{}, false
 	}
 	return Header{Name: name, DescStart: descStart}, true
+}
+
+// indexHeaderColon returns the byte offset of the first ':' in line that is
+// outside any parenthesised group, or -1 if no such colon exists.
+func indexHeaderColon(line string) int {
+	depth := 0
+	for i := 0; i < len(line); i++ {
+		switch line[i] {
+		case '(':
+			depth++
+		case ')':
+			if depth > 0 {
+				depth--
+			}
+		case ':':
+			if depth == 0 {
+				return i
+			}
+		}
+	}
+	return -1
 }
 
 // parseTypedHeader walks the `|`-separated segments of a header and pulls out

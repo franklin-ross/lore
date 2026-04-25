@@ -26,7 +26,10 @@ type Definition struct {
 
 // ParseFile runs the per-file parse: walks lines, pulls out header candidates,
 // and joins each header with its continuation lines until the next blank line.
-// It does not consult any other file or world state.
+// It also extracts inline asides — `(Name: body)` constructs in prose — and
+// adds each one as a synthetic Definition so they participate in merge the
+// same way a normal header line would. It does not consult any other file or
+// world state.
 func ParseFile(path, content string) *FileParse {
 	fp := &FileParse{Path: path, Content: content}
 	lines := strings.Split(content, "\n")
@@ -107,6 +110,26 @@ func ParseFile(path, content string) *FileParse {
 		})
 	}
 
+	// Inline asides — `(Name: body)` constructs found anywhere in prose —
+	// are appended as synthetic Definitions and re-sorted into source-line
+	// order. A stable sort keeps the line-header definition ahead of any
+	// aside that happens to sit on the same line.
+	for _, hit := range extractInlineAsides(content) {
+		fp.Definitions = append(fp.Definitions, Definition{
+			Line:        hit.Line,
+			Header:      hit.Header,
+			Description: hit.Body,
+			Segments: []descSegment{{
+				joinedStart: 0,
+				line:        hit.BodyLine,
+				column:      hit.BodyColumn,
+			}},
+		})
+	}
+	sort.SliceStable(fp.Definitions, func(i, j int) bool {
+		return fp.Definitions[i].Line < fp.Definitions[j].Line
+	})
+
 	return fp
 }
 
@@ -162,7 +185,13 @@ func Merge(files []*FileParse) *World {
 			if def.Description == "" {
 				continue
 			}
-			events, lexIssues := ParseDirectives(def.Description, fp.Path, def.Line)
+			// Inline asides — `(Name: ...)` — are extracted as synthetic
+			// definitions by ParseFile and routed to their named subject.
+			// To avoid double-counting, blank the aside ranges out of the
+			// body before scanning for directives so the owner's event
+			// list reflects only directives written outside any aside.
+			parseBody := blankInlineAsides(def.Description)
+			events, lexIssues := ParseDirectives(parseBody, fp.Path, def.Line)
 			cleanText := stripDirectivesFromText(def.Description, events)
 			translateSpans(events, lexIssues, def.Segments)
 			ent.Descriptions = append(ent.Descriptions, Description{
@@ -176,9 +205,10 @@ func Merge(files []*FileParse) *World {
 		}
 	}
 
-	// Phase 2.5: resolve state for each entity from the accumulated descriptions.
-	// Events and lexer issues are already attached per-description by Phase 2;
-	// here we fold them in file order into the entity's resolved state.
+	// Phase 2.5: resolve state for each entity by folding events from its
+	// descriptions in attachment order, which matches sorted file/line
+	// order across both directly-authored and inline-aside-derived
+	// descriptions.
 	for i := range world.Entities {
 		ent := &world.Entities[i]
 		var events []StateEvent

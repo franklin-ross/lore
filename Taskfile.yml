@@ -2,6 +2,7 @@ version: "3"
 
 vars:
   BIN: bin/lore
+  INSTALLED_BIN: ~/bin/lore
   VSIX: bin/lore.vsix
 
 env:
@@ -75,5 +76,6 @@ tasks:
     desc: Build and install the binary and VSCode extension
     deps: [build, package-vscode]
     cmds:
-      - cp ./bin/lore ~/bin/lore
+      - rm {{.INSTALLED_BIN}}
+      - cp {{.BIN}} {{.INSTALLED_BIN}}
       - code --install-extension {{.VSIX}} --force

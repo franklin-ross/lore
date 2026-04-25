@@ -6,10 +6,10 @@ import (
 	"strings"
 )
 
-// stripDirectivesFromText returns text with every event span removed and
-// adjacent separators cleaned up. Events must carry spans in joined-description
-// byte coordinates (i.e. before translateSpans has remapped them to file
-// lines/columns).
+// stripSpansFromText returns text with every span removed and adjacent
+// separators cleaned up. Spans must be in joined-description byte coordinates
+// (i.e. before translateSpans has remapped them to file lines/columns).
+// Spans may overlap; overlapping ranges are deduplicated.
 //
 // Cleanup rules:
 //   - orphan ';' (directive separators left stranded between strips) are
@@ -18,31 +18,50 @@ import (
 //   - runs of whitespace collapse to a single space.
 //   - consecutive periods separated by whitespace collapse to one period.
 //   - leading/trailing whitespace is trimmed.
-func stripDirectivesFromText(text string, events []StateEvent) string {
-	if len(events) == 0 {
+func stripSpansFromText(text string, spans []StateSpan) string {
+	if len(spans) == 0 {
 		return text
 	}
-	sorted := make([]StateEvent, len(events))
-	copy(sorted, events)
+	sorted := make([]StateSpan, len(spans))
+	copy(sorted, spans)
 	sort.Slice(sorted, func(i, j int) bool {
-		return sorted[i].Span.StartByte < sorted[j].Span.StartByte
+		return sorted[i].StartByte < sorted[j].StartByte
 	})
 
 	var b strings.Builder
 	b.Grow(len(text))
 	pos := 0
-	for _, ev := range sorted {
-		if ev.Span.StartByte < pos {
+	for _, sp := range sorted {
+		if sp.StartByte < pos {
 			continue // overlap; already covered
 		}
-		b.WriteString(text[pos:ev.Span.StartByte])
-		pos = ev.Span.EndByte
+		b.WriteString(text[pos:sp.StartByte])
+		pos = sp.EndByte
 	}
 	if pos < len(text) {
 		b.WriteString(text[pos:])
 	}
 
 	return cleanupStrippedText(b.String())
+}
+
+// stripDirectivesFromText strips directive event spans and inline-aside
+// `(...)` ranges from the description text. Used to render the prose
+// without state syntax in hover and similar views. Aside ranges are
+// computed by paren-balanced scanning, so the whole `(Subject: body)`
+// disappears from the surrounding prose even though only its inner
+// directives are tracked as events.
+func stripDirectivesFromText(text string, events []StateEvent) string {
+	asides := findInlineAsideRanges(text)
+	if len(events) == 0 && len(asides) == 0 {
+		return text
+	}
+	spans := make([]StateSpan, 0, len(events)+len(asides))
+	for _, ev := range events {
+		spans = append(spans, ev.Span)
+	}
+	spans = append(spans, asides...)
+	return stripSpansFromText(text, spans)
 }
 
 var (
