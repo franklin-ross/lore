@@ -4,12 +4,28 @@
     "description": "Entity definitions, cross-references, and semantic highlighting for TTRPG campaign notes",
     "version": "0.7.0",
     "publisher": "franklinross",
-    "license": "UNLICENSE",
+    "license": "Unlicense",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/franklin-ross/lore.git"
+    },
+    "homepage": "https://github.com/franklin-ross/lore#readme",
+    "bugs": {
+        "url": "https://github.com/franklin-ross/lore/issues"
+    },
     "engines": {
         "vscode": "^1.85.0"
     },
     "categories": [
         "Other"
+    ],
+    "keywords": [
+        "ttrpg",
+        "rpg",
+        "lore",
+        "notes",
+        "knowledge-base",
+        "markdown"
     ],
     "activationEvents": [
         "workspaceContains:lore.toml",
