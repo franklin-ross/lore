@@ -8,8 +8,17 @@ permissions:
   contents: write
 
 jobs:
-  release:
-    runs-on: ubuntu-latest
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { goos: darwin,  goarch: arm64, vsce_target: darwin-arm64, runner: macos-latest,  ext: "" }
+          - { goos: darwin,  goarch: amd64, vsce_target: darwin-x64,   runner: macos-latest,  ext: "" }
+          - { goos: linux,   goarch: amd64, vsce_target: linux-x64,    runner: ubuntu-latest, ext: "" }
+          - { goos: linux,   goarch: arm64, vsce_target: linux-arm64,  runner: ubuntu-latest, ext: "" }
+          - { goos: windows, goarch: amd64, vsce_target: win32-x64,    runner: ubuntu-latest, ext: ".exe" }
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
 
@@ -21,33 +30,52 @@ jobs:
         with:
           node-version: "24"
 
-      - name: Build CLI binaries
+      - name: Build CLI binary
         env:
           VERSION: ${{ github.ref_name }}
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
         run: |
-          mkdir -p dist
-          targets="darwin/arm64 darwin/amd64 linux/amd64 linux/arm64 windows/amd64"
-          for target in $targets; do
-            os="${target%/*}"
-            arch="${target#*/}"
-            ext=""
-            [ "$os" = "windows" ] && ext=".exe"
-            output="dist/lore-${os}-${arch}${ext}"
-            echo "Building ${output}..."
-            GOOS="$os" GOARCH="$arch" go build -trimpath -ldflags "-s -w -X main.Version=${VERSION}" -o "$output" ./cmd
-          done
+          mkdir -p vscode-lore/bin dist
+          binary="vscode-lore/bin/lore${{ matrix.ext }}"
+          go build -trimpath -ldflags "-s -w -X main.Version=${VERSION}" -o "$binary" ./cmd
+          # Standalone CLI asset for non-VSCode users.
+          cp "$binary" "dist/lore-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}"
 
-      - name: Build VSCode extension
+      - name: Ad-hoc sign macOS binary
+        if: matrix.goos == 'darwin'
+        run: |
+          binary="vscode-lore/bin/lore${{ matrix.ext }}"
+          codesign --sign - --force --options runtime "$binary"
+          codesign --sign - --force --options runtime "dist/lore-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}"
+
+      - name: Package VSCode extension
         working-directory: vscode-lore
         run: |
           npm install
           npm run bundle
-          npx @vscode/vsce package -o ../dist/lore.vsix
+          npx @vscode/vsce package --target ${{ matrix.vsce_target }} -o "../dist/lore-${{ matrix.vsce_target }}.vsix"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.vsce_target }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 1
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: dist-*
+          merge-multiple: true
 
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
           files: |
             dist/lore-*
-            dist/lore.vsix
           generate_release_notes: true

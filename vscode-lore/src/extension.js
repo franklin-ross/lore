@@ -1,8 +1,46 @@
 import * as vscode from "vscode";
+import * as path from "node:path";
+import * as fs from "node:fs";
+import { execFileSync } from "node:child_process";
 import {
   LanguageClient,
   TransportKind,
 } from "vscode-languageclient/node";
+
+/** @type {string} */
+let extensionPath = "";
+
+// resolveServerPath picks the lore binary in this order:
+//   1. lore.serverPath setting (explicit user override)
+//   2. bundled binary at <extensionPath>/bin/lore[.exe]
+//   3. "lore" on PATH (fallback for source installs and dev)
+function resolveServerPath() {
+  const override = vscode.workspace.getConfiguration("lore").get("serverPath");
+  if (override) return override;
+
+  const exe = process.platform === "win32" ? "lore.exe" : "lore";
+  const bundled = path.join(extensionPath, "bin", exe);
+  if (!fs.existsSync(bundled)) return "lore";
+
+  if (process.platform !== "win32") {
+    try {
+      fs.chmodSync(bundled, 0o755);
+    } catch {
+      // Ignore — file may already have correct mode or live on read-only FS.
+    }
+  }
+  if (process.platform === "darwin") {
+    // Defensive — Node downloads usually don't tag quarantine, but strip if present.
+    try {
+      execFileSync("xattr", ["-d", "com.apple.quarantine", bundled], {
+        stdio: "ignore",
+      });
+    } catch {
+      // No quarantine attr to strip — expected.
+    }
+  }
+  return bundled;
+}
 
 /** @type {LanguageClient | undefined} */
 let client;
@@ -147,8 +185,7 @@ function buildInitializationOptions() {
 }
 
 function buildClient() {
-  const config = vscode.workspace.getConfiguration("lore");
-  const serverPath = config.get("serverPath") || "lore";
+  const serverPath = resolveServerPath();
 
   /** @type {import("vscode-languageclient/node").ServerOptions} */
   const serverOptions = {
@@ -214,6 +251,7 @@ async function restartClient() {
 }
 
 export function activate(/** @type {vscode.ExtensionContext} */ context) {
+  extensionPath = context.extensionPath;
   palette = loadPaletteFromManifest(context.extension);
   buildDecorations();
 

@@ -68,24 +68,25 @@ tasks:
       - npm run bundle
 
   package-vscode:
-    desc: Package the VSCode extension as .vsix into bin/
+    desc: Package the VSCode extension as .vsix into bin/ (with bundled lore binary)
     dir: vscode-lore
-    deps: [build-vscode]
+    deps: [build-vscode, build]
     cmds:
+      - mkdir -p bin
+      - cp ../{{.BIN}} bin/lore
       - npx @vscode/vsce package -o ../{{.VSIX}}
 
   clean:
     desc: Remove build artifacts
     cmds:
       - rm -f {{.BIN}} {{.VSIX}}
-      - rm -rf vscode-lore/out/ vscode-lore/node_modules/
+      - rm -rf vscode-lore/out/ vscode-lore/node_modules/ vscode-lore/bin/
 
   install:
-    desc: Build and install the binary and VSCode extension
-    deps: [build, package-vscode]
+    desc: Install the VSCode extension (binary bundled inside) and CLI to ~/bin
+    deps: [package-vscode]
     cmds:
-      - rm {{.INSTALLED_BIN}}
-      - cp {{.BIN}} {{.INSTALLED_BIN}}
+      - cp -f {{.BIN}} {{.INSTALLED_BIN}}
       - code --install-extension {{.VSIX}} --force
 
   version:
