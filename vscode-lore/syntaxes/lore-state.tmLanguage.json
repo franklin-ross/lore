@@ -1,0 +1,54 @@
+{
+    "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+    "name": "Lore State",
+    "scopeName": "source.lore-state",
+    "patterns": [
+        { "include": "#annotation" },
+        { "include": "#tag" },
+        { "include": "#field-line" }
+    ],
+    "repository": {
+        "annotation": {
+            "match": "\\(latest:[^)]*\\)",
+            "name": "comment.block.annotation.lore-state"
+        },
+        "none": {
+            "match": "\\(none\\)",
+            "name": "constant.language.none.lore-state"
+        },
+        "tag": {
+            "match": "(\\+)([A-Za-z_][\\w-]*)",
+            "captures": {
+                "1": { "name": "keyword.operator.tag.lore-state" },
+                "2": { "name": "entity.name.tag.lore-state" }
+            }
+        },
+        "field-line": {
+            "begin": "^([A-Za-z_][\\w-]*)\\s*(:)",
+            "beginCaptures": {
+                "1": { "name": "variable.parameter.field.lore-state" },
+                "2": { "name": "punctuation.separator.key-value.lore-state" }
+            },
+            "end": "$",
+            "patterns": [
+                { "include": "#annotation" },
+                { "include": "#none" },
+                { "include": "#string" },
+                { "include": "#number" },
+                { "include": "#separator" }
+            ]
+        },
+        "string": {
+            "match": "\"[^\"]*\"",
+            "name": "string.quoted.double.lore-state"
+        },
+        "number": {
+            "match": "-?\\d+(?:\\.\\d+)?",
+            "name": "constant.numeric.lore-state"
+        },
+        "separator": {
+            "match": ",",
+            "name": "punctuation.separator.list.lore-state"
+        }
+    }
+}

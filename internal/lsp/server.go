@@ -387,7 +387,7 @@ func renderHoverStateBlocks(ent *lore.Entity, cursorFile string, cursorLine int,
 		return ""
 	}
 
-	return "\n\n```\n" + body + "\n```"
+	return "\n\n```lore-state\n" + body + "\n```"
 }
 
 // formatEntityHover builds markdown hover content for an entity. The cursor
