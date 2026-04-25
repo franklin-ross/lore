@@ -71,5 +71,6 @@ Every push to `main` and every PR runs `.github/workflows/ci.yml`:
 | `task test-e2e`          | End-to-end CLI tests                                                       |
 | `task install`           | Build + install CLI to `~/bin` and VSCode ext                              |
 | `task version`           | Print the current version (from `vscode-lore/package.json`)                |
+| `task update-deps`       | Update Go and npm dependencies to latest                                   |
 | `task release -- <bump>` | Bump (`patch`/`minor`/`major`/`prerelease` or `vX.Y.Z`), commit, tag, push |
 | `task clean`             | Remove build artifacts                                                     |

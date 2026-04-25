@@ -31,6 +31,14 @@ tasks:
       - go fmt
       - go mod tidy
 
+  update-deps:
+    desc: Update all Go and npm dependencies to latest (not major versions for npm)
+    cmds:
+      - go get -u ./...
+      - go mod tidy
+      - cd vscode-lore && npm update --save
+      - cd vscode-lore && npm install
+
   lint:
     desc: Run static analysis
     cmds:
