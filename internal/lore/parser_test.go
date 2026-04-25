@@ -410,6 +410,25 @@ func TestMergeCapturesStateHistory(t *testing.T) {
 	}
 }
 
+func TestMergeBarewordFieldValueKeepsSlashesAndParens(t *testing.T) {
+	world := setupTestWorld(t, "Session 01 (session):\n  date = 2026/02/01\n  location = Barovia (town)\n")
+	sess, err := world.FindEntity("Session 01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sess.StateIssues) != 0 {
+		t.Fatalf("unexpected state issues: %+v", sess.StateIssues)
+	}
+	date, ok := sess.Fields["date"]
+	if !ok || date.Kind != FieldText || len(date.Text) != 1 || date.Text[0] != "2026/02/01" {
+		t.Fatalf("date field: %+v", sess.Fields)
+	}
+	loc, ok := sess.Fields["location"]
+	if !ok || loc.Kind != FieldText || len(loc.Text) != 1 || loc.Text[0] != "Barovia (town)" {
+		t.Fatalf("location field: %+v", sess.Fields)
+	}
+}
+
 func TestMergeNewlineTerminatesDirectiveValue(t *testing.T) {
 	// A description that spans two lines should not let the first line's
 	// text value leak into the second line. The joiner must be a newline so

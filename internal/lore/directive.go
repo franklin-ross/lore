@@ -262,12 +262,18 @@ func (s *directiveScanner) readValue() (*FieldValue, bool) {
 		return nil, false
 	}
 
-	// Numeric literal path: only if the text immediately looks like a number.
-	// We probe without committing so a leading '-' followed by non-digit
-	// falls through to bareword reading.
+	// Numeric literal path: only if the text immediately looks like a number
+	// AND the matched number is a complete token — i.e. followed by a
+	// terminator, comma, whitespace, or end-of-text. That lets values like
+	// `2026/02/01` or `1.5cm` fall through to the text path instead of being
+	// silently truncated to the leading digits.
 	if s.looksLikeNumber() {
+		saved := s.pos
 		if n, ok := s.tryNumber(); ok {
-			return &FieldValue{Kind: FieldNumeric, Number: n}, true
+			if s.pos >= len(s.text) || s.isTerminator(s.text[s.pos]) || s.text[s.pos] == ',' || s.text[s.pos] == ' ' || s.text[s.pos] == '\t' {
+				return &FieldValue{Kind: FieldNumeric, Number: n}, true
+			}
+			s.pos = saved
 		}
 	}
 
@@ -416,15 +422,17 @@ func (s *directiveScanner) readQuotedString() (string, bool) {
 // at a comma, terminator, or quoted string. Internal whitespace is
 // preserved; edge whitespace is trimmed. Returns the trimmed text.
 //
-// A "word" here is a maximal run of letters, digits, underscores, and
-// hyphens. Words are joined by runs of ASCII space/tab, which are preserved
-// as single characters in the output but collapsed at the edges.
+// A "word" here is a maximal run of letters, digits, and the additional
+// value-friendly punctuation listed in isBarewordRune — underscore, hyphen,
+// slash, colon, apostrophe, and parentheses. Words are joined by runs of
+// ASCII space/tab, which are preserved as single characters in the output
+// but collapsed at the edges.
 func (s *directiveScanner) readBarewordRun() (string, bool) {
 	start := s.pos
 	lastWordEnd := s.pos
 	for s.pos < len(s.text) {
 		r, w := utf8.DecodeRuneInString(s.text[s.pos:])
-		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' || r == '-' {
+		if isBarewordRune(r) {
 			s.pos += w
 			lastWordEnd = s.pos
 			continue
@@ -438,7 +446,7 @@ func (s *directiveScanner) readBarewordRun() (string, bool) {
 				break
 			}
 			next, _ := utf8.DecodeRuneInString(s.text[s.pos:])
-			if unicode.IsLetter(next) || unicode.IsDigit(next) {
+			if isBarewordRune(next) {
 				continue
 			}
 			s.pos = savedPos
@@ -454,6 +462,23 @@ func (s *directiveScanner) readBarewordRun() (string, bool) {
 	// whitespace skipping before checking for commas/terminators.
 	s.pos = lastWordEnd
 	return strings.TrimSpace(s.text[start:lastWordEnd]), true
+}
+
+// isBarewordRune reports whether r is allowed inside an unquoted field value.
+// Includes letters, digits, and common value-shaped punctuation: underscore,
+// hyphen, slash (dates, paths), colon (timestamps, ratios), apostrophe
+// (possessives), and parentheses (disambiguators like "Barovia (town)").
+// Stays out of the tag/identifier set — tag names and field names still use
+// the stricter readIdentifier rules.
+func isBarewordRune(r rune) bool {
+	if unicode.IsLetter(r) || unicode.IsDigit(r) {
+		return true
+	}
+	switch r {
+	case '_', '-', '/', ':', '\'', '(', ')':
+		return true
+	}
+	return false
 }
 
 // checkRunOn emits an info-level diagnostic on the bareword item just read
