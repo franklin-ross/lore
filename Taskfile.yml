@@ -87,7 +87,13 @@ tasks:
       - 'printf "v%s\n" "$(cd vscode-lore && npm pkg get version | tr -d ''"'')"'
 
   release:
-    desc: 'Cut a release: `task release -- patch|minor|major|prerelease|vX.Y.Z`. Bumps vscode-lore, commits, tags, pushes.'
+    desc: 'Cut a release: `task release -- patch|minor|major|prerelease|vX.Y.Z`. Lints, tests, builds, then bumps/commits/tags/pushes.'
+    deps:
+      - task: lint
+      - task: test
+        vars: { CLI_ARGS: "" }
+      - task: build
+      - task: build-vscode
     env:
       ARG: "{{.CLI_ARGS}}"
     preconditions:

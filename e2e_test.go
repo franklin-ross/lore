@@ -160,7 +160,7 @@ func TestE2ELSPStartsAndExits(t *testing.T) {
 	}
 
 	// Close stdin immediately — the LSP should exit cleanly.
-	stdin.Close()
+	_ = stdin.Close()
 
 	if err := cmd.Wait(); err != nil {
 		// LSP may exit with a non-zero code when stdin closes; that's acceptable.

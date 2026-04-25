@@ -167,7 +167,7 @@ func (s *directiveScanner) atWordBoundaryLeft() bool {
 		return true
 	}
 	r, _ := utf8.DecodeLastRuneInString(s.text[:s.pos])
-	return !(unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' || r == '-')
+	return !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '_' && r != '-'
 }
 
 // advanceRune moves past a single rune.

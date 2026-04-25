@@ -10,14 +10,7 @@ Releases are built and published by GitHub Actions. Pushing a semver tag trigger
 
 ## Steps
 
-### 1. Verify Locally
-
-```bash
-task              # format, lint, build, test
-task test-e2e     # end-to-end
-```
-
-### 2. Cut the Release
+### 1. Cut the Release
 
 Auto-bump from the current `vscode-lore/package.json`:
 
@@ -34,11 +27,11 @@ Or pin an exact version:
 task release -- v1.0.0
 ```
 
-Either form bumps `vscode-lore/package.json` (and `package-lock.json`), commits `release: vX.Y.Z`, creates an annotated tag, and pushes the branch and tag. The tag push triggers the release workflow.
+Either form runs lint + tests + build first, then bumps `vscode-lore/package.json` (and `package-lock.json`), commits `release: vX.Y.Z`, creates an annotated tag, and pushes the branch and tag. The tag push triggers the release workflow.
 
 Tags must be semver and start with `v` (e.g. `v1.2.3`, `v1.2.3-rc.1`). `vsce package` reads the bumped `package.json` so the VSIX manifest matches the tag. The CLI binary is built with `-ldflags -X main.Version=$TAG` so `lore version` reports the released version.
 
-### 3. Wait for the Release Workflow
+### 2. Wait for the Release Workflow
 
 The tag push triggers `.github/workflows/release.yml`, which:
 
@@ -53,7 +46,7 @@ The tag push triggers `.github/workflows/release.yml`, which:
 4. Creates a GitHub Release with auto-generated notes.
 5. Attaches all binaries and the `.vsix` as release assets.
 
-### 4. Verify
+### 3. Verify
 
 Check the [Releases](../../releases) page — all six assets should be present and the notes should reflect commits since the previous tag.
 
