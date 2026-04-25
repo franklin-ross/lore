@@ -9,6 +9,9 @@ import (
 	"lore/internal/lsp"
 )
 
+// Version is overridden at build time via -ldflags "-X main.Version=...".
+var Version = "dev"
+
 func main() {
 	if len(os.Args) < 2 {
 		printUsage()
@@ -19,6 +22,10 @@ func main() {
 	args := os.Args[2:]
 
 	// Commands that run without a loaded project.
+	if cmd == "version" || cmd == "--version" || cmd == "-v" {
+		fmt.Println(Version)
+		return
+	}
 	if cmd == "config" {
 		cmdConfig(args)
 		return
@@ -72,6 +79,7 @@ Commands:
   search <text>     Full-text search across all files
   check             Report undefined references
   config init       Create a lore.toml in the current directory
+  version           Print the build version
 `)
 }
 

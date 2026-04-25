@@ -79,3 +79,50 @@ tasks:
       - rm {{.INSTALLED_BIN}}
       - cp {{.BIN}} {{.INSTALLED_BIN}}
       - code --install-extension {{.VSIX}} --force
+
+  version:
+    desc: Print the current version (from vscode-lore/package.json)
+    silent: true
+    cmds:
+      - 'printf "v%s\n" "$(cd vscode-lore && npm pkg get version | tr -d ''"'')"'
+
+  release:
+    desc: 'Cut a release: `task release -- patch|minor|major|prerelease|vX.Y.Z`. Bumps vscode-lore, commits, tags, pushes.'
+    env:
+      ARG: "{{.CLI_ARGS}}"
+    preconditions:
+      - sh: '[ -n "{{.CLI_ARGS}}" ]'
+        msg: "Usage: task release -- <patch|minor|major|prerelease|vX.Y.Z>"
+      - sh: '[ -z "$(git status --porcelain)" ]'
+        msg: "Working tree must be clean before releasing"
+    cmds:
+      - |
+        set -e
+        case "$ARG" in
+          major|minor|patch|premajor|preminor|prepatch|prerelease)
+            NEW_VERSION=$(cd vscode-lore && npm version "$ARG" --no-git-tag-version --preid=rc)
+            ;;
+          v[0-9]*)
+            if ! printf "%s" "$ARG" | grep -qE "^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.]+)?$"; then
+              echo "VERSION must be semver like v1.2.3 or v1.2.3-rc.1" >&2
+              exit 1
+            fi
+            NEW_VERSION=$(cd vscode-lore && npm version "${ARG#v}" --no-git-tag-version --allow-same-version)
+            ;;
+          *)
+            echo "Bad arg: $ARG. Use patch|minor|major|prerelease|vX.Y.Z" >&2
+            exit 1
+            ;;
+        esac
+        # npm version prints new version with `v` prefix.
+        git fetch --tags --quiet
+        if git rev-parse "$NEW_VERSION" >/dev/null 2>&1; then
+          echo "Tag $NEW_VERSION already exists" >&2
+          git checkout -- vscode-lore/package.json vscode-lore/package-lock.json
+          exit 1
+        fi
+        git add vscode-lore/package.json vscode-lore/package-lock.json
+        git commit -m "release: $NEW_VERSION"
+        git tag -a "$NEW_VERSION" -m "Release $NEW_VERSION"
+        git push origin HEAD "$NEW_VERSION"
+        echo "Released $NEW_VERSION"

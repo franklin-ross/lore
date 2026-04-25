@@ -22,6 +22,8 @@ jobs:
           node-version: "24"
 
       - name: Build CLI binaries
+        env:
+          VERSION: ${{ github.ref_name }}
         run: |
           mkdir -p dist
           targets="darwin/arm64 darwin/amd64 linux/amd64 linux/arm64 windows/amd64"
@@ -32,7 +34,7 @@ jobs:
             [ "$os" = "windows" ] && ext=".exe"
             output="dist/lore-${os}-${arch}${ext}"
             echo "Building ${output}..."
-            GOOS="$os" GOARCH="$arch" go build -trimpath -ldflags "-s -w" -o "$output" ./cmd
+            GOOS="$os" GOARCH="$arch" go build -trimpath -ldflags "-s -w -X main.Version=${VERSION}" -o "$output" ./cmd
           done
 
       - name: Build VSCode extension
