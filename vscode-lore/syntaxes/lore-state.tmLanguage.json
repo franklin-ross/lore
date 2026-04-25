@@ -35,12 +35,17 @@
                 { "include": "#none" },
                 { "include": "#string" },
                 { "include": "#number" },
-                { "include": "#separator" }
+                { "include": "#separator" },
+                { "include": "#bare-string" }
             ]
         },
         "string": {
             "match": "\"[^\"]*\"",
             "name": "string.quoted.double.lore-state"
+        },
+        "bare-string": {
+            "match": "[^,\"\\s](?:[^,\"]*[^,\"\\s])?",
+            "name": "string.unquoted.lore-state"
         },
         "number": {
             "match": "(?<=:\\s*)-?\\d+(?:\\.\\d+)?(?=\\s*$)",
