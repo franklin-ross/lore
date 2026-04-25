@@ -540,12 +540,12 @@ func TestMergeInlineAsideRoutesToNamedEntity(t *testing.T) {
 	if !ok || hp.Kind != FieldNumeric || hp.Number != 95 {
 		t.Fatalf("strahd hp: %+v", strahd.Fields)
 	}
-	// Ireena's clean text loses the entire aside.
+	// Ireena's clean text replaces the aside with the subject's name.
 	if len(ireena.Descriptions) != 1 {
 		t.Fatalf("ireena descriptions: %+v", ireena.Descriptions)
 	}
 	clean := ireena.Descriptions[0].CleanText
-	if clean != "She fled the keep and ran for cover." {
+	if clean != "She fled the keep Strahd and ran for cover." {
 		t.Fatalf("clean text: %q", clean)
 	}
 }
@@ -597,7 +597,7 @@ func TestMergeInlineAsideRoutesDirectives(t *testing.T) {
 			t.Fatalf("ireena event leaked: %+v", ev)
 		}
 	}
-	if ireena.Descriptions[0].CleanText != "She fled and ran." {
+	if ireena.Descriptions[0].CleanText != "She fled Strahd and ran." {
 		t.Fatalf("ireena clean: %q", ireena.Descriptions[0].CleanText)
 	}
 }
@@ -605,13 +605,13 @@ func TestMergeInlineAsideRoutesDirectives(t *testing.T) {
 func TestMergeInlineAsideUnknownSubjectSilentlyDropped(t *testing.T) {
 	// An aside whose subject doesn't resolve to any entity behaves the same
 	// way a free-floating untyped header does: it's silently skipped at
-	// merge. The aside is still removed from the owner's CleanText, since
-	// stripping is a syntactic concern that doesn't depend on resolution.
+	// merge. The owner's CleanText still substitutes the bare subject name —
+	// substitution is syntactic and doesn't depend on resolution.
 	content := "Ireena (character): She murmured (Nobody: hp -= 5) and slipped away.\n"
 	world := setupTestWorld(t, content)
 	ireena, _ := world.FindEntity("Ireena")
 	clean := ireena.Descriptions[0].CleanText
-	if clean != "She murmured and slipped away." {
+	if clean != "She murmured Nobody and slipped away." {
 		t.Fatalf("clean text: %q", clean)
 	}
 	if _, err := world.FindEntity("Nobody"); err == nil {
@@ -639,7 +639,7 @@ func TestMergeInlineAsideProseOnlyAttachesDescription(t *testing.T) {
 		t.Fatalf("aside desc line: %d, want 3", strahd.Descriptions[1].Line)
 	}
 	clean := ireena.Descriptions[0].CleanText
-	if clean != "She murmured and walked on." {
+	if clean != "She murmured Strahd and walked on." {
 		t.Fatalf("ireena clean: %q", clean)
 	}
 }
@@ -664,7 +664,7 @@ func TestMergeInlineAsideNestedParensRoutes(t *testing.T) {
 		t.Fatalf("aside body: %q", body)
 	}
 	clean := tav.Descriptions[0].CleanText
-	if clean != "The bard winced and ran." {
+	if clean != "The bard winced Strahd and ran." {
 		t.Fatalf("tavern clean: %q", clean)
 	}
 }

@@ -210,6 +210,7 @@ func Merge(files []*FileParse) *World {
 			parseBody := blankInlineAsides(def.Description)
 			events, lexIssues := ParseDirectives(parseBody, fp.Path, def.Line)
 			cleanText := stripDirectivesFromText(def.Description, events)
+			cleanText = replaceInlineAsidesWithName(cleanText, world)
 			translateSpans(events, lexIssues, def.Segments)
 			ent.Descriptions = append(ent.Descriptions, Description{
 				Text:        def.Description,

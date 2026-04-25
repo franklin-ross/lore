@@ -1,6 +1,53 @@
 package lore
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
+
+// replaceInlineAsidesWithName returns text with each inline aside
+// `(Name (type): body)` replaced by the entity's display name, so prose that
+// originally read "told us of a (Destroyed Town (landmark): …) worth a look"
+// reduces to "told us of a Destroyed Town worth a look" rather than losing
+// the noun entirely. When the aside's name resolves ambiguously in `world`,
+// the replacement carries a `(type)` suffix to match how the user would
+// otherwise disambiguate references in regular prose.
+func replaceInlineAsidesWithName(text string, world *World) string {
+	if !strings.ContainsRune(text, '(') {
+		return text
+	}
+	var b strings.Builder
+	b.Grow(len(text))
+	pos := 0
+	for _, g := range scanParenGroups(text) {
+		contents := text[g.start+1 : g.end-1]
+		header, ok := ParseHeader(strings.TrimSpace(contents))
+		if !ok {
+			continue
+		}
+		b.WriteString(text[pos:g.start])
+		b.WriteString(displayNameForAside(header, world))
+		pos = g.end
+	}
+	b.WriteString(text[pos:])
+	return b.String()
+}
+
+// displayNameForAside returns the rendered name for an inline-aside header.
+// It uses world ambiguity to decide whether a `(type)` suffix is needed:
+// unambiguous lookups render as the bare name (which reads naturally inside
+// prose), while ambiguous ones get the disambiguator the user would have
+// written by hand.
+func displayNameForAside(h Header, world *World) string {
+	if world == nil {
+		return h.Name
+	}
+	_, err := world.FindEntity(h.Name)
+	if _, ambiguous := err.(*AmbiguousError); ambiguous && h.Type != "" {
+		return fmt.Sprintf("%s (%s)", h.Name, h.Type)
+	}
+	return h.Name
+}
 
 // blankInlineAsides returns a copy of text where every inline-aside range
 // (the entire `(Subject: body)` parenthetical) is replaced with spaces of

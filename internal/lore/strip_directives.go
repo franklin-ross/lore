@@ -45,22 +45,19 @@ func stripSpansFromText(text string, spans []StateSpan) string {
 	return cleanupStrippedText(b.String())
 }
 
-// stripDirectivesFromText strips directive event spans and inline-aside
-// `(...)` ranges from the description text. Used to render the prose
-// without state syntax in hover and similar views. Aside ranges are
-// computed by paren-balanced scanning, so the whole `(Subject: body)`
-// disappears from the surrounding prose even though only its inner
-// directives are tracked as events.
+// stripDirectivesFromText strips owner-level directive event spans from
+// text. Used to render the prose without inline state syntax in hover and
+// similar views. Inline asides are *not* stripped here — call
+// replaceInlineAsidesWithName to substitute their `(Name: body)` syntax for
+// the entity's display name (which reads better than a hole in the prose).
 func stripDirectivesFromText(text string, events []StateEvent) string {
-	asides := findInlineAsideRanges(text)
-	if len(events) == 0 && len(asides) == 0 {
+	if len(events) == 0 {
 		return text
 	}
-	spans := make([]StateSpan, 0, len(events)+len(asides))
-	for _, ev := range events {
-		spans = append(spans, ev.Span)
+	spans := make([]StateSpan, len(events))
+	for i, ev := range events {
+		spans[i] = ev.Span
 	}
-	spans = append(spans, asides...)
 	return stripSpansFromText(text, spans)
 }
 
