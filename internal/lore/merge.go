@@ -22,6 +22,13 @@ type Definition struct {
 	Header      Header
 	Description string
 	Segments    []descSegment // maps joined-description byte ranges back to file lines/columns
+
+	// Span covers the full source extent of the definition — for header
+	// lines, from column 0 of Line through the end of the last continuation
+	// line; for inline asides, from the '(' to one past the matching ')'.
+	StartColumn int
+	EndLine     int // 1-based, inclusive
+	EndColumn   int // 0-based byte column on EndLine, exclusive
 }
 
 // ParseFile runs the per-file parse: walks lines, pulls out header candidates,
@@ -47,6 +54,8 @@ func ParseFile(path, content string) *FileParse {
 
 		headerLine := i + 1
 		originalHeaderLine := lines[i]
+		endLine := headerLine
+		endCol := len(originalHeaderLine)
 
 		var desc strings.Builder
 		var segments []descSegment
@@ -100,6 +109,8 @@ func ParseFile(path, content string) *FileParse {
 				column:      col,
 			})
 			desc.WriteString(next)
+			endLine = i + 1
+			endCol = len(rawLine)
 		}
 
 		fp.Definitions = append(fp.Definitions, Definition{
@@ -107,6 +118,9 @@ func ParseFile(path, content string) *FileParse {
 			Header:      header,
 			Description: desc.String(),
 			Segments:    segments,
+			StartColumn: 0,
+			EndLine:     endLine,
+			EndColumn:   endCol,
 		})
 	}
 
@@ -124,6 +138,9 @@ func ParseFile(path, content string) *FileParse {
 				line:        hit.BodyLine,
 				column:      hit.BodyColumn,
 			}},
+			StartColumn: hit.OpenColumn,
+			EndLine:     hit.Line,
+			EndColumn:   hit.CloseColumn,
 		})
 	}
 	sort.SliceStable(fp.Definitions, func(i, j int) bool {
@@ -195,12 +212,15 @@ func Merge(files []*FileParse) *World {
 			cleanText := stripDirectivesFromText(def.Description, events)
 			translateSpans(events, lexIssues, def.Segments)
 			ent.Descriptions = append(ent.Descriptions, Description{
-				Text:      def.Description,
-				CleanText: cleanText,
-				File:      fp.Path,
-				Line:      def.Line,
-				Events:    events,
-				LexIssues: lexIssues,
+				Text:        def.Description,
+				CleanText:   cleanText,
+				File:        fp.Path,
+				Line:        def.Line,
+				Events:      events,
+				LexIssues:   lexIssues,
+				StartColumn: def.StartColumn,
+				EndLine:     def.EndLine,
+				EndColumn:   def.EndColumn,
 			})
 		}
 	}

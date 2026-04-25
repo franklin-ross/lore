@@ -83,7 +83,8 @@ func (s *Server) isOpen(path string) bool {
 func (s *Server) Run() error {
 	commonlog.Configure(0, nil) // suppress logging to stderr
 	handler := s.newHandler()
-	srv := glspserver.NewServer(handler, serverName, false)
+	wrapped := &loreHandler{inner: handler, server: s}
+	srv := glspserver.NewServer(wrapped, serverName, false)
 	return srv.RunStdio()
 }
 

@@ -109,11 +109,13 @@ func looksLikeHeader(contents string) bool {
 // Definitions for asides written inline in prose, so they participate in
 // merge/resolve like any other definition.
 type inlineAsideHit struct {
-	Line       int    // 1-based file line of the opening '('
-	Header     Header // parsed from the aside's contents
-	Body       string // header.DescStart, kept on the struct for clarity
-	BodyLine   int    // 1-based file line where the body starts
-	BodyColumn int    // 0-based byte column on BodyLine
+	Line        int    // 1-based file line of the opening '('
+	Header      Header // parsed from the aside's contents
+	Body        string // header.DescStart, kept on the struct for clarity
+	BodyLine    int    // 1-based file line where the body starts
+	BodyColumn  int    // 0-based byte column on BodyLine
+	OpenColumn  int    // 0-based byte column of '(' on Line
+	CloseColumn int    // 0-based byte column one past the matching ')' on Line
 }
 
 // extractInlineAsides walks file content and returns every aside whose
@@ -144,14 +146,17 @@ func extractInlineAsides(content string) []inlineAsideHit {
 		for bodyStart < g.end-1 && (content[bodyStart] == ' ' || content[bodyStart] == '\t') {
 			bodyStart++
 		}
-		openLine, _ := lineColAt(lineStarts, g.start)
+		openLine, openCol := lineColAt(lineStarts, g.start)
+		_, closeCol := lineColAt(lineStarts, g.end)
 		bodyLine, bodyCol := lineColAt(lineStarts, bodyStart)
 		hits = append(hits, inlineAsideHit{
-			Line:       openLine,
-			Header:     header,
-			Body:       header.DescStart,
-			BodyLine:   bodyLine,
-			BodyColumn: bodyCol,
+			Line:        openLine,
+			Header:      header,
+			Body:        header.DescStart,
+			BodyLine:    bodyLine,
+			BodyColumn:  bodyCol,
+			OpenColumn:  openCol,
+			CloseColumn: closeCol,
 		})
 	}
 	return hits

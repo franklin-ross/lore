@@ -33,6 +33,13 @@ type Description struct {
 	Line      int
 	Events    []StateEvent
 	LexIssues []StateIssue
+
+	// Span covers the full source extent of this description — header line
+	// definitions span from column 0 of Line through EndColumn on EndLine;
+	// inline asides span from StartColumn to EndColumn on a single line.
+	StartColumn int
+	EndLine     int
+	EndColumn   int
 }
 
 // Reference records a mention of an entity in a file.

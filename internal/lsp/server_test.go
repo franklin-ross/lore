@@ -642,6 +642,67 @@ func TestSemanticTokensDisambiguatedNameSingleEmission(t *testing.T) {
 	}
 }
 
+func TestDefinitionRangesCoversHeadersAndAsides(t *testing.T) {
+	content := "Strahd (character): Vampire lord\n  who rules over Barovia.\n\nWalking past, we glimpsed (Tatyana (npc): Strahd's lost love).\n"
+	s := setupTestServer(t, content)
+
+	result, err := s.definitionRanges(&DefinitionRangesParams{
+		TextDocument: protocol.TextDocumentIdentifier{URI: "file:///test/test.md"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Ranges) != 2 {
+		t.Fatalf("expected 2 definition ranges, got %d: %+v", len(result.Ranges), result.Ranges)
+	}
+
+	world := s.world()
+	colourFor := func(name string) uint32 {
+		for i := range world.Entities {
+			if world.Entities[i].Name == name {
+				return entityColourIndex(&world.Entities[i])
+			}
+		}
+		t.Fatalf("entity %q not found", name)
+		return 0
+	}
+
+	// Header range: line 0 col 0 → line 1 col 25 (length of "  who rules over Barovia.").
+	var header, aside *DefinitionRange
+	for i := range result.Ranges {
+		r := &result.Ranges[i]
+		if r.Range.Start.Line == 0 {
+			header = r
+		} else {
+			aside = r
+		}
+	}
+	if header == nil || aside == nil {
+		t.Fatalf("missing one of header/aside ranges: %+v", result.Ranges)
+	}
+
+	if header.Range.Start.Line != 0 || header.Range.Start.Character != 0 {
+		t.Fatalf("header start wrong: %+v", header.Range.Start)
+	}
+	if header.Range.End.Line != 1 || header.Range.End.Character != 25 {
+		t.Fatalf("header end wrong: %+v", header.Range.End)
+	}
+	if header.ColourIndex != colourFor("Strahd") {
+		t.Fatalf("header colour wrong: got %d want %d", header.ColourIndex, colourFor("Strahd"))
+	}
+
+	// Inline aside on line 3, '(' at col 26, ')' at col 60 — End.Character = 61.
+	if aside.Range.Start.Line != 3 || aside.Range.Start.Character != 26 {
+		t.Fatalf("aside start wrong: %+v", aside.Range.Start)
+	}
+	if aside.Range.End.Line != 3 || aside.Range.End.Character != 61 {
+		t.Fatalf("aside end wrong: %+v", aside.Range.End)
+	}
+	if aside.ColourIndex != colourFor("Tatyana") {
+		t.Fatalf("aside colour wrong: got %d want %d", aside.ColourIndex, colourFor("Tatyana"))
+	}
+}
+
 func TestFindEntityAtPositionDisambiguates(t *testing.T) {
 	content := "Barovia (town): Gothic, dark, misty.\n\nBarovia (country): Perpetually cloudy.\n\nWe entered Barovia (town) from the west.\n"
 	s := setupTestServer(t, content)

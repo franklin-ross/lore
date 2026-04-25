@@ -2,7 +2,7 @@
     "name": "lore",
     "displayName": "Lore — TTRPG Knowledge Base",
     "description": "Entity definitions, cross-references, and semantic highlighting for TTRPG campaign notes",
-    "version": "0.3.0",
+    "version": "0.4.3",
     "publisher": "franklinross",
     "license": "UNLICENSE",
     "engines": {
@@ -62,6 +62,21 @@
                     "type": "boolean",
                     "default": false,
                     "description": "Show inline state directives (+tag, field = 100) inside description prose in the hover view. Disabled by default since the resolved state is already shown at the top."
+                },
+                "lore.definitionStyle": {
+                    "type": "string",
+                    "enum": [
+                        "background",
+                        "underline",
+                        "none"
+                    ],
+                    "enumDescriptions": [
+                        "Tint the definition span with a faded version of the palette colour.",
+                        "Underline the definition span in the palette colour.",
+                        "Do not visually distinguish definition spans from prose."
+                    ],
+                    "default": "background",
+                    "description": "How to highlight the definition occurrence of an entity name (the name on its header line or inline aside) so it stands out from references in prose."
                 },
                 "lore.trace.server": {
                     "type": "string",
