@@ -2,7 +2,7 @@
     "name": "lore",
     "displayName": "Lore — TTRPG Knowledge Base",
     "description": "Entity definitions, cross-references, and semantic highlighting for TTRPG campaign notes",
-    "version": "0.5.0",
+    "version": "0.6.2",
     "publisher": "franklinross",
     "license": "UNLICENSE",
     "engines": {

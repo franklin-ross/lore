@@ -142,6 +142,7 @@ function buildInitializationOptions() {
   return {
     hoverStateMode: config.get("hover.stateMode") || "both",
     hoverShowStateDirectives: config.get("hover.showStateDirectives") === true,
+    palette,
   };
 }
 
@@ -163,6 +164,36 @@ function buildClient() {
       fileEvents: vscode.workspace.createFileSystemWatcher("**/*.md"),
     },
     initializationOptions: buildInitializationOptions(),
+    middleware: {
+      // Hovers from the server include `<span style="color:#hex">` to mirror
+      // buffer entity colours. Markdown rendering strips HTML by default,
+      // and the MarkdownString instances vscode-languageclient produces
+      // sometimes don't survive an `instanceof vscode.MarkdownString`
+      // check (different module identity once bundled). Reconstruct each
+      // content item as a fresh MarkdownString with supportHtml on, so
+      // DOMPurify keeps our colour spans regardless of upstream wiring.
+      provideHover: async (document, position, token, next) => {
+        const hover = await next(document, position, token);
+        if (!hover) return hover;
+        hover.contents = hover.contents.map((c) => {
+          let value;
+          let isTrusted;
+          if (typeof c === "string") {
+            value = c;
+          } else if (c && typeof c === "object" && "value" in c) {
+            value = c.value;
+            isTrusted = c.isTrusted;
+          } else {
+            return c;
+          }
+          const md = new vscode.MarkdownString(value);
+          md.supportHtml = true;
+          if (isTrusted) md.isTrusted = isTrusted;
+          return md;
+        });
+        return hover;
+      },
+    },
   };
 
   return new LanguageClient(

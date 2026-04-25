@@ -49,6 +49,7 @@ type Server struct {
 
 	hoverStateMode           HoverStateMode // set during initialize from initializationOptions
 	hoverShowStateDirectives bool           // set during initialize from initializationOptions
+	palette                  []string       // hex colours indexed 0..paletteSize-1, from initializationOptions; empty disables hover colouring
 
 	open map[string]struct{} // project-relative paths with a live editor buffer
 }
@@ -112,6 +113,7 @@ func (s *Server) initialize(ctx *glsp.Context, params *protocol.InitializeParams
 	s.root = uriToPath(params.RootURI)
 	s.hoverStateMode = hoverStateModeFromOptions(params.InitializationOptions)
 	s.hoverShowStateDirectives = hoverShowStateDirectivesFromOptions(params.InitializationOptions)
+	s.palette = paletteFromOptions(params.InitializationOptions)
 
 	s.logInfo("initialising with root: %s", s.root)
 	s.loadProject()
@@ -282,6 +284,31 @@ func hoverShowStateDirectivesFromOptions(opts any) bool {
 	return false
 }
 
+// paletteFromOptions reads lore.palette out of LSP initializationOptions, an
+// array of hex colour strings. The array is indexed in parallel with the
+// loreColour{A..Z} semantic-token modifier bits, so the client and server
+// agree on which colour belongs to which entity. Returns nil if absent or
+// malformed, in which case hover output is rendered without colour spans.
+func paletteFromOptions(opts any) []string {
+	m, ok := opts.(map[string]any)
+	if !ok {
+		return nil
+	}
+	raw, ok := m["palette"].([]any)
+	if !ok {
+		return nil
+	}
+	out := make([]string, 0, len(raw))
+	for _, v := range raw {
+		s, ok := v.(string)
+		if !ok {
+			return nil
+		}
+		out = append(out, s)
+	}
+	return out
+}
+
 func uriToPath(uri *string) string {
 	if uri == nil {
 		return ""
@@ -395,15 +422,23 @@ func renderHoverStateBlocks(ent *lore.Entity, cursorFile string, cursorLine int,
 // requests it; pass an empty cursorFile to show only the latest state. When
 // showStateDirectives is false, description prose is shown with directive
 // spans stripped, and descriptions that reduce to empty text are dropped.
-func formatEntityHover(ent *lore.Entity, cursorFile string, cursorLine int, mode HoverStateMode, showStateDirectives bool) string {
+// The colouriser wraps entity names with palette-coloured `<span>` tags so
+// the hover matches the buffer; pass nil or one with an empty palette to
+// disable colouring (e.g. tests, or older clients without supportHtml).
+func formatEntityHover(ent *lore.Entity, cursorFile string, cursorLine int, mode HoverStateMode, showStateDirectives bool, col *colouriser) string {
 	var b strings.Builder
+	nameSpan := wrapEntityName(ent, col)
 	if ent.Type != "" {
-		fmt.Fprintf(&b, "**%s** (%s)", ent.Name, ent.Type)
+		fmt.Fprintf(&b, "<strong>%s</strong> (%s)", nameSpan, ent.Type)
 	} else {
-		fmt.Fprintf(&b, "**%s**", ent.Name)
+		fmt.Fprintf(&b, "<strong>%s</strong>", nameSpan)
 	}
 	if len(ent.Aliases) > 0 {
-		fmt.Fprintf(&b, "\n\nAlso known as: %s", strings.Join(ent.Aliases, ", "))
+		aliases := make([]string, len(ent.Aliases))
+		for i, a := range ent.Aliases {
+			aliases[i] = wrapEntityAlias(ent, a, col)
+		}
+		fmt.Fprintf(&b, "\n\nAlso known as: %s", strings.Join(aliases, ", "))
 	}
 	b.WriteString(renderHoverStateBlocks(ent, cursorFile, cursorLine, mode))
 
@@ -416,11 +451,38 @@ func formatEntityHover(ent *lore.Entity, cursorFile string, cursorLine int, mode
 		if text == "" {
 			continue
 		}
-		texts = append(texts, text)
+		texts = append(texts, col.Wrap(text))
 	}
 	if len(texts) > 0 {
 		b.WriteString("\n\n---\n\n")
 		b.WriteString(truncate(strings.Join(texts, "\n\n"), 2000))
 	}
 	return b.String()
+}
+
+// wrapEntityName returns the entity's display name wrapped in a colour span
+// for the entity's own palette colour, or the plain name when colouring is
+// disabled.
+func wrapEntityName(ent *lore.Entity, col *colouriser) string {
+	if col == nil || len(col.palette) == 0 {
+		return escapeForHTML(ent.Name)
+	}
+	idx := int(entityColourIndex(ent))
+	if idx < 0 || idx >= len(col.palette) {
+		return escapeForHTML(ent.Name)
+	}
+	return `<span style="color:` + col.palette[idx] + `;">` + escapeForHTML(ent.Name) + `</span>`
+}
+
+// wrapEntityAlias is like wrapEntityName but for a specific alias string,
+// which may not equal ent.Name. The colour comes from the parent entity.
+func wrapEntityAlias(ent *lore.Entity, alias string, col *colouriser) string {
+	if col == nil || len(col.palette) == 0 {
+		return escapeForHTML(alias)
+	}
+	idx := int(entityColourIndex(ent))
+	if idx < 0 || idx >= len(col.palette) {
+		return escapeForHTML(alias)
+	}
+	return `<span style="color:` + col.palette[idx] + `">` + escapeForHTML(alias) + `</span>`
 }

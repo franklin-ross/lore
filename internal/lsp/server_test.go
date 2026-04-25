@@ -304,7 +304,7 @@ func TestFormatEntityHoverIncludesState(t *testing.T) {
 			"hp": {Kind: lore.FieldNumeric, Number: 3},
 		},
 	}
-	out := formatEntityHover(ent, "", 0, HoverStateModeLatest, true)
+	out := formatEntityHover(ent, "", 0, HoverStateModeLatest, true, nil)
 	if !strings.Contains(out, "+injured") {
 		t.Fatalf("hover missing tag: %q", out)
 	}
@@ -322,7 +322,7 @@ func TestFormatEntityHoverBothModeNoAnnotationWhenEqual(t *testing.T) {
 			{Op: lore.StateOpAdd, Target: "injured", Span: lore.StateSpan{File: "t.md", Line: 5}},
 		},
 	}
-	out := formatEntityHover(ent, "t.md", 99, HoverStateModeBoth, true)
+	out := formatEntityHover(ent, "t.md", 99, HoverStateModeBoth, true, nil)
 	if strings.Contains(out, "(latest") {
 		t.Fatalf("expected no latest annotation when equal; got %q", out)
 	}
@@ -341,7 +341,7 @@ func TestFormatEntityHoverBothModeAnnotatesDivergentTags(t *testing.T) {
 			{Op: lore.StateOpAdd, Target: "cursed", Span: lore.StateSpan{File: "t.md", Line: 20}},
 		},
 	}
-	out := formatEntityHover(ent, "t.md", 10, HoverStateModeBoth, true)
+	out := formatEntityHover(ent, "t.md", 10, HoverStateModeBoth, true, nil)
 	if !strings.Contains(out, "+injured  (latest: +cursed +injured)") {
 		t.Fatalf("expected inline tag latest annotation; got %q", out)
 	}
@@ -361,7 +361,7 @@ func TestFormatEntityHoverBothModeAnnotatesDivergentFields(t *testing.T) {
 			{Op: lore.StateOpRemove, Target: "shops", Value: &lore.FieldValue{Kind: lore.FieldText, Text: []string{"coffin-maker"}}, Span: lore.StateSpan{File: "t.md", Line: 20}},
 		},
 	}
-	out := formatEntityHover(ent, "t.md", 10, HoverStateModeBoth, true)
+	out := formatEntityHover(ent, "t.md", 10, HoverStateModeBoth, true, nil)
 	// population equal at cursor and latest → no annotation.
 	if !strings.Contains(out, "population: 100") || strings.Contains(out, "population: 100 (latest") {
 		t.Fatalf("population should be shown without annotation; got %q", out)
@@ -381,7 +381,7 @@ func TestFormatEntityHoverAtCursorModeOnly(t *testing.T) {
 			{Op: lore.StateOpAdd, Target: "cursed", Span: lore.StateSpan{File: "t.md", Line: 20}},
 		},
 	}
-	out := formatEntityHover(ent, "t.md", 10, HoverStateModeAtCursor, true)
+	out := formatEntityHover(ent, "t.md", 10, HoverStateModeAtCursor, true, nil)
 	if strings.Contains(out, "(latest") {
 		t.Fatalf("atCursor mode should not annotate; got %q", out)
 	}
@@ -399,7 +399,7 @@ func TestFormatEntityHoverLatestModeIgnoresCursor(t *testing.T) {
 			{Op: lore.StateOpAdd, Target: "cursed", Span: lore.StateSpan{File: "t.md", Line: 20}},
 		},
 	}
-	out := formatEntityHover(ent, "t.md", 10, HoverStateModeLatest, true)
+	out := formatEntityHover(ent, "t.md", 10, HoverStateModeLatest, true, nil)
 	if !strings.Contains(out, "+injured") || !strings.Contains(out, "+cursed") {
 		t.Fatalf("latest mode should show both tags; got %q", out)
 	}
@@ -416,7 +416,7 @@ func TestFormatEntityHoverBothModeNoneAtCursor(t *testing.T) {
 			{Op: lore.StateOpAdd, Target: "injured", Span: lore.StateSpan{File: "t.md", Line: 20}},
 		},
 	}
-	out := formatEntityHover(ent, "t.md", 5, HoverStateModeBoth, true)
+	out := formatEntityHover(ent, "t.md", 5, HoverStateModeBoth, true, nil)
 	if !strings.Contains(out, "(none)  (latest: +injured)") {
 		t.Fatalf("expected tag line with (none)  (latest: +injured); got %q", out)
 	}
@@ -467,11 +467,11 @@ func TestFormatEntityHoverStripsDirectivesWhenDisabled(t *testing.T) {
 			},
 		},
 	}
-	with := formatEntityHover(ent, "", 0, HoverStateModeLatest, true)
+	with := formatEntityHover(ent, "", 0, HoverStateModeLatest, true, nil)
 	if !strings.Contains(with, "+injured") {
 		t.Fatalf("showStateDirectives=true should include raw directives; got %q", with)
 	}
-	without := formatEntityHover(ent, "", 0, HoverStateModeLatest, false)
+	without := formatEntityHover(ent, "", 0, HoverStateModeLatest, false, nil)
 	if strings.Contains(without, "+injured") || strings.Contains(without, "+healed") {
 		t.Fatalf("showStateDirectives=false should strip directives; got %q", without)
 	}
@@ -493,6 +493,64 @@ func TestHoverShowStateDirectivesFromOptions(t *testing.T) {
 	}
 }
 
+func TestFormatEntityHoverColourisesNamesAndDescriptions(t *testing.T) {
+	content := "Strahd (character): Vampire lord.\n\nTatyana (npc): Strahd's lost love.\n"
+	s := setupTestServer(t, content)
+	s.palette = []string{
+		"#000001", "#000002", "#000003", "#000004", "#000005",
+		"#000006", "#000007", "#000008", "#000009", "#00000A",
+		"#00000B", "#00000C", "#00000D", "#00000E", "#00000F",
+		"#000010", "#000011", "#000012", "#000013", "#000014",
+		"#000015", "#000016", "#000017", "#000018", "#000019",
+		"#00001A",
+	}
+	col := &colouriser{world: s.world(), palette: s.palette}
+
+	world := s.world()
+	var tatyana *lore.Entity
+	for i := range world.Entities {
+		if world.Entities[i].Name == "Tatyana" {
+			tatyana = &world.Entities[i]
+		}
+	}
+	if tatyana == nil {
+		t.Fatal("Tatyana not found")
+	}
+
+	out := formatEntityHover(tatyana, "", 0, HoverStateModeLatest, true, col)
+
+	tatyanaHex := s.palette[entityColourIndex(tatyana)]
+	if !strings.Contains(out, `<span style="color:`+tatyanaHex+`;">Tatyana</span>`) {
+		t.Fatalf("hover did not wrap Tatyana name: %q", out)
+	}
+
+	// Description prose mentions Strahd — should be wrapped in Strahd's hex.
+	var strahd *lore.Entity
+	for i := range world.Entities {
+		if world.Entities[i].Name == "Strahd" {
+			strahd = &world.Entities[i]
+		}
+	}
+	if strahd == nil {
+		t.Fatal("Strahd not found")
+	}
+	strahdHex := s.palette[entityColourIndex(strahd)]
+	if !strings.Contains(out, `<span style="color:`+strahdHex+`;">Strahd</span>`) {
+		t.Fatalf("hover did not wrap Strahd reference in description: %q", out)
+	}
+}
+
+func TestColouriseEscapesHTMLOutsideSpans(t *testing.T) {
+	world := lore.NewWorld()
+	world.Match = nil
+	col := &colouriser{world: world, palette: []string{"#FF0000"}}
+	got := col.Wrap("a < b & c > d")
+	want := "a &lt; b &amp; c &gt; d"
+	if got != want {
+		t.Fatalf("escape mismatch:\n got: %q\nwant: %q", got, want)
+	}
+}
+
 func TestFormatEntityHoverOmitsEmptyState(t *testing.T) {
 	ent := &lore.Entity{
 		Name: "Sildar",
@@ -501,7 +559,7 @@ func TestFormatEntityHoverOmitsEmptyState(t *testing.T) {
 			{Text: "Fighter.", File: "t.md", Line: 1},
 		},
 	}
-	out := formatEntityHover(ent, "", 0, HoverStateModeLatest, true)
+	out := formatEntityHover(ent, "", 0, HoverStateModeLatest, true, nil)
 	// When there's no state, no empty code block should appear.
 	if strings.Contains(out, "```\n\n```") || strings.Contains(out, "```\n```") {
 		t.Fatalf("hover has empty state block: %q", out)
