@@ -216,6 +216,76 @@ func TestReferencesIncludesDeclaration(t *testing.T) {
 	}
 }
 
+func TestWorkspaceSymbolReturnsAllEntities(t *testing.T) {
+	s := setupTestServer(t, testContent)
+
+	results, err := s.workspaceSymbol(nil, &protocol.WorkspaceSymbolParams{Query: ""})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 2 {
+		names := make([]string, len(results))
+		for i, r := range results {
+			names[i] = r.Name
+		}
+		t.Fatalf("expected 2 symbols, got %d: %v", len(results), names)
+	}
+
+	byName := make(map[string]protocol.SymbolInformation, len(results))
+	for _, r := range results {
+		byName[r.Name] = r
+	}
+	sildar, ok := byName["Sildar Hallwinter"]
+	if !ok {
+		t.Fatalf("missing Sildar Hallwinter symbol")
+	}
+	if sildar.Kind != protocol.SymbolKindObject {
+		t.Errorf("expected SymbolKindObject for Sildar, got %d", sildar.Kind)
+	}
+	if sildar.ContainerName == nil || *sildar.ContainerName != "character" {
+		got := "<nil>"
+		if sildar.ContainerName != nil {
+			got = *sildar.ContainerName
+		}
+		t.Errorf("expected container 'character', got %q", got)
+	}
+	if !strings.HasSuffix(sildar.Location.URI, "/test/test.md") {
+		t.Errorf("expected location in test.md, got %q", sildar.Location.URI)
+	}
+	// First definition is line 3 (1-based) = line 2 (0-based).
+	if sildar.Location.Range.Start.Line != 2 {
+		t.Errorf("expected start line 2, got %d", sildar.Location.Range.Start.Line)
+	}
+}
+
+func TestWorkspaceSymbolFiltersByQuery(t *testing.T) {
+	s := setupTestServer(t, testContent)
+
+	results, err := s.workspaceSymbol(nil, &protocol.WorkspaceSymbolParams{Query: "crag"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result for 'crag', got %d", len(results))
+	}
+	if results[0].Name != "Cragmaw Hideout" {
+		t.Errorf("expected Cragmaw Hideout, got %q", results[0].Name)
+	}
+}
+
+func TestWorkspaceSymbolMatchesAlias(t *testing.T) {
+	s := setupTestServer(t, testContent)
+
+	// "Sildar" is an alias for "Sildar Hallwinter".
+	results, err := s.workspaceSymbol(nil, &protocol.WorkspaceSymbolParams{Query: "sildar"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || results[0].Name != "Sildar Hallwinter" {
+		t.Fatalf("expected alias match to find Sildar Hallwinter, got %+v", results)
+	}
+}
+
 func TestCompletionReturnsAllEntitiesAndAliases(t *testing.T) {
 	s := setupTestServer(t, testContent)
 

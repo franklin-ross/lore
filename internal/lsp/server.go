@@ -103,6 +103,7 @@ func (s *Server) newHandler() *protocol.Handler {
 	handler.TextDocumentReferences = s.references
 	handler.TextDocumentCompletion = s.completion
 	handler.TextDocumentSemanticTokensFull = s.semanticTokensFull
+	handler.WorkspaceSymbol = s.workspaceSymbol
 	handler.WorkspaceDidChangeWatchedFiles = s.didChangeWatchedFiles
 	return handler
 }
@@ -134,6 +135,7 @@ func (s *Server) initialize(ctx *glsp.Context, params *protocol.InitializeParams
 				Legend: semanticTokensLegend(),
 				Full:   true,
 			},
+			WorkspaceSymbolProvider: true,
 		},
 		ServerInfo: &protocol.InitializeResultServerInfo{
 			Name: serverName,
