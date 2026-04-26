@@ -6,14 +6,18 @@ import (
 )
 
 func (s *Server) definition(_ *glsp.Context, params *protocol.DefinitionParams) (any, error) {
-	match := s.findEntityAtPosition(params.TextDocument.URI, params.Position)
+	ps, _ := s.projectForURI(params.TextDocument.URI)
+	if ps == nil {
+		return nil, nil
+	}
+	match := s.findEntityAtPosition(ps, params.TextDocument.URI, params.Position)
 	if match == nil || len(match.Entity.Descriptions) == 0 {
 		return nil, nil
 	}
 
 	desc := match.Entity.Descriptions[0]
 	return protocol.Location{
-		URI:   s.fileToURI(desc.File),
+		URI:   ps.fileToURI(desc.File),
 		Range: lineRange(desc.Line),
 	}, nil
 }

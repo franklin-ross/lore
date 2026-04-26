@@ -59,7 +59,11 @@ type rawToken struct {
 }
 
 func (s *Server) semanticTokensFull(_ *glsp.Context, params *protocol.SemanticTokensParams) (*protocol.SemanticTokens, error) {
-	world := s.world()
+	ps, _ := s.projectForURI(params.TextDocument.URI)
+	if ps == nil {
+		return &protocol.SemanticTokens{Data: []uint32{}}, nil
+	}
+	world := ps.world()
 	if world.Match == nil {
 		return &protocol.SemanticTokens{Data: []uint32{}}, nil
 	}

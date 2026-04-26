@@ -15,11 +15,11 @@ type entityMatch struct {
 	End    int
 }
 
-// findEntityAtPosition identifies which entity the cursor is on, preferring
-// disambiguated matches ("Name (type)") over bare name matches, and longer
-// matches over shorter ones.
-func (s *Server) findEntityAtPosition(uri string, pos protocol.Position) *entityMatch {
-	world := s.world()
+// findEntityAtPosition identifies which entity the cursor is on within the
+// owning project ps, preferring disambiguated matches ("Name (type)") over
+// bare name matches, and longer matches over shorter ones.
+func (s *Server) findEntityAtPosition(ps *projectState, uri string, pos protocol.Position) *entityMatch {
+	world := ps.world()
 	line := s.getLine(uri, pos.Line)
 	lowerLine := strings.ToLower(line)
 	col := int(pos.Character)
@@ -86,4 +86,3 @@ func allNames(ent *lore.Entity) []string {
 	names = append(names, ent.Aliases...)
 	return names
 }
-

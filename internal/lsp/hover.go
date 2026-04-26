@@ -6,15 +6,18 @@ import (
 )
 
 func (s *Server) hover(_ *glsp.Context, params *protocol.HoverParams) (*protocol.Hover, error) {
-	match := s.findEntityAtPosition(params.TextDocument.URI, params.Position)
+	ps, rel := s.projectForURI(params.TextDocument.URI)
+	if ps == nil {
+		return nil, nil
+	}
+	match := s.findEntityAtPosition(ps, params.TextDocument.URI, params.Position)
 	if match == nil {
 		return nil, nil
 	}
 
-	cursorFile := s.uriToRelPath(params.TextDocument.URI)
 	cursorLine := int(params.Position.Line) + 1 // LSP 0-based → lore 1-based
-	col := &colouriser{world: s.world(), palette: s.palette}
-	content := formatEntityHover(match.Entity, cursorFile, cursorLine, s.hoverStateMode, s.hoverShowStateDirectives, col)
+	col := &colouriser{world: ps.world(), palette: s.palette}
+	content := formatEntityHover(match.Entity, rel, cursorLine, s.hoverStateMode, s.hoverShowStateDirectives, col)
 	line := params.Position.Line
 	return &protocol.Hover{
 		Contents: protocol.MarkupContent{

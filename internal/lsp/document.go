@@ -8,10 +8,21 @@ import (
 )
 
 func (s *Server) didOpen(_ *glsp.Context, params *protocol.DidOpenTextDocumentParams) error {
-	rel := s.uriToRelPath(params.TextDocument.URI)
-	s.markOpen(rel)
-	s.index.SetFile(rel, params.TextDocument.Text)
-	s.publishDiagnostics(rel, params.TextDocument.URI)
+	abs := uriToPath(&params.TextDocument.URI)
+	s.markOpen(abs)
+
+	ps, rel := s.findOwner(abs)
+	if ps == nil {
+		// File outside every project — nothing to index.
+		return nil
+	}
+	if !ps.project.Matcher.Matches(rel) {
+		// Buffer is in the project tree but excluded by the config's globs.
+		// Don't index it; the project's view of the world stays clean.
+		return nil
+	}
+	ps.index.SetFile(rel, params.TextDocument.Text)
+	s.publishDiagnostics(ps, rel, params.TextDocument.URI)
 	return nil
 }
 
@@ -25,9 +36,12 @@ func (s *Server) didChange(_ *glsp.Context, params *protocol.DidChangeTextDocume
 	if !ok {
 		return nil
 	}
-	rel := s.uriToRelPath(params.TextDocument.URI)
-	s.index.SetFile(rel, change.Text)
-	s.publishDiagnostics(rel, params.TextDocument.URI)
+	ps, rel := s.projectForURI(params.TextDocument.URI)
+	if ps == nil || !ps.project.Matcher.Matches(rel) {
+		return nil
+	}
+	ps.index.SetFile(rel, change.Text)
+	s.publishDiagnostics(ps, rel, params.TextDocument.URI)
 	return nil
 }
 
@@ -35,8 +49,11 @@ func (s *Server) didSave(_ *glsp.Context, params *protocol.DidSaveTextDocumentPa
 	// Buffer contents and on-disk file are identical after a save; the index
 	// already reflects the latest keystroke via didChange. Re-publish
 	// diagnostics anyway in case the client wants a fresh push.
-	rel := s.uriToRelPath(params.TextDocument.URI)
-	s.publishDiagnostics(rel, params.TextDocument.URI)
+	ps, rel := s.projectForURI(params.TextDocument.URI)
+	if ps == nil {
+		return nil
+	}
+	s.publishDiagnostics(ps, rel, params.TextDocument.URI)
 	return nil
 }
 
@@ -45,17 +62,22 @@ func (s *Server) didClose(_ *glsp.Context, params *protocol.DidCloseTextDocument
 	// from disk so we pick up anything that changed outside the editor while
 	// the buffer was open — the watcher ignores those changes for open
 	// buffers, so this close is our reconcile point.
-	rel := s.uriToRelPath(params.TextDocument.URI)
-	s.markClosed(rel)
-	if s.project == nil {
-		s.index.RemoveFile(rel)
+	abs := uriToPath(&params.TextDocument.URI)
+	s.markClosed(abs)
+
+	ps, rel := s.findOwner(abs)
+	if ps == nil {
 		return nil
 	}
-	data, err := fs.ReadFile(s.project.FS, rel)
+	if !ps.project.Matcher.Matches(rel) {
+		// File wasn't tracked while open either; nothing to drop.
+		return nil
+	}
+	data, err := fs.ReadFile(ps.project.FS, rel)
 	if err != nil {
-		s.index.RemoveFile(rel)
+		ps.index.RemoveFile(rel)
 		return nil
 	}
-	s.index.SetFile(rel, string(data))
+	ps.index.SetFile(rel, string(data))
 	return nil
 }

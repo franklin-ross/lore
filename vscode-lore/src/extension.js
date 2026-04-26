@@ -321,7 +321,12 @@ export function activate(/** @type {vscode.ExtensionContext} */ context) {
   );
 
   context.subscriptions.push(
-    vscode.window.onDidChangeActiveTextEditor((editor) => refreshEditor(editor)),
+    vscode.window.onDidChangeActiveTextEditor((editor) => {
+      refreshEditor(editor);
+      // The tree view is scoped to the active editor's project, so refresh
+      // whenever focus moves so the user sees the right campaign.
+      entitiesProvider.refresh();
+    }),
     vscode.window.onDidChangeVisibleTextEditors(refreshAllVisible),
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration("lore.definitionStyle")) refreshAllVisible();

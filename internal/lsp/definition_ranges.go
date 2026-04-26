@@ -35,16 +35,17 @@ type DefinitionRangesResult struct {
 }
 
 // definitionRanges produces every definition span in the requested document.
-// It walks each entity's descriptions, filters to those originating in this
-// file, and converts the 1-based / byte-column lore positions to LSP's
-// 0-based coordinates. Colour index reuses entityColourIndex so the
-// decoration colour matches the entity's semantic-token colour.
+// It resolves the document's owning project, walks each entity's descriptions,
+// filters to those originating in this file, and converts the 1-based /
+// byte-column lore positions to LSP's 0-based coordinates. Colour index
+// reuses entityColourIndex so the decoration colour matches the entity's
+// semantic-token colour.
 func (s *Server) definitionRanges(params *DefinitionRangesParams) (*DefinitionRangesResult, error) {
-	world := s.world()
-	if world == nil {
+	ps, relPath := s.projectForURI(params.TextDocument.URI)
+	if ps == nil {
 		return &DefinitionRangesResult{}, nil
 	}
-	relPath := s.uriToRelPath(params.TextDocument.URI)
+	world := ps.world()
 
 	out := DefinitionRangesResult{}
 	for i := range world.Entities {

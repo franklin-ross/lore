@@ -38,12 +38,13 @@ func setupTestServer(t *testing.T, content string) *Server {
 
 	s := NewServer()
 	s.root = "/test"
-	s.project = project
-	if err := s.index.LoadProject(project); err != nil {
+	ps := &projectState{root: "/test", project: project, index: NewIndex()}
+	if err := ps.index.LoadProject(project); err != nil {
 		t.Fatal(err)
 	}
 	// Editor buffer test URIs use /test as the root; mirror the content there.
-	s.index.SetFile("test.md", content)
+	ps.index.SetFile("test.md", content)
+	s.projects = map[string]*projectState{"/test": ps}
 	return s
 }
 
@@ -289,7 +290,11 @@ func TestWorkspaceSymbolMatchesAlias(t *testing.T) {
 func TestCompletionReturnsAllEntitiesAndAliases(t *testing.T) {
 	s := setupTestServer(t, testContent)
 
-	result, err := s.completion(nil, &protocol.CompletionParams{})
+	result, err := s.completion(nil, &protocol.CompletionParams{
+		TextDocumentPositionParams: protocol.TextDocumentPositionParams{
+			TextDocument: protocol.TextDocumentIdentifier{URI: "file:///test/test.md"},
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -324,7 +329,11 @@ Strahd (character) | Barovia: Vampire lord, rules the country.
 `
 	s := setupTestServer(t, content)
 
-	result, err := s.completion(nil, &protocol.CompletionParams{})
+	result, err := s.completion(nil, &protocol.CompletionParams{
+		TextDocumentPositionParams: protocol.TextDocumentPositionParams{
+			TextDocument: protocol.TextDocumentIdentifier{URI: "file:///test/test.md"},
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -961,8 +970,9 @@ func TestFindEntityAtPositionDisambiguates(t *testing.T) {
 	content := "Barovia (town): Gothic, dark, misty.\n\nBarovia (country): Perpetually cloudy.\n\nWe entered Barovia (town) from the west.\n"
 	s := setupTestServer(t, content)
 
+	ps := s.projects["/test"]
 	// Cursor on "Barovia" in the definition of Barovia (town) — line 0.
-	match := s.findEntityAtPosition("file:///test/test.md", protocol.Position{Line: 0, Character: 3})
+	match := s.findEntityAtPosition(ps, "file:///test/test.md", protocol.Position{Line: 0, Character: 3})
 	if match == nil {
 		t.Fatal("expected match")
 	}
@@ -971,7 +981,7 @@ func TestFindEntityAtPositionDisambiguates(t *testing.T) {
 	}
 
 	// Cursor on "Barovia" in the definition of Barovia (country) — line 2.
-	match = s.findEntityAtPosition("file:///test/test.md", protocol.Position{Line: 2, Character: 3})
+	match = s.findEntityAtPosition(ps, "file:///test/test.md", protocol.Position{Line: 2, Character: 3})
 	if match == nil {
 		t.Fatal("expected match")
 	}
@@ -980,7 +990,7 @@ func TestFindEntityAtPositionDisambiguates(t *testing.T) {
 	}
 
 	// Cursor on "Barovia (town)" in free text — line 4.
-	match = s.findEntityAtPosition("file:///test/test.md", protocol.Position{Line: 4, Character: 14})
+	match = s.findEntityAtPosition(ps, "file:///test/test.md", protocol.Position{Line: 4, Character: 14})
 	if match == nil {
 		t.Fatal("expected match")
 	}
@@ -993,8 +1003,9 @@ func TestFindEntityAtPositionLongestMatch(t *testing.T) {
 	content := "Count Strahd von Zarovich (character) | Strahd: Vampire lord.\n"
 	s := setupTestServer(t, content)
 
+	ps := s.projects["/test"]
 	// Cursor on "Strahd" which is part of "Count Strahd von Zarovich" — should match the longer name.
-	match := s.findEntityAtPosition("file:///test/test.md", protocol.Position{Line: 0, Character: 8})
+	match := s.findEntityAtPosition(ps, "file:///test/test.md", protocol.Position{Line: 0, Character: 8})
 	if match == nil {
 		t.Fatal("expected match")
 	}

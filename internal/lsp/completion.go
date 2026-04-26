@@ -12,6 +12,10 @@ import (
 )
 
 func (s *Server) completion(_ *glsp.Context, params *protocol.CompletionParams) (any, error) {
+	ps, _ := s.projectForURI(params.TextDocument.URI)
+	if ps == nil {
+		return &protocol.CompletionList{}, nil
+	}
 	// Inspect the character immediately before the cursor to decide which
 	// completion kind to offer.
 	line := s.getLine(params.TextDocument.URI, params.Position.Line)
@@ -19,19 +23,19 @@ func (s *Server) completion(_ *glsp.Context, params *protocol.CompletionParams) 
 	if char > 0 && char <= len(line) {
 		prev := line[char-1]
 		if prev == '+' {
-			return s.tagCompletionsAllKnown(), nil
+			return tagCompletionsAllKnown(ps.world()), nil
 		}
 		if prev == '-' {
-			return s.tagCompletionsActive(), nil
+			return tagCompletionsActive(ps.world()), nil
 		}
 	}
-	return s.entityCompletions(), nil
+	return entityCompletions(ps.world()), nil
 }
 
 // tagCompletionsAllKnown returns a CompletionList of every tag name ever
-// seen in any entity's state history, alphabetically sorted.
-func (s *Server) tagCompletionsAllKnown() *protocol.CompletionList {
-	world := s.world()
+// seen in any entity's state history within the given world, alphabetically
+// sorted.
+func tagCompletionsAllKnown(world *lore.World) *protocol.CompletionList {
 	seen := make(map[string]struct{})
 	for i := range world.Entities {
 		for _, ev := range world.Entities[i].StateHistory {
@@ -47,9 +51,8 @@ func (s *Server) tagCompletionsAllKnown() *protocol.CompletionList {
 }
 
 // tagCompletionsActive returns a CompletionList of tags currently active on
-// any entity (after full resolution).
-func (s *Server) tagCompletionsActive() *protocol.CompletionList {
-	world := s.world()
+// any entity in the given world (after full resolution).
+func tagCompletionsActive(world *lore.World) *protocol.CompletionList {
 	seen := make(map[string]struct{})
 	for i := range world.Entities {
 		for tag := range world.Entities[i].Tags {
@@ -76,9 +79,9 @@ func makeTagCompletionList(seen map[string]struct{}) *protocol.CompletionList {
 	return &protocol.CompletionList{Items: items}
 }
 
-// entityCompletions returns the existing entity-name suggestion list.
-func (s *Server) entityCompletions() *protocol.CompletionList {
-	world := s.world()
+// entityCompletions returns the existing entity-name suggestion list for the
+// given project's world.
+func entityCompletions(world *lore.World) *protocol.CompletionList {
 	kind := protocol.CompletionItemKindText
 
 	// Count how many distinct entities expose each label (name or alias).

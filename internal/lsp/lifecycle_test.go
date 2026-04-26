@@ -36,7 +36,7 @@ func setupLifecycleServer(t *testing.T, files map[string]string) (*Server, func(
 
 	s := NewServer()
 	s.root = dir
-	s.loadProject()
+	s.discoverAllProjects()
 
 	uriFor := func(rel string) string {
 		return "file://" + filepath.Join(dir, rel)

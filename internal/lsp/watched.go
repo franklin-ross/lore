@@ -2,15 +2,16 @@ package lsp
 
 import (
 	"io/fs"
+	"path/filepath"
 
 	"github.com/tliron/glsp"
 	protocol "github.com/tliron/glsp/protocol_3_16"
 )
 
 // registerFileWatchers asks the client to notify us about out-of-editor file
-// changes via workspace/didChangeWatchedFiles. The watcher covers every glob
-// from the project config plus lore.toml itself so config edits trigger a
-// full reload.
+// changes via workspace/didChangeWatchedFiles. We watch every project's globs
+// (scoped to that project's subtree) plus a workspace-wide `**/lore.toml`
+// pattern so config additions and removals trigger a full reload.
 //
 // client/registerCapability is a *request*, so s.call blocks until the client
 // responds. Handler dispatch is serial — if we blocked here, the reader
@@ -19,15 +20,21 @@ import (
 // immediately. The goroutine only reads fields that are frozen after
 // `initialize` and never mutates server state.
 func (s *Server) registerFileWatchers() {
-	if s.call == nil || s.project == nil {
+	if s.call == nil || len(s.projects) == 0 {
 		return
 	}
 
-	watchers := make([]protocol.FileSystemWatcher, 0, len(s.project.Config.Files)+1)
-	for _, pattern := range s.project.Config.Files {
-		watchers = append(watchers, protocol.FileSystemWatcher{GlobPattern: pattern})
+	var watchers []protocol.FileSystemWatcher
+	for _, root := range s.configRoots() {
+		ps := s.projects[root]
+		prefix := projectGlobPrefix(s.root, ps.root)
+		for _, pattern := range ps.project.Config.Files {
+			watchers = append(watchers, protocol.FileSystemWatcher{
+				GlobPattern: prefix + pattern,
+			})
+		}
 	}
-	watchers = append(watchers, protocol.FileSystemWatcher{GlobPattern: "lore.toml"})
+	watchers = append(watchers, protocol.FileSystemWatcher{GlobPattern: "**/lore.toml"})
 
 	params := protocol.RegistrationParams{
 		Registrations: []protocol.Registration{{
@@ -43,31 +50,41 @@ func (s *Server) registerFileWatchers() {
 	go call(string(protocol.ServerClientRegisterCapability), params, nil)
 }
 
+// projectGlobPrefix returns "" if the project is at the workspace root,
+// otherwise the workspace-root-relative path with a trailing "/" so it can
+// be prepended to a project-relative glob pattern.
+func projectGlobPrefix(workspaceRoot, projectRoot string) string {
+	rel, err := filepath.Rel(workspaceRoot, projectRoot)
+	if err != nil || rel == "." {
+		return ""
+	}
+	return filepath.ToSlash(rel) + "/"
+}
+
 // didChangeWatchedFiles reconciles the index with out-of-editor changes. For
 // each event we:
-//   - reload the project wholesale if lore.toml changed;
-//   - otherwise, refresh the file from disk unless it's currently open in an
-//     editor buffer (in which case the editor is authoritative until
-//     didClose, which re-reads from disk).
+//   - reload all projects wholesale if any lore.toml changed (cheap, and
+//     covers the case where a brand new lore.toml carved out a sub-project
+//     from an existing one);
+//   - otherwise, refresh the file in its owning project's index unless it's
+//     currently open in an editor buffer (in which case the editor is
+//     authoritative until didClose, which re-reads from disk).
 func (s *Server) didChangeWatchedFiles(_ *glsp.Context, params *protocol.DidChangeWatchedFilesParams) error {
-	if s.project == nil {
-		return nil
-	}
-
-	reloadProject := false
+	reloadProjects := false
 	for _, evt := range params.Changes {
-		rel := s.uriToRelPath(evt.URI)
+		abs := uriToPath(&evt.URI)
 
-		if rel == "lore.toml" {
-			reloadProject = true
+		if filepath.Base(abs) == "lore.toml" {
+			reloadProjects = true
 			continue
 		}
 
-		if !s.project.Matcher.Matches(rel) {
+		ps, rel := s.findOwner(abs)
+		if ps == nil || !ps.project.Matcher.Matches(rel) {
 			continue
 		}
 
-		if s.isOpen(rel) {
+		if s.isOpen(abs) {
 			// Editor owns this path. We'll reconcile on didClose, which always
 			// re-reads from disk.
 			continue
@@ -75,20 +92,20 @@ func (s *Server) didChangeWatchedFiles(_ *glsp.Context, params *protocol.DidChan
 
 		switch evt.Type {
 		case protocol.FileChangeTypeDeleted:
-			s.index.RemoveFile(rel)
+			ps.index.RemoveFile(rel)
 		case protocol.FileChangeTypeCreated, protocol.FileChangeTypeChanged:
-			data, err := fs.ReadFile(s.project.FS, rel)
+			data, err := fs.ReadFile(ps.project.FS, rel)
 			if err != nil {
 				// File vanished between the event and our read — treat as delete.
-				s.index.RemoveFile(rel)
+				ps.index.RemoveFile(rel)
 				continue
 			}
-			s.index.SetFile(rel, string(data))
+			ps.index.SetFile(rel, string(data))
 		}
 	}
 
-	if reloadProject {
-		s.loadProject()
+	if reloadProjects {
+		s.discoverAllProjects()
 	}
 	return nil
 }

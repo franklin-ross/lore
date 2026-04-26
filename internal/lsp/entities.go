@@ -13,16 +13,23 @@ import (
 // is richer and only paid for when the tree view asks for it.
 const MethodLoreEntityList = "lore/entityList"
 
-type EntityListParams struct{}
+// EntityListParams optionally scopes the result set to a single project. If
+// TextDocument is set, only entities from the project owning that URI are
+// returned, matching VSCode's "active editor" tree-view scope. When unset,
+// entities from every project are merged so the tree still shows something
+// before any markdown editor is focused.
+type EntityListParams struct {
+	TextDocument *protocol.TextDocumentIdentifier `json:"textDocument,omitempty"`
+}
 
 // EntityListItem mirrors enough of lore.Entity for the tree to render an
 // entry and jump to the canonical definition span. Tags are the resolved
 // state from Merge — already filtered to those currently set.
 type EntityListItem struct {
-	Name     string         `json:"name"`
-	Type     string         `json:"type"`
-	Aliases  []string       `json:"aliases,omitempty"`
-	Tags     []string       `json:"tags,omitempty"`
+	Name     string            `json:"name"`
+	Type     string            `json:"type"`
+	Aliases  []string          `json:"aliases,omitempty"`
+	Tags     []string          `json:"tags,omitempty"`
 	Location protocol.Location `json:"location"`
 }
 
@@ -30,13 +37,39 @@ type EntityListResult struct {
 	Entities []EntityListItem `json:"entities"`
 }
 
-func (s *Server) entityList(_ *EntityListParams) (*EntityListResult, error) {
-	world := s.world()
-	if world == nil {
-		return &EntityListResult{}, nil
-	}
+func (s *Server) entityList(params *EntityListParams) (*EntityListResult, error) {
+	out := EntityListResult{Entities: []EntityListItem{}}
 
-	out := EntityListResult{Entities: make([]EntityListItem, 0, len(world.Entities))}
+	scope := s.entityListScope(params)
+	for _, ps := range scope {
+		appendProjectEntities(&out.Entities, ps)
+	}
+	return &out, nil
+}
+
+// entityListScope returns the set of projects to include in the response.
+// When the request carries an active textDocument URI, scope is the single
+// owning project; otherwise every project is returned so the tree has
+// content even before a markdown buffer is focused.
+func (s *Server) entityListScope(params *EntityListParams) []*projectState {
+	if params != nil && params.TextDocument != nil && params.TextDocument.URI != "" {
+		if ps, _ := s.projectForURI(params.TextDocument.URI); ps != nil {
+			return []*projectState{ps}
+		}
+		// URI was supplied but no project owns it (e.g. file outside any
+		// lore.toml subtree). Return empty so the tree clearly reflects
+		// "this file isn't part of any campaign".
+		return nil
+	}
+	out := make([]*projectState, 0, len(s.projects))
+	for _, ps := range s.projects {
+		out = append(out, ps)
+	}
+	return out
+}
+
+func appendProjectEntities(out *[]EntityListItem, ps *projectState) {
+	world := ps.world()
 	for i := range world.Entities {
 		ent := &world.Entities[i]
 		desc := canonicalDescription(ent)
@@ -44,13 +77,13 @@ func (s *Server) entityList(_ *EntityListParams) (*EntityListResult, error) {
 			continue
 		}
 		tags := activeTags(ent.Tags)
-		out.Entities = append(out.Entities, EntityListItem{
+		*out = append(*out, EntityListItem{
 			Name:    ent.Name,
 			Type:    ent.Type,
 			Aliases: append([]string(nil), ent.Aliases...),
 			Tags:    tags,
 			Location: protocol.Location{
-				URI: s.fileToURI(desc.File),
+				URI: ps.fileToURI(desc.File),
 				Range: protocol.Range{
 					Start: protocol.Position{
 						Line:      uint32(desc.Line - 1),
@@ -64,7 +97,6 @@ func (s *Server) entityList(_ *EntityListParams) (*EntityListResult, error) {
 			},
 		})
 	}
-	return &out, nil
 }
 
 // activeTags returns the set tags from the resolved tag map, sorted for

@@ -3,7 +3,6 @@ package lsp
 import (
 	"fmt"
 	"net/url"
-	"path/filepath"
 	"strings"
 
 	"lore/internal/lore"
@@ -38,45 +37,44 @@ func parseHoverStateMode(raw string) HoverStateMode {
 }
 
 // Server is the lore LSP server. glsp dispatches notifications one at a time
-// on a single goroutine, so handler state (including `open`) is only touched
-// serially — no locking required.
+// on a single goroutine, so handler state (including `open` and `projects`)
+// is only touched serially — no locking required.
 type Server struct {
-	root    string // absolute filesystem path
-	project *lore.Project
-	index   *Index
-	notify  glsp.NotifyFunc // set during initialize
-	call    glsp.CallFunc   // set during initialize
+	root     string                   // workspace root (from initialize)
+	projects map[string]*projectState // keyed by absolute project root
+	notify   glsp.NotifyFunc          // set during initialize
+	call     glsp.CallFunc            // set during initialize
 
 	hoverStateMode           HoverStateMode // set during initialize from initializationOptions
 	hoverShowStateDirectives bool           // set during initialize from initializationOptions
 	palette                  []string       // hex colours indexed 0..paletteSize-1, from initializationOptions; empty disables hover colouring
 
-	open map[string]struct{} // project-relative paths with a live editor buffer
+	open map[string]struct{} // absolute paths with a live editor buffer
 }
 
 // NewServer creates a new LSP server.
 func NewServer() *Server {
 	return &Server{
-		index:                    NewIndex(),
+		projects:                 make(map[string]*projectState),
 		open:                     make(map[string]struct{}),
 		hoverStateMode:           HoverStateModeBoth,
 		hoverShowStateDirectives: false,
 	}
 }
 
-// markOpen records that path is being edited in a client buffer.
-func (s *Server) markOpen(path string) {
-	s.open[path] = struct{}{}
+// markOpen records that an absolute path is being edited in a client buffer.
+func (s *Server) markOpen(absPath string) {
+	s.open[absPath] = struct{}{}
 }
 
-// markClosed clears the open-buffer flag for path.
-func (s *Server) markClosed(path string) {
-	delete(s.open, path)
+// markClosed clears the open-buffer flag for absPath.
+func (s *Server) markClosed(absPath string) {
+	delete(s.open, absPath)
 }
 
-// isOpen reports whether path is currently being edited in a client buffer.
-func (s *Server) isOpen(path string) bool {
-	_, ok := s.open[path]
+// isOpen reports whether absPath is currently being edited in a client buffer.
+func (s *Server) isOpen(absPath string) bool {
+	_, ok := s.open[absPath]
 	return ok
 }
 
@@ -117,7 +115,7 @@ func (s *Server) initialize(ctx *glsp.Context, params *protocol.InitializeParams
 	s.palette = paletteFromOptions(params.InitializationOptions)
 
 	s.logInfo("initialising with root: %s", s.root)
-	s.loadProject()
+	s.discoverAllProjects()
 
 	syncKind := protocol.TextDocumentSyncKindFull
 	return protocol.InitializeResult{
@@ -152,46 +150,64 @@ func (s *Server) shutdown(_ *glsp.Context) error {
 	return nil
 }
 
-// loadProject (re)reads the lore.toml and every on-disk file into the index.
-// Called at initialize time and whenever lore.toml changes on disk. Any files
-// currently open in the editor keep their buffer contents — the editor stays
-// authoritative until didClose.
-func (s *Server) loadProject() {
+// discoverAllProjects (re)scans the workspace for every lore.toml, loads
+// each as its own projectState, and re-applies any open editor buffers on
+// top of the disk-loaded indexes. Called at initialize time and whenever
+// the project layout changes (lore.toml created/deleted/modified).
+func (s *Server) discoverAllProjects() {
 	if s.root == "" {
 		return
 	}
-	project, err := lore.FindAndLoadFrom(s.root)
-	if err != nil {
-		s.logWarning("failed to load project: %v", err)
-		return
-	}
 
-	// Snapshot open-buffer contents before we rebuild the index from disk.
-	openContents := make(map[string]string, len(s.open))
-	for rel := range s.open {
-		if content, ok := s.index.Content(rel); ok {
-			openContents[rel] = content
+	// Snapshot all open buffers (keyed by absolute path) before rebuilding.
+	type buffered struct{ abs, content string }
+	open := make([]buffered, 0, len(s.open))
+	for abs := range s.open {
+		if ps, rel := s.findOwner(abs); ps != nil {
+			if content, ok := ps.index.Content(rel); ok {
+				open = append(open, buffered{abs: abs, content: content})
+			}
 		}
 	}
 
-	s.project = project
-	if err := s.index.LoadProject(project); err != nil {
-		s.logWarning("failed to index project: %v", err)
+	projects, err := discoverProjects(s.root)
+	if err != nil {
+		s.logWarning("failed to discover projects: %v", err)
 		return
 	}
+	s.projects = projects
 
-	// Re-apply buffered content so the editor's view wins over disk.
-	for rel, content := range openContents {
-		s.index.SetFile(rel, content)
+	// Re-apply buffered content so the editor view still wins over disk.
+	for _, b := range open {
+		if ps, rel := s.findOwner(b.abs); ps != nil {
+			ps.index.SetFile(rel, b.content)
+		}
 	}
 
-	world := s.index.World()
-	s.logInfo("indexed %d entities from %d files", len(world.Entities), s.index.FileCount())
+	totalFiles, totalEntities := 0, 0
+	for _, ps := range s.projects {
+		totalFiles += ps.index.FileCount()
+		totalEntities += len(ps.world().Entities)
+	}
+	s.logInfo("indexed %d entities from %d files across %d projects", totalEntities, totalFiles, len(s.projects))
 }
 
-// world returns the current merged world for query handlers.
+// world returns a merged world across every project. Used as a back-compat
+// shim by tests that don't care about scoping; production handlers should
+// resolve the owning projectState and use ps.world() instead.
 func (s *Server) world() *lore.World {
-	return s.index.World()
+	if len(s.projects) == 1 {
+		for _, ps := range s.projects {
+			return ps.world()
+		}
+	}
+	files := make([]*lore.FileParse, 0)
+	for _, ps := range s.projects {
+		for _, fp := range ps.index.files {
+			files = append(files, fp)
+		}
+	}
+	return lore.Merge(files)
 }
 
 // logInfo sends an informational message to the client's output channel.
@@ -214,23 +230,6 @@ func (s *Server) sendLog(level protocol.MessageType, format string, args ...any)
 	})
 }
 
-// fileToURI converts a project-relative path to a file:// URI.
-func (s *Server) fileToURI(relPath string) string {
-	abs := filepath.Join(s.root, relPath)
-	return "file://" + abs
-}
-
-// uriToRelPath converts a file:// URI to a project-relative path using
-// forward slashes (matching fs.FS conventions).
-func (s *Server) uriToRelPath(uri string) string {
-	abs := uriToPath(&uri)
-	rel, err := filepath.Rel(s.root, abs)
-	if err != nil {
-		return abs
-	}
-	return filepath.ToSlash(rel)
-}
-
 // getLine returns the line at the given 0-based index from a document URI.
 func (s *Server) getLine(uri string, line uint32) string {
 	content := s.getDocumentContent(uri)
@@ -242,10 +241,14 @@ func (s *Server) getLine(uri string, line uint32) string {
 }
 
 // getDocumentContent returns the current content for a URI straight from
-// the index (which is the authoritative store for both open buffers and
-// on-disk files).
+// the owning project's index (which is the authoritative store for both
+// open buffers and on-disk files). Returns "" if no project owns the URI.
 func (s *Server) getDocumentContent(uri string) string {
-	content, _ := s.index.Content(s.uriToRelPath(uri))
+	ps, rel := s.projectForURI(uri)
+	if ps == nil {
+		return ""
+	}
+	content, _ := ps.index.Content(rel)
 	return content
 }
 
@@ -324,17 +327,19 @@ func uriToPath(uri *string) string {
 }
 
 // publishDiagnostics sends textDocument/publishDiagnostics for the given
-// file, including every state issue that belongs to that file. It is a
-// no-op if the server has no notify channel (e.g. before initialize).
-func (s *Server) publishDiagnostics(path, uri string) {
-	if s.notify == nil {
+// file, including every state issue that belongs to that file. ps must be
+// the projectState owning relPath; relPath is project-root-relative. The
+// call is a no-op if the server has no notify channel (e.g. before
+// initialize) or ps is nil.
+func (s *Server) publishDiagnostics(ps *projectState, relPath, uri string) {
+	if s.notify == nil || ps == nil {
 		return
 	}
-	world := s.index.World()
+	world := ps.world()
 	items := []protocol.Diagnostic{}
 	for _, ent := range world.Entities {
 		for _, si := range ent.StateIssues {
-			if si.Span.File != path {
+			if si.Span.File != relPath {
 				continue
 			}
 			items = append(items, toProtocolDiagnostic(si))

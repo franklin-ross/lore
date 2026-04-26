@@ -74,9 +74,15 @@ export class LoreEntitiesProvider {
     const client = this._getClient();
     if (!client) return [];
 
+    // Scope the request to the active editor's project, so each lore.toml
+    // gets its own tree view instead of one merged blob across campaigns.
+    const activeUri = vscode.window.activeTextEditor?.document?.uri?.toString();
+    const params = activeUri
+      ? { textDocument: { uri: activeUri } }
+      : {};
     let response;
     try {
-      response = await client.sendRequest("lore/entityList", {});
+      response = await client.sendRequest("lore/entityList", params);
     } catch {
       return [];
     }
