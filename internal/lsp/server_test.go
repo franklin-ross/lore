@@ -1,6 +1,7 @@
 package lsp
 
 import (
+	"slices"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -1053,42 +1054,61 @@ func TestCompletionSuggestsTagsAfterPlus(t *testing.T) {
 }
 
 func TestCompletionSuggestsActiveTagsAfterMinus(t *testing.T) {
+	body := "Sildar (character): Fighter. +injured +bleeding -bleeding\n  -\n"
 	s, uriFor := setupLifecycleServer(t, map[string]string{
-		"a.md": "Sildar (character): Fighter. +injured +bleeding -bleeding\n",
+		"a.md": body,
 	})
-	// After the resolution pass, Sildar has only 'injured' active.
-	uri := uriFor("cursor.md")
-	openDoc(t, s, uri, "-\n")
+	// After the resolution pass, Sildar has only 'injured' active. Position
+	// the cursor on the second line of Sildar's description so the `-` sits
+	// inside the entity's owning block.
+	uri := uriFor("a.md")
+	openDoc(t, s, uri, body)
 
 	result, err := s.completion(nil, &protocol.CompletionParams{
 		TextDocumentPositionParams: protocol.TextDocumentPositionParams{
 			TextDocument: protocol.TextDocumentIdentifier{URI: uri},
-			Position:     protocol.Position{Line: 0, Character: 1},
+			Position:     protocol.Position{Line: 1, Character: 3},
 		},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	list := result.(*protocol.CompletionList)
-	var labels []string
-	for _, item := range list.Items {
-		labels = append(labels, item.Label)
-	}
-	hasInjured := false
-	hasBleeding := false
-	for _, l := range labels {
-		if l == "injured" {
-			hasInjured = true
-		}
-		if l == "bleeding" {
-			hasBleeding = true
-		}
-	}
-	if !hasInjured {
+	labels := completionLabels(list)
+	if !labelSetContains(labels, "injured") {
 		t.Fatalf("expected 'injured' (currently active) in %v", labels)
 	}
-	if hasBleeding {
+	if labelSetContains(labels, "bleeding") {
 		t.Fatalf("did not expect 'bleeding' (not currently active) in %v", labels)
+	}
+}
+
+func TestCompletionMinusScopesToOwningEntity(t *testing.T) {
+	// Sildar has 'injured', Cragmaw has 'infested'. Inside Sildar's body, a
+	// `-` should only offer 'injured' — not 'infested', which belongs to a
+	// different entity.
+	body := "Sildar (character): Fighter. +injured\n  -\n\nCragmaw (location): +infested\n"
+	s, uriFor := setupLifecycleServer(t, map[string]string{
+		"a.md": body,
+	})
+	uri := uriFor("a.md")
+	openDoc(t, s, uri, body)
+
+	result, err := s.completion(nil, &protocol.CompletionParams{
+		TextDocumentPositionParams: protocol.TextDocumentPositionParams{
+			TextDocument: protocol.TextDocumentIdentifier{URI: uri},
+			Position:     protocol.Position{Line: 1, Character: 3},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	labels := completionLabels(result.(*protocol.CompletionList))
+	if !labelSetContains(labels, "injured") {
+		t.Fatalf("expected 'injured' on Sildar in %v", labels)
+	}
+	if labelSetContains(labels, "infested") {
+		t.Fatalf("did not expect 'infested' (Cragmaw's tag) in %v", labels)
 	}
 }
 
@@ -1119,4 +1139,103 @@ func TestCompletionFallsBackToEntitiesWithoutSigil(t *testing.T) {
 	if !found {
 		t.Fatal("expected Sildar in entity completions")
 	}
+}
+
+func TestCompletionListRemoveSuggestsActiveItems(t *testing.T) {
+	body := "Sildar (character): inventory = sword, helm, bow.\n  inventory -= \n"
+	s, uriFor := setupLifecycleServer(t, map[string]string{
+		"a.md": body,
+	})
+	uri := uriFor("a.md")
+	openDoc(t, s, uri, body)
+
+	// Cursor after the trailing space on the `inventory -= ` line.
+	line := "  inventory -= "
+	res, err := s.completion(nil, &protocol.CompletionParams{
+		TextDocumentPositionParams: protocol.TextDocumentPositionParams{
+			TextDocument: protocol.TextDocumentIdentifier{URI: uri},
+			Position:     protocol.Position{Line: 1, Character: uint32(len(line))},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	list := res.(*protocol.CompletionList)
+	got := completionLabels(list)
+	want := map[string]bool{"sword": true, "helm": true, "bow": true}
+	for w := range want {
+		if !labelSetContains(got, w) {
+			t.Fatalf("expected %q in active list completions, got %v", w, got)
+		}
+	}
+	for _, label := range got {
+		if !want[label] {
+			t.Fatalf("unexpected label %q in %v", label, got)
+		}
+	}
+}
+
+func TestCompletionListAppendSuggestsKnownItems(t *testing.T) {
+	body := "Sildar (character): inventory = sword, helm; inventory -= helm.\n  inventory += \n"
+	s, uriFor := setupLifecycleServer(t, map[string]string{
+		"a.md": body,
+	})
+	uri := uriFor("a.md")
+	openDoc(t, s, uri, body)
+
+	line := "  inventory += "
+	res, err := s.completion(nil, &protocol.CompletionParams{
+		TextDocumentPositionParams: protocol.TextDocumentPositionParams{
+			TextDocument: protocol.TextDocumentIdentifier{URI: uri},
+			Position:     protocol.Position{Line: 1, Character: uint32(len(line))},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	list := res.(*protocol.CompletionList)
+	got := completionLabels(list)
+	// Both `helm` (removed earlier) and `sword` should still be suggested as
+	// known items for `inventory`, since `+=` looks at history rather than
+	// the active set.
+	for _, want := range []string{"helm", "sword"} {
+		if !labelSetContains(got, want) {
+			t.Fatalf("expected %q in known list completions, got %v", want, got)
+		}
+	}
+}
+
+func TestCompletionTagSigilTriggersImmediately(t *testing.T) {
+	body := "Sildar (character): Fighter. +injured\n  -\n"
+	s, uriFor := setupLifecycleServer(t, map[string]string{
+		"a.md": body,
+	})
+	uri := uriFor("a.md")
+	openDoc(t, s, uri, body)
+
+	res, err := s.completion(nil, &protocol.CompletionParams{
+		TextDocumentPositionParams: protocol.TextDocumentPositionParams{
+			TextDocument: protocol.TextDocumentIdentifier{URI: uri},
+			Position:     protocol.Position{Line: 1, Character: 3},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	list := res.(*protocol.CompletionList)
+	if !labelSetContains(completionLabels(list), "injured") {
+		t.Fatalf("expected 'injured' active tag suggestion right after '-', got %v", completionLabels(list))
+	}
+}
+
+func completionLabels(list *protocol.CompletionList) []string {
+	out := make([]string, 0, len(list.Items))
+	for _, item := range list.Items {
+		out = append(out, item.Label)
+	}
+	return out
+}
+
+func labelSetContains(labels []string, want string) bool {
+	return slices.Contains(labels, want)
 }

@@ -128,7 +128,13 @@ func (s *Server) initialize(ctx *glsp.Context, params *protocol.InitializeParams
 			HoverProvider:      true,
 			DefinitionProvider: true,
 			ReferencesProvider: true,
-			CompletionProvider: &protocol.CompletionOptions{},
+			CompletionProvider: &protocol.CompletionOptions{
+				// `+`/`-`/`=` open suggestions on the directive sigil itself
+				// (so `-l` isn't required to start a tag), `,` and ` ` keep
+				// the popup alive as the author types more list items past
+				// a separator.
+				TriggerCharacters: []string{"+", "-", "=", ",", " "},
+			},
 			SemanticTokensProvider: &protocol.SemanticTokensOptions{
 				Legend: semanticTokensLegend(),
 				Full:   true,
