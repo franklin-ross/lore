@@ -22,7 +22,9 @@ func (s *Server) findEntityAtPosition(ps *projectState, uri string, pos protocol
 	world := ps.world()
 	line := s.getLine(uri, pos.Line)
 	lowerLine := strings.ToLower(line)
-	col := int(pos.Character)
+	// pos.Character arrives as a UTF-16 code unit count; lore matches
+	// against byte offsets, so translate up front.
+	col := bytesForUTF16Units(line, pos.Character)
 
 	var best *entityMatch
 

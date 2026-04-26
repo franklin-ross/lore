@@ -2,6 +2,7 @@ package lsp
 
 import (
 	"encoding/json"
+	"strings"
 
 	"github.com/tliron/glsp"
 	protocol "github.com/tliron/glsp/protocol_3_16"
@@ -47,6 +48,18 @@ func (s *Server) definitionRanges(params *DefinitionRangesParams) (*DefinitionRa
 	}
 	world := ps.world()
 
+	// StartColumn/EndColumn are stored as UTF-8 byte offsets, but the
+	// client decorates ranges using LSP positions (UTF-16). Convert per
+	// definition using the live document content.
+	content := s.getDocumentContent(params.TextDocument.URI)
+	lines := strings.Split(content, "\n")
+	lineAt := func(idx int) string {
+		if idx < 0 || idx >= len(lines) {
+			return ""
+		}
+		return lines[idx]
+	}
+
 	out := DefinitionRangesResult{}
 	for i := range world.Entities {
 		ent := &world.Entities[i]
@@ -55,15 +68,17 @@ func (s *Server) definitionRanges(params *DefinitionRangesParams) (*DefinitionRa
 			if desc.File != relPath {
 				continue
 			}
+			startLine := desc.Line - 1
+			endLine := desc.EndLine - 1
 			out.Ranges = append(out.Ranges, DefinitionRange{
 				Range: protocol.Range{
 					Start: protocol.Position{
-						Line:      uint32(desc.Line - 1),
-						Character: uint32(desc.StartColumn),
+						Line:      uint32(startLine),
+						Character: utf16UnitsForBytes(lineAt(startLine), desc.StartColumn),
 					},
 					End: protocol.Position{
-						Line:      uint32(desc.EndLine - 1),
-						Character: uint32(desc.EndColumn),
+						Line:      uint32(endLine),
+						Character: utf16UnitsForBytes(lineAt(endLine), desc.EndColumn),
 					},
 				},
 				ColourIndex: colour,

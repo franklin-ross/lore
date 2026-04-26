@@ -711,6 +711,34 @@ func TestSemanticTokensHasCorrectPositions(t *testing.T) {
 	}
 }
 
+func TestSemanticTokensConvertsByteOffsetsToUTF16(t *testing.T) {
+	// `’` is U+2019 (RIGHT SINGLE QUOTATION MARK) — 3 bytes UTF-8, 1 UTF-16
+	// code unit. A naïve byte-offset emit would place "Strahd" at column 13
+	// instead of the correct UTF-16 column 11.
+	content := "Strahd (character): Vampire.\n\nShe’s with Strahd.\n"
+	s := setupTestServer(t, content)
+
+	result, err := s.semanticTokensFull(nil, &protocol.SemanticTokensParams{
+		TextDocument: protocol.TextDocumentIdentifier{URI: "file:///test/test.md"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Data) < 10 {
+		t.Fatalf("expected at least 2 tokens, got %d values", len(result.Data))
+	}
+	// First token: header definition, line 0, col 0, length 6.
+	if result.Data[0] != 0 || result.Data[1] != 0 || result.Data[2] != 6 {
+		t.Fatalf("first token wrong: deltaLine=%d deltaChar=%d len=%d",
+			result.Data[0], result.Data[1], result.Data[2])
+	}
+	// Second token: line 2, UTF-16 col 11, length 6 (still ASCII chars).
+	if result.Data[5] != 2 || result.Data[6] != 11 || result.Data[7] != 6 {
+		t.Fatalf("second token wrong: deltaLine=%d deltaChar=%d len=%d",
+			result.Data[5], result.Data[6], result.Data[7])
+	}
+}
+
 func TestSemanticTokensDisambiguatedNameSingleEmission(t *testing.T) {
 	// Two entities share the name "Barovia". A mention in free text that
 	// carries a `(town)` suffix must emit exactly one token, with the town

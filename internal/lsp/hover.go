@@ -19,14 +19,15 @@ func (s *Server) hover(_ *glsp.Context, params *protocol.HoverParams) (*protocol
 	col := &colouriser{world: ps.world(), palette: s.palette}
 	content := formatEntityHover(match.Entity, rel, cursorLine, s.hoverStateMode, s.hoverShowStateDirectives, col)
 	line := params.Position.Line
+	lineText := s.getLine(params.TextDocument.URI, line)
 	return &protocol.Hover{
 		Contents: protocol.MarkupContent{
 			Kind:  protocol.MarkupKindMarkdown,
 			Value: content,
 		},
 		Range: &protocol.Range{
-			Start: protocol.Position{Line: line, Character: uint32(match.Start)},
-			End:   protocol.Position{Line: line, Character: uint32(match.End)},
+			Start: protocol.Position{Line: line, Character: utf16UnitsForBytes(lineText, match.Start)},
+			End:   protocol.Position{Line: line, Character: utf16UnitsForBytes(lineText, match.End)},
 		},
 	}, nil
 }

@@ -81,12 +81,26 @@ func (s *Server) semanticTokensFull(_ *glsp.Context, params *protocol.SemanticTo
 	var tokens []rawToken
 	for lineIdx, line := range lines {
 		lowerLine := strings.ToLower(line)
+		before := len(tokens)
 		for i := range world.Match.Entities {
 			em := &world.Match.Entities[i]
 			appendNameMatches(&tokens, lineIdx, lowerLine, em, world.Match.Types, modBits[i])
 			for _, la := range em.LowerAliases {
 				appendMatches(&tokens, lineIdx, lowerLine, la, modBits[i])
 			}
+		}
+		// Match positions are computed in byte offsets against the lowered
+		// line; LSP semantic tokens are encoded in UTF-16 code units. Any
+		// multi-byte rune earlier in the line shifts later byte offsets
+		// past the UTF-16 position the editor expects, so convert per line
+		// once the line's tokens are known.
+		for j := before; j < len(tokens); j++ {
+			startByte := int(tokens[j].startChar)
+			endByte := startByte + int(tokens[j].length)
+			startU16 := utf16UnitsForBytes(line, startByte)
+			endU16 := utf16UnitsForBytes(line, endByte)
+			tokens[j].startChar = startU16
+			tokens[j].length = endU16 - startU16
 		}
 	}
 
