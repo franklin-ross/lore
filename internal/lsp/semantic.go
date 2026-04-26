@@ -86,6 +86,8 @@ func (s *Server) semanticTokensFull(_ *glsp.Context, params *protocol.SemanticTo
 		}
 	}
 
+	tokens = resolveOverlaps(tokens)
+
 	sort.Slice(tokens, func(i, j int) bool {
 		if tokens[i].line != tokens[j].line {
 			return tokens[i].line < tokens[j].line
@@ -95,6 +97,48 @@ func (s *Server) semanticTokensFull(_ *glsp.Context, params *protocol.SemanticTo
 
 	data := encodeTokens(tokens)
 	return &protocol.SemanticTokens{Data: data}, nil
+}
+
+// resolveOverlaps drops tokens whose span overlaps a longer token on the same
+// line. LSP forbids overlapping semantic tokens; without this, e.g. a "Vallaki"
+// match at column 0 and a "Vallaki Cathedral" match at column 0 both emit and
+// the client (VSCode) keeps only the shorter one, miscolouring the tail.
+// Longest-wins matches the hover/definition behaviour in findEntityAtPosition.
+func resolveOverlaps(tokens []rawToken) []rawToken {
+	if len(tokens) < 2 {
+		return tokens
+	}
+	// Sort by line, then length desc, then start asc, so the longest token at
+	// any contested position is considered first and claims its range.
+	sort.Slice(tokens, func(i, j int) bool {
+		if tokens[i].line != tokens[j].line {
+			return tokens[i].line < tokens[j].line
+		}
+		if tokens[i].length != tokens[j].length {
+			return tokens[i].length > tokens[j].length
+		}
+		return tokens[i].startChar < tokens[j].startChar
+	})
+
+	kept := tokens[:0]
+	for _, tok := range tokens {
+		end := tok.startChar + tok.length
+		overlaps := false
+		for _, k := range kept {
+			if k.line != tok.line {
+				continue
+			}
+			kEnd := k.startChar + k.length
+			if tok.startChar < kEnd && k.startChar < end {
+				overlaps = true
+				break
+			}
+		}
+		if !overlaps {
+			kept = append(kept, tok)
+		}
+	}
+	return kept
 }
 
 // appendNameMatches scans for occurrences of an entity's primary name and

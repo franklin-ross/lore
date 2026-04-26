@@ -770,6 +770,77 @@ func TestSemanticTokensDisambiguatedNameSingleEmission(t *testing.T) {
 	}
 }
 
+func TestSemanticTokensLongestMatchWinsOverlap(t *testing.T) {
+	// Two entities whose names overlap: "Vallaki" is a prefix of "Vallaki
+	// Cathedral". A free-text mention of the longer name must emit exactly
+	// one token covering the full span, not two overlapping tokens that
+	// VSCode would resolve by keeping only the shorter prefix.
+	content := "Vallaki (town): A walled town.\n\nVallaki Cathedral (location): The cathedral in Vallaki.\n\nWe arrived at Vallaki Cathedral after dark.\n"
+	s := setupTestServer(t, content)
+
+	result, err := s.semanticTokensFull(nil, &protocol.SemanticTokensParams{
+		TextDocument: protocol.TextDocumentIdentifier{URI: "file:///test/test.md"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Data)%5 != 0 {
+		t.Fatalf("malformed semantic token stream: %d values", len(result.Data))
+	}
+
+	world := s.world()
+	var cathedralMods uint32
+	for i := range world.Entities {
+		ent := &world.Entities[i]
+		if ent.Name == "Vallaki Cathedral" {
+			cathedralMods = uint32(1) << entityColourIndex(ent)
+		}
+	}
+	if cathedralMods == 0 {
+		t.Fatal("expected Vallaki Cathedral entity in world")
+	}
+
+	// Walk the delta-encoded stream into absolute coordinates.
+	var prevLine, prevChar uint32
+	type tok struct{ line, col, length, mods uint32 }
+	var toks []tok
+	for i := 0; i < len(result.Data); i += 5 {
+		deltaLine := result.Data[i]
+		deltaChar := result.Data[i+1]
+		length := result.Data[i+2]
+		mods := result.Data[i+4]
+		line := prevLine + deltaLine
+		col := deltaChar
+		if deltaLine == 0 {
+			col = prevChar + deltaChar
+		}
+		toks = append(toks, tok{line, col, length, mods})
+		prevLine = line
+		prevChar = col
+	}
+
+	// Free-text mention is on line 4 ("We arrived at Vallaki Cathedral after dark.")
+	// at column 14. Find tokens overlapping that position.
+	var hits []tok
+	for _, tk := range toks {
+		if tk.line != 4 {
+			continue
+		}
+		if tk.col <= 14 && tk.col+tk.length > 14 {
+			hits = append(hits, tk)
+		}
+	}
+	if len(hits) != 1 {
+		t.Fatalf("expected exactly 1 token covering the free-text mention, got %d: %+v", len(hits), hits)
+	}
+	if hits[0].length != uint32(len("Vallaki Cathedral")) {
+		t.Fatalf("expected token length %d, got %d", len("Vallaki Cathedral"), hits[0].length)
+	}
+	if hits[0].mods != cathedralMods {
+		t.Fatalf("expected cathedral colour %d, got %d", cathedralMods, hits[0].mods)
+	}
+}
+
 func TestDefinitionRangesCoversHeadersAndAsides(t *testing.T) {
 	content := "Strahd (character): Vampire lord\n  who rules over Barovia.\n\nWalking past, we glimpsed (Tatyana (npc): Strahd's lost love).\n"
 	s := setupTestServer(t, content)
