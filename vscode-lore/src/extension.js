@@ -6,6 +6,7 @@ import {
   LanguageClient,
   TransportKind,
 } from "vscode-languageclient/node";
+import { LoreEntitiesProvider } from "./entities-tree.js";
 
 /** @type {string} */
 let extensionPath = "";
@@ -255,8 +256,48 @@ export function activate(/** @type {vscode.ExtensionContext} */ context) {
   palette = loadPaletteFromManifest(context.extension);
   buildDecorations();
 
+  const entitiesProvider = new LoreEntitiesProvider(() => client);
+  const setFilterContext = (active) =>
+    vscode.commands.executeCommand(
+      "setContext",
+      "lore.entities.filterActive",
+      active
+    );
+  setFilterContext(false);
+
+  context.subscriptions.push(
+    vscode.window.registerTreeDataProvider(
+      "loreEntities",
+      entitiesProvider
+    ),
+    vscode.commands.registerCommand("lore.entities.refresh", () =>
+      entitiesProvider.refresh()
+    ),
+    vscode.commands.registerCommand("lore.entities.search", async () => {
+      const previous = entitiesProvider.getFilter();
+      const input = vscode.window.createInputBox();
+      input.placeholder = "Filter by name, type, alias, or tag";
+      input.prompt = "Lore: filter entities";
+      input.value = previous;
+      input.onDidChangeValue((value) => {
+        entitiesProvider.setFilter(value);
+        setFilterContext(value.trim().length > 0);
+      });
+      input.onDidAccept(() => input.hide());
+      input.onDidHide(() => input.dispose());
+      input.show();
+    }),
+    vscode.commands.registerCommand("lore.entities.clearFilter", () => {
+      entitiesProvider.setFilter("");
+      setFilterContext(false);
+    })
+  );
+
   client = buildClient();
-  client.start().then(refreshAllVisible);
+  client.start().then(() => {
+    refreshAllVisible();
+    entitiesProvider.refresh();
+  });
 
   context.subscriptions.push(
     vscode.commands.registerCommand(
@@ -270,6 +311,7 @@ export function activate(/** @type {vscode.ExtensionContext} */ context) {
           vscode.ConfigurationTarget.Global
         );
         await restartClient();
+        entitiesProvider.refresh();
         vscode.window.setStatusBarMessage(
           `Lore: hover state directives ${!current ? "on" : "off"}`,
           2000
@@ -294,7 +336,10 @@ export function activate(/** @type {vscode.ExtensionContext} */ context) {
     vscode.workspace.onDidChangeTextDocument((e) => {
       if (e.document.languageId !== "markdown") return;
       if (debounce) clearTimeout(debounce);
-      debounce = setTimeout(refreshAllVisible, 250);
+      debounce = setTimeout(() => {
+        refreshAllVisible();
+        entitiesProvider.refresh();
+      }, 250);
     })
   );
 

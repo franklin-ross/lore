@@ -770,6 +770,61 @@ func TestSemanticTokensDisambiguatedNameSingleEmission(t *testing.T) {
 	}
 }
 
+func TestEntityListReturnsTagsAndLocations(t *testing.T) {
+	content := `# Session 3
+
+Strahd (character): Lord of Barovia. +vampire +undead
+
+Castle Ravenloft (location): Strahd's seat.
+`
+	s := setupTestServer(t, content)
+
+	result, err := s.entityList(&EntityListParams{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Entities) != 2 {
+		names := make([]string, len(result.Entities))
+		for i, e := range result.Entities {
+			names[i] = e.Name
+		}
+		t.Fatalf("expected 2 entities, got %d: %v", len(result.Entities), names)
+	}
+
+	byName := make(map[string]EntityListItem, len(result.Entities))
+	for _, e := range result.Entities {
+		byName[e.Name] = e
+	}
+
+	strahd, ok := byName["Strahd"]
+	if !ok {
+		t.Fatal("missing Strahd entity")
+	}
+	if strahd.Type != "character" {
+		t.Errorf("expected type 'character', got %q", strahd.Type)
+	}
+	wantTags := map[string]bool{"vampire": true, "undead": true}
+	if len(strahd.Tags) != len(wantTags) {
+		t.Fatalf("expected tags %v, got %v", wantTags, strahd.Tags)
+	}
+	for _, tag := range strahd.Tags {
+		if !wantTags[tag] {
+			t.Errorf("unexpected tag %q", tag)
+		}
+	}
+	if !strings.HasSuffix(strahd.Location.URI, "/test/test.md") {
+		t.Errorf("expected location in test.md, got %q", strahd.Location.URI)
+	}
+
+	castle, ok := byName["Castle Ravenloft"]
+	if !ok {
+		t.Fatal("missing Castle Ravenloft entity")
+	}
+	if len(castle.Tags) != 0 {
+		t.Errorf("expected no tags on Castle Ravenloft, got %v", castle.Tags)
+	}
+}
+
 func TestSemanticTokensLongestMatchWinsOverlap(t *testing.T) {
 	// Two entities whose names overlap: "Vallaki" is a prefix of "Vallaki
 	// Cathedral". A free-text mention of the longer name must emit exactly
