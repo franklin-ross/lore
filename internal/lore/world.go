@@ -111,7 +111,7 @@ func (w *World) GetReferences(name string) []Reference {
 
 	filtered := make([]Reference, 0, len(raw))
 	for _, ref := range raw {
-		if ref.SourceEntity != "" && isSameEntity(ent, ref.SourceEntity) {
+		if ref.SourceEntity != "" && isSameEntity(ent, ref.SourceEntity, ref.SourceType) {
 			continue
 		}
 		filtered = append(filtered, ref)
@@ -119,9 +119,19 @@ func (w *World) GetReferences(name string) []Reference {
 	return filtered
 }
 
-// isSameEntity reports whether sourceName matches the entity's canonical name or any alias.
-func isSameEntity(ent *Entity, sourceName string) bool {
-	return strings.EqualFold(ent.Name, sourceName) || ent.NameMatchesAlias(sourceName)
+// isSameEntity reports whether (sourceName, sourceType) refers to the
+// same entity. When sourceType is non-empty it must also match — so
+// cross-references between two entities sharing a bare name (e.g.
+// "Barovia (town)" mentioning "Barovia (country)") aren't mistaken for
+// self-references.
+func isSameEntity(ent *Entity, sourceName, sourceType string) bool {
+	if !strings.EqualFold(ent.Name, sourceName) && !ent.NameMatchesAlias(sourceName) {
+		return false
+	}
+	if sourceType == "" || ent.Type == "" {
+		return true
+	}
+	return strings.EqualFold(ent.Type, sourceType)
 }
 
 // Search finds entity descriptions containing the query text (case-insensitive).

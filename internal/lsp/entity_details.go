@@ -3,6 +3,7 @@ package lsp
 import (
 	"encoding/json"
 	"sort"
+	"strings"
 
 	"lore/internal/lore"
 
@@ -34,17 +35,22 @@ type EntityFieldEntry struct {
 
 // ContextSegment is one chunk of display text with an optional palette
 // colour. ColourIndex is -1 for plain text and a non-negative palette
-// index for entity-name spans. Concatenating Text across segments
-// reproduces the original source string exactly. The custom marshaller
-// drops the colourIndex field from JSON when the sentinel -1 is set,
-// so plain segments serialise as just `{"text":"…"}`.
+// index for entity-name spans. Entity is the navigation target for
+// coloured spans (the canonical name, with " (type)" appended when the
+// bare name is ambiguous, so clicks open the right wiki). Ambiguous
+// flags candidates emitted as part of an ambiguous bare-name match so
+// the frontend can mark them visually. Concatenating Text across
+// non-ambiguous segments reproduces the original source string exactly;
+// ambiguous candidates duplicate the same Text once per candidate.
 type ContextSegment struct {
 	Text        string
-	ColourIndex int32 // -1 = no colour (omitted from JSON)
+	Entity      string // navigation target (empty for plain segments)
+	Ambiguous   bool   // true for each candidate of an ambiguous bare-name match
+	ColourIndex int32  // -1 = no colour (omitted from JSON)
 }
 
 // MarshalJSON writes the segment with colourIndex omitted when the
-// sentinel -1 is set.
+// sentinel -1 is set, and entity/ambiguous omitted when zero-valued.
 func (s ContextSegment) MarshalJSON() ([]byte, error) {
 	if s.ColourIndex < 0 {
 		return json.Marshal(struct {
@@ -53,8 +59,10 @@ func (s ContextSegment) MarshalJSON() ([]byte, error) {
 	}
 	return json.Marshal(struct {
 		Text        string `json:"text"`
+		Entity      string `json:"entity,omitempty"`
+		Ambiguous   bool   `json:"ambiguous,omitempty"`
 		ColourIndex int32  `json:"colourIndex"`
-	}{s.Text, s.ColourIndex})
+	}{s.Text, s.Entity, s.Ambiguous, s.ColourIndex})
 }
 
 // EntityDescriptionBlock is one authored definition of the entity. The
@@ -233,6 +241,8 @@ func buildDescriptionBlocks(ps *projectState, world *lore.World, ent *lore.Entit
 // buildInboundRefs groups every recorded mention of `ent` by the source
 // entity that owns the mention. Refs from outside any entity definition
 // (free-text prose) collapse into a single group with empty Source.
+// When the source's bare name is shared by multiple entities the type
+// is appended ("Barovia (town)") so each owner gets its own group.
 // Group order: source entities alphabetically, free text last.
 func buildInboundRefs(ps *projectState, world *lore.World, ent *lore.Entity) []EntityRefGroup {
 	refs := world.GetReferences(ent.Name)
@@ -241,33 +251,68 @@ func buildInboundRefs(ps *projectState, world *lore.World, ent *lore.Entity) []E
 	}
 	bySource := make(map[string][]EntityRefItem)
 	for _, r := range refs {
-		bySource[r.SourceEntity] = append(bySource[r.SourceEntity], buildRefItem(ps, world, r))
+		// Drop refs whose target is a different entity sharing this bare name.
+		if r.TargetType != "" && ent.Type != "" && !strings.EqualFold(r.TargetType, ent.Type) {
+			continue
+		}
+		key := entityLabel(world, r.SourceEntity, r.SourceType)
+		bySource[key] = append(bySource[key], buildRefItem(ps, world, r))
+	}
+	if len(bySource) == 0 {
+		return nil
 	}
 	return sortedGroups(world, bySource)
 }
 
 // buildOutboundRefs walks the reference index in reverse: every entry
 // where SourceEntity equals our entity is a reference *from* this entity
-// to the keyed target. Groups by target entity name. Self-references
-// (target == ent.Name) are dropped, so the wiki's Mentions section
-// shows only refs the entity makes to *other* entities.
+// to the keyed target. Groups by target entity name (with type appended
+// when shared). Self-references are dropped so the wiki's Mentions
+// section shows only refs the entity makes to *other* entities.
 func buildOutboundRefs(ps *projectState, world *lore.World, ent *lore.Entity) []EntityRefGroup {
 	byTarget := make(map[string][]EntityRefItem)
 	for target, refs := range world.References {
-		if target == ent.Name {
-			continue
-		}
 		for _, r := range refs {
-			if r.SourceEntity != ent.Name {
+			if !strings.EqualFold(r.SourceEntity, ent.Name) {
 				continue
 			}
-			byTarget[target] = append(byTarget[target], buildRefItem(ps, world, r))
+			if r.SourceType != "" && ent.Type != "" && !strings.EqualFold(r.SourceType, ent.Type) {
+				continue
+			}
+			// Self-reference: this ref's target IS this entity.
+			if strings.EqualFold(target, ent.Name) {
+				if r.TargetType == "" || ent.Type == "" || strings.EqualFold(r.TargetType, ent.Type) {
+					continue
+				}
+			}
+			key := entityLabel(world, target, r.TargetType)
+			byTarget[key] = append(byTarget[key], buildRefItem(ps, world, r))
 		}
 	}
 	if len(byTarget) == 0 {
 		return nil
 	}
 	return sortedGroups(world, byTarget)
+}
+
+// entityLabel returns the display label for an entity reference. Type is
+// appended ("Name (type)") only when the bare name is shared by more than
+// one entity in the world — otherwise the bare name is unambiguous and
+// the suffix would be noise.
+func entityLabel(world *lore.World, name, typ string) string {
+	if name == "" || typ == "" {
+		return name
+	}
+	count := 0
+	for i := range world.Entities {
+		if strings.EqualFold(world.Entities[i].Name, name) {
+			count++
+			if count > 1 {
+				return name + " (" + typ + ")"
+			}
+		}
+	}
+	return name
 }
 
 // buildRefItem packages one Reference for the wiki: trims the source
@@ -360,6 +405,11 @@ func stateOpName(op lore.StateOp) string {
 // entity-coloured chunks for the wiki webview. Match resolution is
 // delegated to lore.ScanEntities so the highlights agree exactly with
 // what the reference scanner records and the colouriser paints.
+//
+// Equal-span matches (a bare name shared by multiple entities, with no
+// `(type)` suffix in the source) are emitted as one segment per
+// candidate, each flagged Ambiguous and carrying its disambiguated
+// label so a click navigates to that specific entity.
 func buildContextSegments(world *lore.World, text string) []ContextSegment {
 	if text == "" {
 		return nil
@@ -370,13 +420,35 @@ func buildContextSegments(world *lore.World, text string) []ContextSegment {
 	}
 	out := make([]ContextSegment, 0, len(matches)*2+1)
 	prev := 0
-	for _, m := range matches {
+	for i := 0; i < len(matches); {
+		m := matches[i]
+		j := i + 1
+		for j < len(matches) && matches[j].Start == m.Start && matches[j].End == m.End {
+			j++
+		}
+		ambiguous := j-i > 1
 		if m.Start > prev {
 			out = append(out, ContextSegment{Text: text[prev:m.Start], ColourIndex: -1})
 		}
-		idx := int32(entityColourIndex(&world.Entities[m.EntityIdx]))
-		out = append(out, ContextSegment{Text: text[m.Start:m.End], ColourIndex: idx})
+		for k := i; k < j; k++ {
+			if ambiguous && k > i {
+				out = append(out, ContextSegment{Text: "/", ColourIndex: -1})
+			}
+			ent := &world.Entities[matches[k].EntityIdx]
+			idx := int32(entityColourIndex(ent))
+			label := ent.Name
+			if ambiguous && ent.Type != "" {
+				label = ent.Name + " (" + ent.Type + ")"
+			}
+			out = append(out, ContextSegment{
+				Text:        text[m.Start:m.End],
+				Entity:      label,
+				Ambiguous:   ambiguous,
+				ColourIndex: idx,
+			})
+		}
 		prev = m.End
+		i = j
 	}
 	if prev < len(text) {
 		out = append(out, ContextSegment{Text: text[prev:], ColourIndex: -1})

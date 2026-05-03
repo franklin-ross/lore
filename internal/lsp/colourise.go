@@ -81,7 +81,17 @@ func (c *colouriser) Wrap(text string) string {
 	}
 
 	prev := 0
-	for _, m := range matches {
+	for i := 0; i < len(matches); {
+		m := matches[i]
+		// Group equal-span matches: a bare name shared by multiple
+		// entities with no `(type)` suffix in the source. Hover has no
+		// place to surface the choice, so we render the text once with
+		// the first candidate's colour. The editor diagnostic and wiki
+		// view are where the user actually resolves the ambiguity.
+		j := i + 1
+		for j < len(matches) && matches[j].Start == m.Start && matches[j].End == m.End {
+			j++
+		}
 		emitGap(prev, m.Start)
 		idx := int(entityColourIndex(&c.world.Entities[m.EntityIdx]))
 		if idx < 0 || idx >= len(c.palette) {
@@ -94,6 +104,7 @@ func (c *colouriser) Wrap(text string) string {
 			b.WriteString(`</span>`)
 		}
 		prev = m.End
+		i = j
 	}
 	emitGap(prev, len(text))
 	return b.String()

@@ -21,16 +21,18 @@ type EntitySpan struct {
 //     matches, and a name span suppresses an alias inside it).
 //   - Equal spans from different entities are both kept — they're a
 //     genuine ambiguity (e.g. two entities sharing the same canonical
-//     name but different types, mentioned without a `(type)` suffix).
+//     name and no `(type)` suffix to disambiguate).
 //   - Equal spans from the same entity (alias literally equal to its
 //     own name) collapse to one.
 //
-// When `includeDisambig` is true, "Name (type)" forms produce extended
-// spans through the closing paren so they suppress overlapping plain
-// matches; that's the right behaviour for the reference index. When
-// false, only plain name and alias matches are produced — appropriate
-// for visual highlighting where the user wouldn't expect "(npc)" itself
-// to be coloured.
+// `(type)` suffixes following a name match are always honoured: only
+// the entity whose type matches the suffix is emitted; other same-name
+// entities are skipped at that position. When `includeDisambig` is
+// true, the matching entity's span is extended through the closing
+// paren so it suppresses overlapping plain matches in the reference
+// index. When false, the span covers just the name — appropriate for
+// visual highlighting where the user wouldn't expect "(country)"
+// itself to be coloured.
 //
 // Returns nil when there's no match index, no candidate matches, or the
 // input is empty — callers should treat nil as "leave the text alone".
@@ -49,20 +51,20 @@ func ScanEntities(world *World, text string, includeDisambig bool) []EntitySpan 
 	for i := range mi.Entities {
 		em := &mi.Entities[i]
 
-		if includeDisambig && em.LowerType != "" {
-			for _, pos := range FindWordMatches(lower, em.LowerName) {
-				end := pos + len(em.LowerName)
-				after := MatchesTypeSuffix(lower, end, em.LowerType)
-				if after < 0 {
-					continue
-				}
-				all = append(all, cand{pos, after, i})
-			}
-		}
-
 		for _, pos := range FindWordMatches(lower, em.LowerName) {
 			end := pos + len(em.LowerName)
-			if includeDisambig && MatchesAnyTypeSuffix(lower, end, mi.Types) >= 0 {
+			suffixPresent := MatchesAnyTypeSuffix(lower, end, mi.Types) >= 0
+			ownSuffixEnd := -1
+			if em.LowerType != "" {
+				ownSuffixEnd = MatchesTypeSuffix(lower, end, em.LowerType)
+			}
+			if suffixPresent && ownSuffixEnd < 0 {
+				// `(type)` follows but it's a different entity's type.
+				// The user has disambiguated away from this entity.
+				continue
+			}
+			if includeDisambig && ownSuffixEnd >= 0 {
+				all = append(all, cand{pos, ownSuffixEnd, i})
 				continue
 			}
 			all = append(all, cand{pos, end, i})

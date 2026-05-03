@@ -103,6 +103,12 @@ export class LoreWikiPanel {
           `Lore: failed to open ${msg.uri}: ${(err && err.message) || err}`
         );
       }
+      return;
+    }
+    if (msg.type === "openWiki" && msg.entity) {
+      // Re-target the existing panel rather than spawning a new one. show()
+      // handles current/title bookkeeping and triggers a refresh.
+      await this.show(msg.entity, this.current?.source);
     }
   }
 
@@ -240,6 +246,10 @@ export class LoreWikiPanel {
     vscode.postMessage({ type: "navigate", uri, line });
   }
 
+  function openWiki(entity) {
+    vscode.postMessage({ type: "openWiki", entity });
+  }
+
   function basename(uri) {
     try {
       const path = new URL(uri).pathname;
@@ -289,12 +299,32 @@ export class LoreWikiPanel {
     return out;
   }
 
-  function renderSegments(segments, parent) {
+  // linkToWiki=true makes coloured entity spans clickable, opening the
+  // matched entity's wiki page. Reference-context previews pass false so
+  // their row-level click still navigates to the editor location.
+  // Ambiguous segments get a wavy warning underline and a tooltip naming
+  // the disambiguated candidate, so a row of ambiguous candidates reads
+  // clearly as a set of options rather than a typo.
+  function renderSegments(segments, parent, linkToWiki) {
     if (!segments || !segments.length) return parent;
     for (const seg of segments) {
       const c = colour(seg.colourIndex);
       if (c) {
-        parent.appendChild(el("span", { style: { color: c } }, seg.text));
+        const style = { color: c };
+        const attrs = { style };
+        if (seg.ambiguous) {
+          style.textDecoration =
+            "underline wavy var(--vscode-editorWarning-foreground)";
+          attrs.title = "Ambiguous reference — " + (seg.entity || seg.text);
+        }
+        if (linkToWiki && seg.entity) {
+          style.cursor = "pointer";
+          attrs.onclick = (ev) => {
+            ev.stopPropagation();
+            openWiki(seg.entity);
+          };
+        }
+        parent.appendChild(el("span", attrs, seg.text));
       } else {
         parent.appendChild(document.createTextNode(seg.text));
       }
@@ -317,7 +347,7 @@ export class LoreWikiPanel {
         }, "Jump ↗")
       );
       const text = el("div", { class: "desc-text" });
-      renderSegments(block.segments, text);
+      renderSegments(block.segments, text, true);
       out.push(el("div", { class: "desc-block" }, meta, text));
     }
     return out;
@@ -337,12 +367,22 @@ export class LoreWikiPanel {
       const label = g.source || freeTextLabel;
       if (!label) continue;
       const c = colour(g.colourIndex);
-      const heading = el("h3", { style: c ? { color: c } : undefined }, label);
+      // Heading opens the source entity's wiki when the group's source
+      // resolves to a known entity. Free-text and unresolved sources fall
+      // through to a plain heading.
+      const headingAttrs = {};
+      const headingStyle = c ? { color: c } : {};
+      if (g.source) {
+        headingStyle.cursor = "pointer";
+        headingAttrs.onclick = () => openWiki(g.source);
+      }
+      if (Object.keys(headingStyle).length) headingAttrs.style = headingStyle;
+      const heading = el("h3", headingAttrs, label);
       const group = el("div", { class: "ref-group" }, heading);
       for (const r of g.refs) {
         const line = locLine(r.location);
         const ctx = el("span", { class: "ctx" });
-        renderSegments(r.segments, ctx);
+        renderSegments(r.segments, ctx, false);
         const row = el("div", {
           class: "ref-row",
           onclick: () => navigate(r.location.uri, line),

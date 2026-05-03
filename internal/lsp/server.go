@@ -351,10 +351,61 @@ func (s *Server) publishDiagnostics(ps *projectState, relPath, uri string) {
 			items = append(items, toProtocolDiagnostic(si))
 		}
 	}
+	if content, ok := ps.index.Content(relPath); ok {
+		items = append(items, ambiguityDiagnostics(world, content)...)
+	}
 	s.notify(protocol.ServerTextDocumentPublishDiagnostics, &protocol.PublishDiagnosticsParams{
 		URI:         uri,
 		Diagnostics: items,
 	})
+}
+
+// ambiguityDiagnostics flags every bare-name mention in `content` whose
+// resolution is ambiguous (the same name belongs to two or more entities
+// with different types and the author hasn't disambiguated with a `(type)`
+// suffix). The returned diagnostics are warnings — the file still parses
+// and renders, but the wiki view, hover and reference index can't pick a
+// single owner so the author should add a disambiguator.
+func ambiguityDiagnostics(world *lore.World, content string) []protocol.Diagnostic {
+	if world == nil || world.Match == nil {
+		return nil
+	}
+	sev := protocol.DiagnosticSeverityWarning
+	source := "lore"
+	var out []protocol.Diagnostic
+	for lineIdx, line := range strings.Split(content, "\n") {
+		matches := lore.ScanEntities(world, line, false)
+		for i := 0; i < len(matches); {
+			m := matches[i]
+			j := i + 1
+			for j < len(matches) && matches[j].Start == m.Start && matches[j].End == m.End {
+				j++
+			}
+			if j-i > 1 {
+				names := make([]string, 0, j-i)
+				for k := i; k < j; k++ {
+					e := &world.Entities[matches[k].EntityIdx]
+					if e.Type != "" {
+						names = append(names, e.Name+" ("+e.Type+")")
+					} else {
+						names = append(names, e.Name)
+					}
+				}
+				msg := "Ambiguous reference \"" + line[m.Start:m.End] + "\" — could be " + strings.Join(names, ", ") + ". Add a (type) suffix to disambiguate."
+				out = append(out, protocol.Diagnostic{
+					Range: protocol.Range{
+						Start: protocol.Position{Line: uint32(lineIdx), Character: uint32(m.Start)},
+						End:   protocol.Position{Line: uint32(lineIdx), Character: uint32(m.End)},
+					},
+					Severity: &sev,
+					Source:   &source,
+					Message:  msg,
+				})
+			}
+			i = j
+		}
+	}
+	return out
 }
 
 func toProtocolDiagnostic(si lore.StateIssue) protocol.Diagnostic {

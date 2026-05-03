@@ -308,10 +308,14 @@ func findReferences(world *World, content, file string) {
 		leadingWS := len(line) - len(strings.TrimLeft(line, " \t"))
 
 		for _, m := range ScanEntities(world, line, true) {
-			world.AddReference(world.Entities[m.EntityIdx].Name, Reference{
+			srcName, srcType := findEntityAtMention(world, file, lineNum, m.Start)
+			target := &world.Entities[m.EntityIdx]
+			world.AddReference(target.Name, Reference{
 				File:         file,
 				Line:         lineNum,
-				SourceEntity: findEntityAtMention(world, file, lineNum, m.Start),
+				SourceEntity: srcName,
+				SourceType:   srcType,
+				TargetType:   target.Type,
 				Context:      trimmed,
 				MatchOffset:  max(m.Start-leadingWS, 0),
 			})
@@ -373,21 +377,21 @@ func MatchesAnyTypeSuffix(lowerText string, pos int, lowerTypes map[string]struc
 	return typeStart + closeOffset + 1
 }
 
-// findEntityAtMention returns the entity whose description span (line +
-// byte-column range) contains the given mention position. When multiple
-// descriptions overlap — typically an inline aside nested inside the line
-// of a header description — the tightest containing span wins, so refs
-// inside an aside attribute to the aside-defined entity rather than the
-// surrounding owner. Returns "" when the position falls outside every
-// description (free text).
+// findEntityAtMention returns the name and type of the entity whose
+// description span (line + byte-column range) contains the given mention
+// position. When multiple descriptions overlap — typically an inline aside
+// nested inside the line of a header description — the tightest containing
+// span wins, so refs inside an aside attribute to the aside-defined entity
+// rather than the surrounding owner. Returns ("", "") when the position
+// falls outside every description (free text).
 //
 // For asides only the body span [BodyColumn, EndColumn) counts as the
 // entity's territory: the aside header reads naturally as part of the
 // surrounding prose, so a name appearing in the header (e.g. "Captain
 // Casimir" inside `(Captain Casimir (npc) | Casimir: …)`) attributes to
 // free text rather than to the aside's own entity.
-func findEntityAtMention(world *World, file string, line, byteCol int) string {
-	var bestName string
+func findEntityAtMention(world *World, file string, line, byteCol int) (string, string) {
+	var bestName, bestType string
 	bestSize := -1
 	for _, ent := range world.Entities {
 		for _, desc := range ent.Descriptions {
@@ -410,10 +414,11 @@ func findEntityAtMention(world *World, file string, line, byteCol int) string {
 			if bestSize == -1 || size < bestSize {
 				bestSize = size
 				bestName = ent.Name
+				bestType = ent.Type
 			}
 		}
 	}
-	return bestName
+	return bestName, bestType
 }
 
 // descSpanSize ranks descriptions for tightest-match selection. Single-line

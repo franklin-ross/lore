@@ -64,6 +64,8 @@ type Reference struct {
 	File         string
 	Line         int
 	SourceEntity string // name of the entity whose definition contains this ref; empty for free text
+	SourceType   string // type of the source entity, used to disambiguate when multiple entities share SourceEntity
+	TargetType   string // type of the referenced entity, used to disambiguate when multiple entities share the map key
 	Context      string // the line of text containing the reference, leading/trailing whitespace stripped
 	MatchOffset  int    // byte offset in Context where the matched name starts; display layers use this to crop a preview
 }
