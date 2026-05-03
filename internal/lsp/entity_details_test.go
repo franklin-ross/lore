@@ -213,6 +213,141 @@ Casimir (npc): Yltry meets the dusk elf at the gates of Vallaki on a misty morni
 	}
 }
 
+// Inbound refs should point at the matched substring on the source line
+// — not a whole-line range — so the wiki click selects exactly the entity
+// name span in the editor.
+func TestEntityDetailsRefLocationIsPreciseSpan(t *testing.T) {
+	const content = `Sildar Hallwinter (character) | Sildar: Fighter.
+
+Cragmaw Hideout (location): North of Triboar Trail. Sildar was captured here.
+`
+	s := setupTestServer(t, content)
+	got, err := s.entityDetails(&EntityDetailsParams{
+		Entity:       "Sildar",
+		TextDocument: &protocol.TextDocumentIdentifier{URI: "file:///test/test.md"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	for _, g := range got.InboundRefs {
+		if g.Source != "Cragmaw Hideout" {
+			continue
+		}
+		for _, r := range g.Refs {
+			rng := r.Location.Range
+			// Sub-line range — start.character > 0 and end.character > start.character.
+			if rng.Start.Line != rng.End.Line {
+				t.Errorf("expected single-line range, got %+v", rng)
+			}
+			if rng.Start.Character == rng.End.Character {
+				t.Errorf("expected non-empty range, got %+v", rng)
+			}
+			if rng.Start.Character == 0 && rng.End.Character == 0 {
+				t.Errorf("expected sub-line span, got whole-line %+v", rng)
+			}
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("no Sildar ref from Cragmaw Hideout")
+	}
+}
+
+// Description blocks should locate the entity name on the definition line
+// with the `(type)` suffix included so the wiki type-page row click
+// selects the disambiguator alongside the name.
+func TestEntityDetailsDescriptionLocationCoversNameAndType(t *testing.T) {
+	const content = `Sildar Hallwinter (character) | Sildar: Fighter.
+`
+	s := setupTestServer(t, content)
+	got, err := s.entityDetails(&EntityDetailsParams{
+		Entity:       "Sildar Hallwinter",
+		TextDocument: &protocol.TextDocumentIdentifier{URI: "file:///test/test.md"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Descriptions) == 0 {
+		t.Fatal("expected one description")
+	}
+	rng := got.Descriptions[0].Location.Range
+	// Span = "Sildar Hallwinter (character)" on line 0, columns 0..29.
+	want := "Sildar Hallwinter (character)"
+	if rng.Start.Character != 0 || rng.End.Character != uint32(len(want)) {
+		t.Errorf("range = %+v, want 0..%d (the %q span)", rng, len(want), want)
+	}
+}
+
+// Inline asides start with an opening paren; the description location must
+// skip it so the selection lands on the first letter of the name.
+func TestEntityDetailsAsideDescriptionLocationSkipsParen(t *testing.T) {
+	const content = `Vallaki (location): Walled town.
+
+Session intro. (Vallaki: Wolf heads on the gates).
+`
+	s := setupTestServer(t, content)
+	got, err := s.entityDetails(&EntityDetailsParams{
+		Entity:       "Vallaki",
+		TextDocument: &protocol.TextDocumentIdentifier{URI: "file:///test/test.md"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Descriptions) < 2 {
+		t.Fatal("expected header + aside descriptions")
+	}
+	// Find the aside (Line 3, the inline `(Vallaki: ...)`).
+	var aside *EntityDescriptionBlock
+	for i := range got.Descriptions {
+		if got.Descriptions[i].StartLine == 3 {
+			aside = &got.Descriptions[i]
+			break
+		}
+	}
+	if aside == nil {
+		t.Fatal("expected aside on line 3")
+	}
+	asideLineStart := strings.Index(content, "Session intro.")
+	asideOpen := strings.Index(content[asideLineStart:], "(") + asideLineStart
+	wantStart := uint32(asideOpen - asideLineStart + 1) // skip `(`
+	wantEnd := wantStart + uint32(len("Vallaki"))
+	if aside.Location.Range.Start.Character != wantStart || aside.Location.Range.End.Character != wantEnd {
+		t.Errorf("range = %+v, want %d..%d", aside.Location.Range, wantStart, wantEnd)
+	}
+}
+
+// State history rows should jump to the directive's exact span on its
+// source line, not to a whole-line range.
+func TestEntityDetailsStateHistoryLocationIsPreciseSpan(t *testing.T) {
+	const content = `Sildar Hallwinter (character): Fighter. +injured
+`
+	s := setupTestServer(t, content)
+	got, err := s.entityDetails(&EntityDetailsParams{
+		Entity:       "Sildar Hallwinter",
+		TextDocument: &protocol.TextDocumentIdentifier{URI: "file:///test/test.md"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.StateHistory) == 0 {
+		t.Fatal("expected one state event")
+	}
+	ev := got.StateHistory[0]
+	if ev.Op != "add" || ev.Target != "injured" {
+		t.Fatalf("unexpected event %+v", ev)
+	}
+	rng := ev.Location.Range
+	wantStart := uint32(strings.Index(content, "+injured"))
+	wantEnd := wantStart + uint32(len("+injured"))
+	if rng.Start.Line != rng.End.Line {
+		t.Errorf("expected single-line range, got %+v", rng)
+	}
+	if rng.Start.Character != wantStart || rng.End.Character != wantEnd {
+		t.Errorf("range = %+v, want %d..%d", rng, wantStart, wantEnd)
+	}
+}
+
 // Plain (uncoloured) ContextSegments should marshal without a
 // "colourIndex" field; coloured segments include it. Keeps wire payload
 // small and the JSON shape obvious to webview readers.

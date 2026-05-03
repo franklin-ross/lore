@@ -415,12 +415,9 @@ func buildStateHistory(ps *projectState, ent *lore.Entity) []EntityStateEventIte
 	out := make([]EntityStateEventItem, 0, len(ent.StateHistory))
 	for _, ev := range ent.StateHistory {
 		item := EntityStateEventItem{
-			Op:     stateOpName(ev.Op),
-			Target: ev.Target,
-			Location: protocol.Location{
-				URI:   ps.fileToURI(ev.Span.File),
-				Range: lineRange(ev.Span.Line),
-			},
+			Op:       stateOpName(ev.Op),
+			Target:   ev.Target,
+			Location: locationForStateEvent(ps, ent, ev),
 		}
 		if ev.Value != nil {
 			item.Value = lore.FormatFieldValue(*ev.Value)
@@ -428,6 +425,15 @@ func buildStateHistory(ps *projectState, ent *lore.Entity) []EntityStateEventIte
 		out = append(out, item)
 	}
 	return out
+}
+
+// locationForStateEvent uses the directive's pre-translated Span — the
+// merge layer maps joined-description offsets back to absolute file line +
+// byte columns via translateSpans, so we go straight from those to a
+// precise LSP Range. ent is unused but kept in the signature for future
+// callers that want to disambiguate spans by owning description.
+func locationForStateEvent(ps *projectState, _ *lore.Entity, ev lore.StateEvent) protocol.Location {
+	return ps.locAtMatch(ev.Span.File, ev.Span.Line, ev.Span.StartByte, ev.Span.EndByte)
 }
 
 func stateOpName(op lore.StateOp) string {

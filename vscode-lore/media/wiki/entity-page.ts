@@ -105,7 +105,7 @@ function renderHistoryBody(d: EntityDetails, ctx: PageCtx): HTMLElement[] {
     const line = (ev.location?.range?.start?.line ?? 0) + 1;
     const row = el("div", {
       class: "history-row",
-      onclick: () => ctx.navigate(ev.location.uri, line),
+      onclick: () => ctx.navigate(ev.location.uri, line, ev.location.range),
     },
       el("span", null, directiveText(ev)),
       el("span", { class: "loc" }, basename(ev.location.uri) + ":" + line),
