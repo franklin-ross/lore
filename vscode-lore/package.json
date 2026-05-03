@@ -62,36 +62,36 @@
         "commands": [
             {
                 "command": "lore.toggleHoverStateDirectives",
-                "title": "Lore: Toggle Hover State Directives",
+                "title": "Toggle Hover State Directives",
                 "category": "Lore"
             },
             {
                 "command": "lore.entities.refresh",
-                "title": "Lore: Refresh Entities",
+                "title": "Refresh Entities",
                 "category": "Lore",
                 "icon": "$(refresh)"
             },
             {
                 "command": "lore.entities.search",
-                "title": "Lore: Filter Entities",
+                "title": "Filter Entities",
                 "category": "Lore",
                 "icon": "$(search)"
             },
             {
                 "command": "lore.entities.clearFilter",
-                "title": "Lore: Clear Entities Filter",
+                "title": "Clear Entities Filter",
                 "category": "Lore",
                 "icon": "$(clear-all)"
             },
             {
                 "command": "lore.openWiki",
-                "title": "Lore: Open Entity Wiki",
+                "title": "Open Wiki",
                 "category": "Lore",
                 "icon": "$(book)"
             },
             {
                 "command": "lore.openWikiAtCursor",
-                "title": "Lore: Open Entity Wiki at Cursor",
+                "title": "Open Wiki at Cursor",
                 "category": "Lore"
             }
         ],

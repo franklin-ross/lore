@@ -1,9 +1,20 @@
 import * as vscode from "vscode";
 
-// LoreWikiPanel manages a singleton webview that renders one entity at a
-// time. Subsequent open requests reveal the existing panel and re-target
-// it instead of spawning duplicates. Click events from the panel post
-// back through vscode.postMessage and resolve to vscode.window.showTextDocument.
+/**
+ * @typedef {{kind: "entity", value: string, source: string | undefined}
+ *         | {kind: "type", value: string, source: string | undefined}
+ *         | {kind: "home", value: "", source: string | undefined}} Page
+ */
+
+/**
+ * Pages a wiki shows: entity (one entity), type (every entity of a type),
+ * home (landing page with search). LoreWikiPanel owns the singleton webview,
+ * a navigation history stack, and the back/forward cursor.
+ *
+ * Webview content lives in vscode-lore/media/wiki/ as ESM modules. The
+ * extension only owns transport: it fetches data from the LSP server, posts
+ * it to the webview, and routes user-driven messages back into navigation.
+ */
 export class LoreWikiPanel {
   /**
    * @param {() => import("vscode-languageclient/node").LanguageClient | undefined} getClient
@@ -16,61 +27,108 @@ export class LoreWikiPanel {
     this.context = context;
     /** @type {vscode.WebviewPanel | undefined} */
     this.panel = undefined;
-    /** @type {{entity: string, source: string | undefined} | undefined} */
-    this.current = undefined;
+    /** @type {Page[]} */
+    this.history = [];
+    this.cursor = -1;
+  }
+
+  /** @returns {Page | undefined} */
+  current() {
+    return this.cursor >= 0 ? this.history[this.cursor] : undefined;
   }
 
   /**
-   * Open or reveal the wiki for `entity`. `source` is the active editor
-   * URI used to scope the lookup to the right project.
+   * Open or reveal the wiki for an entity. Equivalent to navigating to an
+   * entity page; kept as a named method for older call sites.
    * @param {string} entity
    * @param {string | undefined} source
    */
   async show(entity, source) {
-    if (!this.panel) {
-      this.panel = vscode.window.createWebviewPanel(
-        "loreWiki",
-        "Lore Wiki",
-        { viewColumn: vscode.ViewColumn.Beside, preserveFocus: true },
-        { enableScripts: true, retainContextWhenHidden: true }
-      );
-      this.panel.webview.html = this.renderShell();
-      this.panel.webview.onDidReceiveMessage((msg) => this.onMessage(msg));
-      this.panel.onDidDispose(() => {
-        this.panel = undefined;
-        this.current = undefined;
-      });
-    } else {
-      // Reveal without a viewColumn so the panel stays in its current
-      // group. Passing Beside here resolves relative to the active group,
-      // and when the user clicks an entity link inside the wiki the wiki
-      // itself is active — Beside then splits a new column to the right
-      // and shrinks the layout.
-      this.panel.reveal(undefined, true);
+    await this.navigate({ kind: "entity", value: entity, source });
+  }
+
+  /** @param {string | undefined} source */
+  async showHome(source) {
+    await this.navigate({ kind: "home", value: "", source });
+  }
+
+  /**
+   * @param {string} type
+   * @param {string | undefined} source
+   */
+  async showType(type, source) {
+    await this.navigate({ kind: "type", value: type, source });
+  }
+
+  /**
+   * Push a page onto the history stack. If the user has rewound with
+   * back(), forward entries past the cursor are discarded — same behaviour
+   * as a browser. Re-navigating to the page already at the cursor doesn't
+   * grow the stack but still triggers a refresh.
+   * @param {Page} page
+   */
+  async navigate(page) {
+    this.ensurePanel();
+    const top = this.current();
+    if (!samePage(top, page)) {
+      this.history.splice(this.cursor + 1);
+      this.history.push(page);
+      this.cursor = this.history.length - 1;
     }
-    this.current = { entity, source };
-    this.panel.title = `Lore: ${entity}`;
+    this.updateTitle();
+    await this.refresh();
+  }
+
+  async back() {
+    if (this.cursor <= 0) return;
+    this.cursor--;
+    this.updateTitle();
+    await this.refresh();
+  }
+
+  async forward() {
+    if (this.cursor >= this.history.length - 1) return;
+    this.cursor++;
+    this.updateTitle();
     await this.refresh();
   }
 
   /**
-   * Re-fetch the current entity's data and push it into the webview.
-   * Called on initial show and from the extension's debounced edit
-   * listener so the wiki stays current.
+   * Jump to an arbitrary point in the history stack — used by breadcrumb
+   * clicks. Out-of-range indices are ignored.
+   * @param {number} index
+   */
+  async goto(index) {
+    if (index < 0 || index >= this.history.length || index === this.cursor) return;
+    this.cursor = index;
+    this.updateTitle();
+    await this.refresh();
+  }
+
+  /**
+   * Re-fetch the current page's data and push it into the webview together
+   * with a snapshot of breadcrumbs and the autocomplete catalog. Called on
+   * navigate/back/forward and from the extension's debounced edit listener
+   * so the wiki stays current.
    */
   async refresh() {
-    if (!this.panel || !this.current) return;
+    if (!this.panel) return;
+    const page = this.current();
+    if (!page) return;
+
     const client = this.getClient();
     if (!client) {
       this.panel.webview.postMessage({ type: "error", message: "Language server not running." });
       return;
     }
-    let response;
+
+    let payload = null;
+    let catalog = null;
     try {
-      response = await client.sendRequest("lore/entityDetails", {
-        entity: this.current.entity,
-        textDocument: this.current.source ? { uri: this.current.source } : undefined,
-      });
+      [payload, catalog] = await Promise.all([
+        this.fetchPayload(client, page),
+        this.fetchCatalog(client, page.source),
+      ]);
     } catch (err) {
       this.panel.webview.postMessage({
         type: "error",
@@ -78,533 +136,200 @@ export class LoreWikiPanel {
       });
       return;
     }
+
     this.panel.webview.postMessage({
-      type: "details",
-      details: response,
+      type: "page",
+      page,
+      payload,
+      catalog,
       palette: this.palette,
-      requested: this.current.entity,
+      breadcrumbs: this.breadcrumbsSnapshot(),
+      cursor: this.cursor,
+      canBack: this.cursor > 0,
+      canForward: this.cursor < this.history.length - 1,
     });
   }
 
-  /** @param {{type: string, uri?: string, line?: number}} msg */
-  async onMessage(msg) {
-    if (msg.type === "ready") {
-      await this.refresh();
+  /**
+   * @param {import("vscode-languageclient/node").LanguageClient} client
+   * @param {Page} page
+   */
+  async fetchPayload(client, page) {
+    const td = page.source ? { uri: page.source } : undefined;
+    if (page.kind === "entity") {
+      return client.sendRequest("lore/entityDetails", {
+        entity: page.value,
+        textDocument: td,
+      });
+    }
+    if (page.kind === "type") {
+      return client.sendRequest("lore/typeDetails", {
+        type: page.value,
+        textDocument: td,
+      });
+    }
+    return null; // home — no per-page payload
+  }
+
+  /**
+   * Fetches the entity catalog used by the search box. Same source scoping
+   * as page lookups so suggestions match the active project.
+   * @param {import("vscode-languageclient/node").LanguageClient} client
+   * @param {string | undefined} source
+   */
+  async fetchCatalog(client, source) {
+    const td = source ? { uri: source } : undefined;
+    const list = await client.sendRequest("lore/entityList", { textDocument: td });
+    const entities = (list?.entities || []).map((e) => ({
+      name: e.name,
+      type: e.type,
+    }));
+    const counts = new Map();
+    for (const e of entities) {
+      if (!e.type) continue;
+      counts.set(e.type, (counts.get(e.type) || 0) + 1);
+    }
+    const types = [...counts.entries()].map(([name, count]) => ({ name, count }));
+    // Most populous type first; alphabetical tie-break so identical counts
+    // render in a stable order.
+    types.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+    return { entities, types };
+  }
+
+  /** Snapshot of the history stack for breadcrumb rendering. */
+  breadcrumbsSnapshot() {
+    return this.history.map((p) => ({ kind: p.kind, value: p.value }));
+  }
+
+  ensurePanel() {
+    if (this.panel) {
+      this.panel.reveal(undefined, true);
       return;
     }
-    if (msg.type === "navigate" && msg.uri) {
-      try {
-        const uri = vscode.Uri.parse(msg.uri);
-        const doc = await vscode.workspace.openTextDocument(uri);
-        const line = Math.max(0, (msg.line ?? 1) - 1);
-        const lineText = doc.lineAt(Math.min(line, doc.lineCount - 1));
-        await vscode.window.showTextDocument(doc, {
-          selection: lineText.range,
-          viewColumn: vscode.ViewColumn.One,
-          preserveFocus: false,
-        });
-      } catch (err) {
-        vscode.window.showErrorMessage(
-          `Lore: failed to open ${msg.uri}: ${(err && err.message) || err}`
-        );
+    const mediaRoot = vscode.Uri.joinPath(this.context.extensionUri, "media");
+    this.panel = vscode.window.createWebviewPanel(
+      "loreWiki",
+      "Lore Wiki",
+      { viewColumn: vscode.ViewColumn.Beside, preserveFocus: true },
+      {
+        enableScripts: true,
+        retainContextWhenHidden: true,
+        localResourceRoots: [mediaRoot],
       }
-      return;
+    );
+    this.panel.webview.html = this.renderShell();
+    this.panel.webview.onDidReceiveMessage((msg) => this.onMessage(msg));
+    this.panel.onDidDispose(() => {
+      this.panel = undefined;
+      this.history = [];
+      this.cursor = -1;
+    });
+  }
+
+  updateTitle() {
+    if (!this.panel) return;
+    const page = this.current();
+    if (!page || page.kind === "home") {
+      this.panel.title = "Lore Wiki";
+    } else if (page.kind === "type") {
+      this.panel.title = `Lore: ${page.value} (type)`;
+    } else {
+      this.panel.title = `Lore: ${page.value}`;
     }
-    if (msg.type === "openWiki" && msg.entity) {
-      // Re-target the existing panel rather than spawning a new one. show()
-      // handles current/title bookkeeping and triggers a refresh.
-      await this.show(msg.entity, this.current?.source);
+  }
+
+  /** @param {{type: string, [k: string]: any}} msg */
+  async onMessage(msg) {
+    switch (msg.type) {
+      case "ready":
+        await this.refresh();
+        return;
+      case "navigate":
+        if (msg.uri) await this.openInEditor(msg.uri, msg.line);
+        return;
+      case "openEntity":
+        if (msg.entity) await this.show(msg.entity, this.current()?.source);
+        return;
+      case "openType":
+        if (msg.value) await this.showType(msg.value, this.current()?.source);
+        return;
+      case "openHome":
+        await this.showHome(this.current()?.source);
+        return;
+      case "back":
+        await this.back();
+        return;
+      case "forward":
+        await this.forward();
+        return;
+      case "goto":
+        if (typeof msg.index === "number") await this.goto(msg.index);
+        return;
+    }
+  }
+
+  /** @param {string} uri @param {number | undefined} line */
+  async openInEditor(uri, line) {
+    try {
+      const parsed = vscode.Uri.parse(uri);
+      const doc = await vscode.workspace.openTextDocument(parsed);
+      const lineIdx = Math.max(0, (line ?? 1) - 1);
+      const lineText = doc.lineAt(Math.min(lineIdx, doc.lineCount - 1));
+      await vscode.window.showTextDocument(doc, {
+        selection: lineText.range,
+        viewColumn: vscode.ViewColumn.One,
+        preserveFocus: false,
+      });
+    } catch (err) {
+      vscode.window.showErrorMessage(
+        `Lore: failed to open ${uri}: ${(err && err.message) || err}`
+      );
     }
   }
 
   renderShell() {
+    const webview = this.panel.webview;
+    const mediaUri = (rel) =>
+      webview.asWebviewUri(
+        vscode.Uri.joinPath(this.context.extensionUri, "media", "wiki", rel)
+      );
+    const main = mediaUri("main.js");
+    const styles = mediaUri("wiki.css");
+    const nonce = makeNonce();
+    const csp = [
+      "default-src 'none'",
+      `style-src ${webview.cspSource} 'unsafe-inline'`,
+      `font-src ${webview.cspSource}`,
+      `img-src ${webview.cspSource} https: data:`,
+      `script-src 'nonce-${nonce}' ${webview.cspSource}`,
+    ].join("; ");
     return `<!DOCTYPE html>
 <html>
 <head>
 <meta charset="UTF-8">
-<style>
-  body {
-    font-family: var(--vscode-font-family);
-    font-size: var(--vscode-font-size);
-    color: var(--vscode-foreground);
-    padding: 16px 20px 32px;
-    line-height: 1.5;
-  }
-  h1, h2, h3 { margin: 0; }
-  h1 { font-size: 1.6em; font-weight: 700; }
-  h2 { font-size: 1.05em; text-transform: uppercase; letter-spacing: 0.06em;
-       color: var(--vscode-descriptionForeground); margin: 24px 0 8px; }
-  h2.collapsible {
-    cursor: pointer;
-    user-select: none;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-  h2.collapsible::before {
-    content: "▾";
-    display: inline-block;
-    font-size: 0.85em;
-    width: 0.9em;
-    transition: transform 0.1s ease;
-  }
-  h2.collapsible.collapsed::before { transform: rotate(-90deg); }
-  h3 { font-size: 1em; font-weight: 600; margin: 14px 0 4px; }
-  .type { color: var(--vscode-descriptionForeground); font-weight: 400;
-          font-style: italic; margin-left: 8px; font-size: 0.9em; }
-  .aliases { color: var(--vscode-descriptionForeground); font-size: 0.95em;
-             margin-top: 4px; }
-  .pill {
-    display: inline-block;
-    padding: 1px 8px;
-    margin: 2px 4px 2px 0;
-    border-radius: 10px;
-    background: var(--vscode-badge-background);
-    color: var(--vscode-badge-foreground);
-    font-size: 0.85em;
-    font-family: var(--vscode-editor-font-family);
-  }
-  table.fields { border-collapse: collapse; margin: 4px 0 8px; }
-  table.fields td {
-    padding: 2px 12px 2px 0;
-    font-family: var(--vscode-editor-font-family);
-    font-size: 0.95em;
-  }
-  table.fields td.k { color: var(--vscode-descriptionForeground); }
-  .desc-block {
-    display: flex;
-    align-items: stretch;
-    gap: 8px;
-    margin: 12px 0 16px;
-  }
-  .desc-text { white-space: pre-wrap; flex: 1; min-width: 0; }
-  .desc-jump {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex: 0 0 14px;
-    width: 14px;
-    color: var(--vscode-descriptionForeground);
-    background: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground));
-    border-radius: 3px;
-    cursor: pointer;
-    font-size: 0.95em;
-    line-height: 1;
-    user-select: none;
-  }
-  .desc-jump:hover {
-    background: var(--vscode-list-activeSelectionBackground, var(--vscode-list-hoverBackground));
-    color: var(--vscode-list-activeSelectionForeground, var(--vscode-textLink-foreground));
-  }
-  .ref-group { margin: 8px 0 16px; }
-  .ref-group .label {
-    display: inline-block; font-weight: 600; font-size: 0.95em;
-    margin-bottom: 4px;
-  }
-  .ref-row {
-    display: grid;
-    grid-template-columns: minmax(120px, max-content) 1fr;
-    align-items: baseline;
-    gap: 12px;
-    padding: 4px 8px;
-    margin: 2px 0;
-    border-left: 2px solid var(--vscode-panel-border);
-    cursor: pointer;
-    font-family: var(--vscode-editor-font-family);
-    font-size: 0.9em;
-  }
-  .ref-row:hover { background: var(--vscode-list-hoverBackground); }
-  .ref-row .loc { color: var(--vscode-descriptionForeground); white-space: nowrap; }
-  .ref-row .ctx {
-    color: var(--vscode-foreground);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .empty { color: var(--vscode-descriptionForeground); font-style: italic; }
-  .err { color: var(--vscode-errorForeground); }
-  .history-row {
-    display: grid;
-    grid-template-columns: 1fr minmax(120px, max-content);
-    gap: 12px;
-    align-items: baseline;
-    padding: 4px 8px;
-    cursor: pointer;
-    font-family: var(--vscode-editor-font-family);
-    font-size: 0.9em;
-    border-left: 2px solid var(--vscode-panel-border);
-  }
-  .history-row:hover { background: var(--vscode-list-hoverBackground); }
-  .history-row .loc { color: var(--vscode-descriptionForeground); white-space: nowrap; text-align: right; }
-  .tabs {
-    display: flex;
-    gap: 4px;
-    border-bottom: 1px solid var(--vscode-panel-border);
-    margin: 4px 0 8px;
-  }
-  .tab {
-    background: transparent;
-    border: none;
-    border-bottom: 2px solid transparent;
-    color: var(--vscode-descriptionForeground);
-    cursor: pointer;
-    padding: 4px 10px;
-    font: inherit;
-    font-size: 0.95em;
-    margin-bottom: -1px;
-  }
-  .tab:hover { color: var(--vscode-foreground); }
-  .tab.active {
-    color: var(--vscode-foreground);
-    border-bottom-color: var(--vscode-focusBorder, var(--vscode-textLink-foreground));
-  }
-  .tab-panel { display: none; }
-  .tab-panel.active { display: block; }
-</style>
+<meta http-equiv="Content-Security-Policy" content="${csp}">
+<link rel="stylesheet" href="${styles}">
 </head>
 <body>
-<div id="root"><p class="empty">Loading…</p></div>
-<script>
-  const vscode = acquireVsCodeApi();
-  const root = document.getElementById("root");
-  let palette = [];
-
-  // View state persists across re-renders triggered by editor edits, and
-  // across webview reloads via vscode.setState. Collapse and tab choice
-  // follow the user globally; scroll only restores when the rendered
-  // entity matches the one in the persisted state.
-  const persisted = vscode.getState() || {};
-  const collapsed = new Set(persisted.collapsed || []);
-  let activeTab = persisted.activeTab || "state"; // "state" | "history"
-  let lastEntity = persisted.entity || null;
-  let lastScroll = persisted.scroll || 0;
-
-  function saveState() {
-    vscode.setState({
-      collapsed: [...collapsed],
-      activeTab,
-      entity: lastEntity,
-      scroll: window.scrollY,
-    });
-  }
-
-  window.addEventListener("scroll", () => { saveState(); }, { passive: true });
-
-  function section(title, ...body) {
-    const isCollapsed = collapsed.has(title);
-    const head = el("h2", {
-      class: "collapsible" + (isCollapsed ? " collapsed" : ""),
-    }, title);
-    const wrap = el("div", null);
-    for (const c of body) {
-      if (c == null) continue;
-      if (Array.isArray(c)) for (const cc of c) { if (cc) wrap.appendChild(cc); }
-      else wrap.appendChild(c);
-    }
-    if (isCollapsed) wrap.style.display = "none";
-    head.onclick = () => {
-      const next = !head.classList.contains("collapsed");
-      head.classList.toggle("collapsed", next);
-      wrap.style.display = next ? "none" : "";
-      if (next) collapsed.add(title);
-      else collapsed.delete(title);
-      saveState();
-    };
-    const sec = document.createElement("section");
-    sec.appendChild(head);
-    sec.appendChild(wrap);
-    return sec;
-  }
-
-  function colour(idx) {
-    if (idx == null || idx < 0 || idx >= palette.length) return undefined;
-    return palette[idx];
-  }
-
-  function el(tag, attrs, ...children) {
-    const node = document.createElement(tag);
-    if (attrs) {
-      for (const [k, v] of Object.entries(attrs)) {
-        if (v == null) continue;
-        if (k === "style") Object.assign(node.style, v);
-        else if (k === "class") node.className = v;
-        else if (k === "onclick") node.onclick = v;
-        else if (k === "data") for (const [dk, dv] of Object.entries(v)) node.dataset[dk] = dv;
-        else node.setAttribute(k, v);
-      }
-    }
-    for (const c of children) {
-      if (c == null) continue;
-      if (typeof c === "string") node.appendChild(document.createTextNode(c));
-      else node.appendChild(c);
-    }
-    return node;
-  }
-
-  function navigate(uri, line) {
-    vscode.postMessage({ type: "navigate", uri, line });
-  }
-
-  function openWiki(entity) {
-    vscode.postMessage({ type: "openWiki", entity });
-  }
-
-  function basename(uri) {
-    try {
-      const path = new URL(uri).pathname;
-      const idx = path.lastIndexOf("/");
-      return idx >= 0 ? path.slice(idx + 1) : path;
-    } catch {
-      return uri;
-    }
-  }
-
-  function locLine(loc) {
-    return (loc?.range?.start?.line ?? 0) + 1;
-  }
-
-  function renderHeader(d) {
-    const c = colour(d.colourIndex);
-    const name = el("span", { style: c ? { color: c } : undefined }, d.name);
-    const h1 = el("h1", null, name);
-    if (d.type) h1.appendChild(el("span", { class: "type" }, d.type));
-    const out = [h1];
-    if (d.aliases && d.aliases.length) {
-      out.push(el("div", { class: "aliases" }, "Also known as: " + d.aliases.join(", ")));
-    }
-    return out;
-  }
-
-  function renderStateBody(d) {
-    const hasTags = d.tags && d.tags.length;
-    const hasFields = d.fields && d.fields.length;
-    if (!hasTags && !hasFields) {
-      return [el("p", { class: "empty" }, "No state.")];
-    }
-    const out = [];
-    if (hasTags) {
-      const wrap = el("div", null);
-      for (const t of d.tags) wrap.appendChild(el("span", { class: "pill" }, "+" + t));
-      out.push(wrap);
-    }
-    if (hasFields) {
-      const tbl = el("table", { class: "fields" });
-      for (const f of d.fields) {
-        tbl.appendChild(el("tr", null,
-          el("td", { class: "k" }, f.name),
-          el("td", null, f.value)
-        ));
-      }
-      out.push(tbl);
-    }
-    return out;
-  }
-
-  function directiveText(ev) {
-    switch (ev.op) {
-      case "add": return "+" + ev.target;
-      case "remove":
-        return ev.value ? ev.target + " -= " + ev.value : "-" + ev.target;
-      case "set": return ev.target + " = " + ev.value;
-      case "increment": return ev.target + " += " + ev.value;
-    }
-    return ev.target;
-  }
-
-  function renderHistoryBody(d) {
-    if (!d.stateHistory || !d.stateHistory.length) {
-      return [el("p", { class: "empty" }, "No state history.")];
-    }
-    const out = [];
-    for (const ev of d.stateHistory) {
-      const line = locLine(ev.location);
-      const row = el("div", {
-        class: "history-row",
-        onclick: () => navigate(ev.location.uri, line),
-      },
-        el("span", null, directiveText(ev)),
-        el("span", { class: "loc" }, basename(ev.location.uri) + ":" + line)
-      );
-      out.push(row);
-    }
-    return out;
-  }
-
-  function renderStateSection(d) {
-    const hasState = (d.tags && d.tags.length) || (d.fields && d.fields.length);
-    const hasHistory = d.stateHistory && d.stateHistory.length;
-    if (!hasState && !hasHistory) return [];
-
-    const isHistory = activeTab === "history";
-    const stateTab = el("button", { class: "tab" + (isHistory ? "" : " active") }, "State");
-    const historyTab = el("button", { class: "tab" + (isHistory ? " active" : "") }, "History");
-    const tabs = el("div", { class: "tabs" }, stateTab, historyTab);
-
-    const statePanel = el("div", { class: "tab-panel" + (isHistory ? "" : " active") }, ...renderStateBody(d));
-    const historyPanel = el("div", { class: "tab-panel" + (isHistory ? " active" : "") }, ...renderHistoryBody(d));
-
-    stateTab.onclick = () => {
-      stateTab.classList.add("active");
-      historyTab.classList.remove("active");
-      statePanel.classList.add("active");
-      historyPanel.classList.remove("active");
-      activeTab = "state";
-      saveState();
-    };
-    historyTab.onclick = () => {
-      historyTab.classList.add("active");
-      stateTab.classList.remove("active");
-      historyPanel.classList.add("active");
-      statePanel.classList.remove("active");
-      activeTab = "history";
-      saveState();
-    };
-
-    return [section("State", tabs, statePanel, historyPanel)];
-  }
-
-  // linkToWiki=true makes coloured entity spans clickable, opening the
-  // matched entity's wiki page. Reference-context previews pass false so
-  // their row-level click still navigates to the editor location.
-  // Ambiguous segments get a wavy warning underline and a tooltip naming
-  // the disambiguated candidate, so a row of ambiguous candidates reads
-  // clearly as a set of options rather than a typo.
-  function renderSegments(segments, parent, linkToWiki) {
-    if (!segments || !segments.length) return parent;
-    for (const seg of segments) {
-      const c = colour(seg.colourIndex);
-      if (c) {
-        const style = { color: c };
-        const attrs = { style };
-        if (seg.ambiguous) {
-          style.textDecoration =
-            "underline wavy var(--vscode-editorWarning-foreground)";
-          attrs.title = "Ambiguous reference — " + (seg.entity || seg.text);
-        }
-        if (linkToWiki && seg.entity) {
-          style.cursor = "pointer";
-          attrs.onclick = (ev) => {
-            ev.stopPropagation();
-            openWiki(seg.entity);
-          };
-        }
-        parent.appendChild(el("span", attrs, seg.text));
-      } else {
-        parent.appendChild(document.createTextNode(seg.text));
-      }
-    }
-    return parent;
-  }
-
-  function renderDescriptions(d) {
-    if (!d.descriptions || !d.descriptions.length) return [];
-    const blocks = [];
-    for (const block of d.descriptions) {
-      const tooltip = block.endLine && block.endLine > block.startLine
-        ? basename(block.location.uri) + ":" + block.startLine + "–" + block.endLine
-        : basename(block.location.uri) + ":" + block.startLine;
-      const jump = el("span", {
-        class: "desc-jump",
-        title: "Jump to " + tooltip,
-        onclick: () => navigate(block.location.uri, block.startLine),
-      });
-      const text = el("div", { class: "desc-text" });
-      renderSegments(block.segments, text, true);
-      blocks.push(el("div", { class: "desc-block" }, jump, text));
-    }
-    return [section("Descriptions", ...blocks)];
-  }
-
-  // Renders one inbound or outbound reference section.
-  //
-  // freeTextLabel is the heading shown for refs whose source is empty
-  // (mentions outside any entity definition). Pass "Free text" for the
-  // inbound section so those refs appear under a real heading. Pass ""
-  // for outbound: an entity can't legitimately mention something with no
-  // target name, so any empty-source group is a glitch and we drop it.
-  function renderRefGroups(title, groups, freeTextLabel) {
-    if (!groups || !groups.length) return [];
-    const items = [];
-    for (const g of groups) {
-      const label = g.source || freeTextLabel;
-      if (!label) continue;
-      const c = colour(g.colourIndex);
-      // Heading opens the source entity's wiki when the group's source
-      // resolves to a known entity. Free-text and unresolved sources fall
-      // through to a plain heading.
-      const headingAttrs = {};
-      const headingStyle = c ? { color: c } : {};
-      if (g.source) {
-        headingStyle.cursor = "pointer";
-        headingAttrs.onclick = () => openWiki(g.source);
-      }
-      if (Object.keys(headingStyle).length) headingAttrs.style = headingStyle;
-      const heading = el("h3", headingAttrs, label);
-      const group = el("div", { class: "ref-group" }, heading);
-      for (const r of g.refs) {
-        const line = locLine(r.location);
-        const ctx = el("span", { class: "ctx" });
-        renderSegments(r.segments, ctx, false);
-        const row = el("div", {
-          class: "ref-row",
-          onclick: () => navigate(r.location.uri, line),
-        },
-          el("span", { class: "loc" }, basename(r.location.uri) + ":" + line),
-          ctx
-        );
-        group.appendChild(row);
-      }
-      items.push(group);
-    }
-    if (!items.length) return [];
-    return [section(title, ...items)];
-  }
-
-  function render(details) {
-    // Preserve scroll across re-renders for the same entity (edit-driven
-    // refreshes). Switching to a different entity resets to the top.
-    const sameEntity = details && details.name && details.name === lastEntity;
-    const scrollY = sameEntity ? window.scrollY : 0;
-
-    root.innerHTML = "";
-    if (!details || !details.found) {
-      root.appendChild(el("p", { class: "empty" },
-        "Entity not found in this project."));
-      lastEntity = null;
-      return;
-    }
-    for (const node of [
-      ...renderHeader(details),
-      ...renderStateSection(details),
-      ...renderDescriptions(details),
-      ...renderRefGroups("Mentioned by", details.inboundRefs, "Free text"),
-      ...renderRefGroups("Mentions", details.outboundRefs, ""),
-    ]) root.appendChild(node);
-
-    lastEntity = details.name;
-    // Restore scroll after layout. Use rAF so the new DOM has settled.
-    const targetScroll = sameEntity ? scrollY : lastScroll;
-    if (!sameEntity) lastScroll = 0;
-    requestAnimationFrame(() => {
-      window.scrollTo(0, targetScroll);
-      saveState();
-    });
-  }
-
-  window.addEventListener("message", (e) => {
-    const msg = e.data;
-    if (msg.type === "details") {
-      palette = msg.palette || [];
-      render(msg.details);
-    } else if (msg.type === "error") {
-      root.innerHTML = "";
-      root.appendChild(el("p", { class: "err" }, msg.message || "Unknown error"));
-    }
-  });
-
-  vscode.postMessage({ type: "ready" });
-</script>
+<header id="toolbar"></header>
+<main id="root"><p class="empty">Loading…</p></main>
+<script type="module" nonce="${nonce}" src="${main}"></script>
 </body>
 </html>`;
   }
+}
+
+/**
+ * @param {Page | undefined} a
+ * @param {Page} b
+ */
+function samePage(a, b) {
+  if (!a) return false;
+  return a.kind === b.kind && a.value === b.value;
+}
+
+function makeNonce() {
+  const bytes = new Uint8Array(16);
+  for (let i = 0; i < 16; i++) bytes[i] = Math.floor(Math.random() * 256);
+  return [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
 }

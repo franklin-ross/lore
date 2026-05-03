@@ -351,8 +351,9 @@ export function activate(/** @type {vscode.ExtensionContext} */ context) {
     }),
     vscode.commands.registerCommand("lore.openWiki", async (arg) => {
       // Invocation paths:
-      //  - palette / programmatic with no arg → prompt
-      //  - palette with string → that string
+      //  - palette / programmatic with no arg → open the wiki landing
+      //    page so the user can search inside the panel itself
+      //  - palette with string → open that entity directly
       //  - tree-view inline action → vscode passes the TreeItem; its
       //    `label` is the entity name (set in entities-tree.js).
       let entity = "";
@@ -361,17 +362,13 @@ export function activate(/** @type {vscode.ExtensionContext} */ context) {
       } else if (arg && typeof arg === "object" && typeof arg.label === "string") {
         entity = arg.label;
       }
-      if (!entity) {
-        const input = await vscode.window.showInputBox({
-          placeHolder: "Entity name",
-          prompt: "Lore: open entity wiki",
-        });
-        if (!input) return;
-        entity = input;
-      }
       const editor = vscode.window.activeTextEditor;
       const source = editor ? editor.document.uri.toString() : undefined;
-      await wikiPanel.show(entity, source);
+      if (entity) {
+        await wikiPanel.show(entity, source);
+      } else {
+        await wikiPanel.showHome(source);
+      }
     })
   );
 

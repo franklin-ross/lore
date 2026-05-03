@@ -491,18 +491,17 @@ func renderHoverStateBlocks(ent *lore.Entity, cursorFile string, cursorLine int,
 // disable colouring (e.g. tests, or older clients without supportHtml).
 func formatEntityHover(ent *lore.Entity, cursorFile string, cursorLine int, mode HoverStateMode, showStateDirectives bool, col *colouriser) string {
 	var b strings.Builder
-	nameSpan := wrapEntityName(ent, col)
-	if ent.Type != "" {
-		fmt.Fprintf(&b, "<strong>%s</strong> (%s)", nameSpan, ent.Type)
-	} else {
-		fmt.Fprintf(&b, "<strong>%s</strong>", nameSpan)
+	var header strings.Builder
+	header.WriteString(wrapEntityName(ent, col))
+	for _, a := range ent.Aliases {
+		// Wrap separator + alias together so the midpoint dot picks up the
+		// entity's palette colour, matching the wiki's inline alias header.
+		header.WriteString(wrapEntityAlias(ent, " · "+a, col))
 	}
-	if len(ent.Aliases) > 0 {
-		aliases := make([]string, len(ent.Aliases))
-		for i, a := range ent.Aliases {
-			aliases[i] = wrapEntityAlias(ent, a, col)
-		}
-		fmt.Fprintf(&b, "\n\nAlso known as: %s", strings.Join(aliases, ", "))
+	if ent.Type != "" {
+		fmt.Fprintf(&b, "<strong>%s</strong> (%s)", header.String(), ent.Type)
+	} else {
+		fmt.Fprintf(&b, "<strong>%s</strong>", header.String())
 	}
 	b.WriteString(renderHoverStateBlocks(ent, cursorFile, cursorLine, mode))
 
@@ -548,5 +547,5 @@ func wrapEntityAlias(ent *lore.Entity, alias string, col *colouriser) string {
 	if idx < 0 || idx >= len(col.palette) {
 		return escapeForHTML(alias)
 	}
-	return `<span style="color:` + col.palette[idx] + `">` + escapeForHTML(alias) + `</span>`
+	return `<span style="color:` + col.palette[idx] + `;">` + escapeForHTML(alias) + `</span>`
 }

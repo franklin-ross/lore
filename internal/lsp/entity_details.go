@@ -88,12 +88,15 @@ type EntityRefItem struct {
 // EntityRefGroup buckets references by their related entity. For inbound
 // groups Source names the entity whose definition contains the references
 // (empty Source == free-text mentions outside any entity definition).
-// For outbound groups Source names the entity being mentioned.
+// For outbound groups Source names the entity being mentioned. Aliases are
+// the resolved entity's aliases (empty for free-text and unresolved
+// sources) so the wiki can render them inline next to the heading.
 // ColourIndex is -1 when the related name doesn't resolve to an entity
 // in this project (free text, or stale name); the custom marshaller
 // drops the field from JSON in that case.
 type EntityRefGroup struct {
 	Source      string
+	Aliases     []string
 	ColourIndex int32 // -1 = no colour (omitted from JSON)
 	Refs        []EntityRefItem
 }
@@ -109,9 +112,10 @@ func (g EntityRefGroup) MarshalJSON() ([]byte, error) {
 	}
 	return json.Marshal(struct {
 		Source      string          `json:"source"`
+		Aliases     []string        `json:"aliases,omitempty"`
 		ColourIndex int32           `json:"colourIndex"`
 		Refs        []EntityRefItem `json:"refs"`
-	}{g.Source, g.ColourIndex, g.Refs})
+	}{g.Source, g.Aliases, g.ColourIndex, g.Refs})
 }
 
 // EntityStateEventItem mirrors lore.StateEvent for the wire: the op as a
@@ -343,26 +347,29 @@ func sortedGroups(world *lore.World, m map[string][]EntityRefItem) []EntityRefGr
 	})
 	out := make([]EntityRefGroup, len(names))
 	for i, n := range names {
+		idx, aliases := lookupColourAndAliases(world, n)
 		out[i] = EntityRefGroup{
 			Source:      n,
-			ColourIndex: lookupColourIndex(world, n),
+			Aliases:     aliases,
+			ColourIndex: idx,
 			Refs:        m[n],
 		}
 	}
 	return out
 }
 
-// lookupColourIndex returns the palette index for the entity named
-// `name`, or -1 when no entity owns that name (e.g. free-text group).
-func lookupColourIndex(world *lore.World, name string) int32 {
+// lookupColourAndAliases returns the palette index and aliases for the entity
+// named `name`. Both fall back to empty when no entity owns that name (e.g.
+// a free-text group, or a stale label that no longer resolves).
+func lookupColourAndAliases(world *lore.World, name string) (int32, []string) {
 	if name == "" {
-		return -1
+		return -1, nil
 	}
 	ent, err := world.FindEntity(name)
 	if err != nil || ent == nil {
-		return -1
+		return -1, nil
 	}
-	return int32(entityColourIndex(ent))
+	return int32(entityColourIndex(ent)), append([]string(nil), ent.Aliases...)
 }
 
 func buildStateHistory(ps *projectState, ent *lore.Entity) []EntityStateEventItem {
