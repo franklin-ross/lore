@@ -631,6 +631,59 @@ func TestColouriseEscapesHTMLOutsideSpans(t *testing.T) {
 	}
 }
 
+// linkColouriser builds a colouriser whose world has a single entity
+// "Link", so any URL containing the word "link" would naively get a
+// colour span injected mid-URL. Used to verify URL constructs survive
+// Wrap untouched.
+func linkColouriser() *colouriser {
+	world := lore.NewWorld()
+	world.Entities = []lore.Entity{{Name: "Link", Type: "character"}}
+	world.Match = &lore.MatchIndex{
+		Entities: []lore.EntityMatch{{LowerName: "link"}},
+		Types:    map[string]struct{}{"character": {}},
+	}
+	return &colouriser{world: world, palette: []string{"#FF0000"}}
+}
+
+func TestColouriseProtectsAutolinks(t *testing.T) {
+	col := linkColouriser()
+	got := col.Wrap("see <www.link.com> for more")
+	want := "see <www.link.com> for more"
+	if got != want {
+		t.Fatalf("autolink mangled:\n got: %q\nwant: %q", got, want)
+	}
+}
+
+func TestColouriseProtectsMarkdownLinkURL(t *testing.T) {
+	col := linkColouriser()
+	got := col.Wrap("see [link](www.link.com) for more")
+	// Label "link" inside `[...]` may still be coloured (markdown-it
+	// allows HTML inside link labels); the URL inside `(...)` must be
+	// untouched. Wrap keeps the source text's casing.
+	want := `see [<span style="color:#FF0000;">link</span>](www.link.com) for more`
+	if got != want {
+		t.Fatalf("markdown link URL mangled:\n got: %q\nwant: %q", got, want)
+	}
+}
+
+func TestColouriseProtectsBareURL(t *testing.T) {
+	col := linkColouriser()
+	got := col.Wrap("visit https://www.link.com/path now")
+	want := "visit https://www.link.com/path now"
+	if got != want {
+		t.Fatalf("bare URL mangled:\n got: %q\nwant: %q", got, want)
+	}
+}
+
+func TestColouriseStillWrapsOutsideURLs(t *testing.T) {
+	col := linkColouriser()
+	got := col.Wrap("link is here, also www.link.com tail")
+	want := `<span style="color:#FF0000;">link</span> is here, also www.link.com tail`
+	if got != want {
+		t.Fatalf("non-URL link not wrapped:\n got: %q\nwant: %q", got, want)
+	}
+}
+
 func TestFormatEntityHoverOmitsEmptyState(t *testing.T) {
 	ent := &lore.Entity{
 		Name: "Sildar",
