@@ -61,7 +61,7 @@ export function refRow(r: RefItem, ctx: PageCtx): HTMLElement {
     "div",
     {
       class: "ref-row",
-      onclick: () => ctx.navigate(r.location.uri, line),
+      onclick: () => ctx.navigate(r.location.uri, line, r.location.range),
     },
     el("span", { class: "loc" }, basename(r.location.uri) + ":" + line),
     ctxSpan,

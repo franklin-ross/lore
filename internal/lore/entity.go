@@ -68,6 +68,8 @@ type Reference struct {
 	TargetType   string // type of the referenced entity, used to disambiguate when multiple entities share the map key
 	Context      string // the line of text containing the reference, leading/trailing whitespace stripped
 	MatchOffset  int    // byte offset in Context where the matched name starts; display layers use this to crop a preview
+	MatchStart   int    // byte offset of the matched name in the original line (pre-trim); used to build precise jump ranges
+	MatchEnd     int    // byte offset just past the matched name in the original line
 }
 
 // SearchResult is a match from a full-text search across entity descriptions.

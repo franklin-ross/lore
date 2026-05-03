@@ -76,8 +76,8 @@ const search = createSearchController({
 
 const ctx: PageCtx = {
   get palette() { return palette; },
-  navigate(uri, line) {
-    vscode.postMessage({ type: "navigate", uri, line });
+  navigate(uri, line, range) {
+    vscode.postMessage({ type: "navigate", uri, line, range });
   },
   openEntity(entity) {
     vscode.postMessage({ type: "openEntity", entity });

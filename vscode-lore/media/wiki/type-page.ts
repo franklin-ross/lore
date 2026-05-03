@@ -81,7 +81,7 @@ function definitionRow(def: TypeEntityDefinition, ctx: PageCtx): HTMLElement {
     "div",
     {
       class: "ref-row",
-      onclick: () => ctx.navigate(def.location.uri, line),
+      onclick: () => ctx.navigate(def.location.uri, line, def.location.range),
     },
     el("span", { class: "loc" }, basename(def.location.uri) + ":" + line),
     ctxSpan,

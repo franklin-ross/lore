@@ -17,10 +17,16 @@ interface EntityListResponse {
   entities?: { name: string; type: string }[];
 }
 
+interface LspRange {
+  start: { line: number; character: number };
+  end: { line: number; character: number };
+}
+
 interface IncomingMessage {
   type: string;
   uri?: string;
   line?: number;
+  range?: LspRange;
   entity?: string;
   value?: string;
   index?: number;
@@ -63,6 +69,34 @@ export class LoreWikiPanel {
 
   async showType(type: string, source: string | undefined): Promise<void> {
     await this.navigate({ kind: "type", value: type, source });
+  }
+
+  // showWord asks the server to classify `word` as an entity, type, or
+  // miss before navigating. Used by F12-at-cursor where the cursor word
+  // could be either the entity name or its inline `(type)` label.
+  async showWord(word: string, source: string | undefined): Promise<void> {
+    const client = this.getClient();
+    if (!client) {
+      await this.show(word, source);
+      return;
+    }
+    let result: { kind?: string; value?: string } | undefined;
+    try {
+      result = await client.sendRequest("lore/lookup", {
+        name: word,
+        textDocument: source ? { uri: source } : undefined,
+      });
+    } catch {
+      // Fall through to entity show — the panel will surface the not-found
+      // message rather than silently swallow the click.
+    }
+    if (result?.kind === "type" && result.value) {
+      await this.showType(result.value, source);
+    } else if (result?.kind === "entity" && result.value) {
+      await this.show(result.value, source);
+    } else {
+      await this.show(word, source);
+    }
   }
 
   // Push a page onto the history stack. If the user has rewound with
@@ -231,7 +265,7 @@ export class LoreWikiPanel {
         await this.refresh();
         return;
       case "navigate":
-        if (msg.uri) await this.openInEditor(msg.uri, msg.line);
+        if (msg.uri) await this.openInEditor(msg.uri, msg.line, msg.range);
         return;
       case "openEntity":
         if (msg.entity) await this.show(msg.entity, this.current()?.source);
@@ -254,14 +288,25 @@ export class LoreWikiPanel {
     }
   }
 
-  private async openInEditor(uri: string, line: number | undefined): Promise<void> {
+  private async openInEditor(
+    uri: string,
+    line: number | undefined,
+    range: LspRange | undefined,
+  ): Promise<void> {
     try {
       const parsed = vscode.Uri.parse(uri);
       const doc = await vscode.workspace.openTextDocument(parsed);
-      const lineIdx = Math.max(0, (line ?? 1) - 1);
-      const lineText = doc.lineAt(Math.min(lineIdx, doc.lineCount - 1));
+      const selection = range
+        ? new vscode.Range(
+            range.start.line, range.start.character,
+            range.end.line, range.end.character,
+          )
+        : (() => {
+            const lineIdx = Math.max(0, (line ?? 1) - 1);
+            return doc.lineAt(Math.min(lineIdx, doc.lineCount - 1)).range;
+          })();
       await vscode.window.showTextDocument(doc, {
-        selection: lineText.range,
+        selection,
         viewColumn: vscode.ViewColumn.One,
         preserveFocus: false,
       });

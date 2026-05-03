@@ -232,9 +232,29 @@ func buildDescriptionBlocks(ps *projectState, world *lore.World, ent *lore.Entit
 		if text == "" {
 			text = d.Text
 		}
+		// Location targets the entity name span on the definition line so
+		// the type-page row click selects the name rather than the whole
+		// block. The entity-page description jump button passes only the
+		// line, so its behaviour is unchanged. Inline asides start with
+		// `(` before the name; skip it so the selection lands on the
+		// first letter, not the paren. When a `(type)` suffix follows the
+		// name on the same line, extend the selection to cover it so the
+		// disambiguator stays visually attached to the name.
+		nameStart := d.StartColumn
+		if d.IsAside {
+			nameStart++
+		}
+		nameEnd := nameStart + len(ent.Name)
+		if ent.Type != "" {
+			line := ps.lineText(d.File, d.Line)
+			suffix := " (" + ent.Type + ")"
+			if nameEnd+len(suffix) <= len(line) && line[nameEnd:nameEnd+len(suffix)] == suffix {
+				nameEnd += len(suffix)
+			}
+		}
 		out = append(out, EntityDescriptionBlock{
 			Segments:  buildContextSegments(world, text),
-			Location:  ps.locAtLine(d.File, d.Line),
+			Location:  ps.locAtMatch(d.File, d.Line, nameStart, nameEnd),
 			StartLine: uint32(d.Line),
 			EndLine:   uint32(d.EndLine),
 		})
@@ -258,6 +278,17 @@ func buildInboundRefs(ps *projectState, world *lore.World, ent *lore.Entity) []E
 		// Drop refs whose target is a different entity sharing this bare name.
 		if r.TargetType != "" && ent.Type != "" && !strings.EqualFold(r.TargetType, ent.Type) {
 			continue
+		}
+		// Self-reference: this ref's source IS this entity. The header line
+		// always re-states the entity's own name so the scanner records a
+		// ref against it; surface it under "Mentioned by" would mean every
+		// entity claims to mention itself. Skip when the source bare name
+		// matches and (when a type is recorded) the types agree, so a
+		// different entity sharing only the bare name still appears.
+		if strings.EqualFold(r.SourceEntity, ent.Name) {
+			if r.SourceType == "" || ent.Type == "" || strings.EqualFold(r.SourceType, ent.Type) {
+				continue
+			}
 		}
 		key := entityLabel(world, r.SourceEntity, r.SourceType)
 		bySource[key] = append(bySource[key], buildRefItem(ps, world, r))
@@ -321,12 +352,14 @@ func entityLabel(world *lore.World, name, typ string) string {
 
 // buildRefItem packages one Reference for the wiki: trims the source
 // line to a few words before the match, then colourises the preview so
-// entity names inside it appear in their palette colours.
+// entity names inside it appear in their palette colours. Location points
+// at the matched substring so clicking the row selects exactly the name
+// span rather than the whole line.
 func buildRefItem(ps *projectState, world *lore.World, r lore.Reference) EntityRefItem {
 	preview := trimContextBeforeMatch(r.Context, r.MatchOffset, 4)
 	return EntityRefItem{
 		Segments: buildContextSegments(world, preview),
-		Location: ps.locAtLine(r.File, r.Line),
+		Location: ps.locAtMatch(r.File, r.Line, r.MatchStart, r.MatchEnd),
 	}
 }
 

@@ -318,6 +318,8 @@ func findReferences(world *World, content, file string) {
 				TargetType:   target.Type,
 				Context:      trimmed,
 				MatchOffset:  max(m.Start-leadingWS, 0),
+				MatchStart:   m.Start,
+				MatchEnd:     m.End,
 			})
 		}
 	}

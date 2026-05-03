@@ -349,7 +349,7 @@ export function activate(context: vscode.ExtensionContext): void {
         if (range) entity = doc.getText(range).trim();
       }
       if (!entity) return;
-      await wikiPanel.show(entity, doc.uri.toString());
+      await wikiPanel.showWord(entity, doc.uri.toString());
     }),
     vscode.commands.registerCommand("lore.openWiki", async (arg: unknown) => {
       // Invocation paths:

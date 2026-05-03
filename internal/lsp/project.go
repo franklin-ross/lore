@@ -49,6 +49,45 @@ func (p *projectState) locAtLine(rel string, line int) protocol.Location {
 	return protocol.Location{URI: p.fileToURI(rel), Range: lineRange(line)}
 }
 
+// lineText returns the text of the 1-based line in the project-rel file,
+// or "" when the file isn't tracked or the line is out of range.
+func (p *projectState) lineText(rel string, line int) string {
+	content, _ := p.index.Content(rel)
+	lines := strings.Split(content, "\n")
+	idx := line - 1
+	if idx < 0 || idx >= len(lines) {
+		return ""
+	}
+	return lines[idx]
+}
+
+// locAtMatch builds an LSP Location pointing at a substring on `line` (both
+// 1-based) in the project-rel file. byteStart and byteEnd are byte offsets
+// within the original line; they're converted to UTF-16 code units so the
+// resulting Range matches what VSCode expects. Falls back to a zero-width
+// range at the line start when the file content can't be retrieved.
+func (p *projectState) locAtMatch(rel string, line, byteStart, byteEnd int) protocol.Location {
+	uri := p.fileToURI(rel)
+	content, _ := p.index.Content(rel)
+	lines := strings.Split(content, "\n")
+	idx := line - 1
+	if idx < 0 || idx >= len(lines) {
+		return protocol.Location{URI: uri, Range: lineRange(line)}
+	}
+	lineText := lines[idx]
+	if byteStart < 0 || byteEnd < byteStart || byteEnd > len(lineText) {
+		return protocol.Location{URI: uri, Range: lineRange(line)}
+	}
+	l := uint32(idx)
+	return protocol.Location{
+		URI: uri,
+		Range: protocol.Range{
+			Start: protocol.Position{Line: l, Character: utf16UnitsForBytes(lineText, byteStart)},
+			End:   protocol.Position{Line: l, Character: utf16UnitsForBytes(lineText, byteEnd)},
+		},
+	}
+}
+
 // discoverProjects walks workspaceRoot collecting one projectState per
 // lore.toml encountered. Files that fall under a *descendant* project's root
 // are excluded from the ancestor's index so each file belongs to its nearest
