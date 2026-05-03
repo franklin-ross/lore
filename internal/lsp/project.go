@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"lore/internal/lore"
+
+	protocol "github.com/tliron/glsp/protocol_3_16"
 )
 
 // projectState is one lore.toml-rooted unit: its config-driven Project, its
@@ -38,6 +40,13 @@ func (p *projectState) fileToURI(rel string) string {
 // world returns the merged world for this project's current files.
 func (p *projectState) world() *lore.World {
 	return p.index.World()
+}
+
+// locAtLine builds an LSP Location pointing at the start of `line` (1-based)
+// in the project-rel file. Used by wiki-style responses that just need the
+// line, not a precise column range.
+func (p *projectState) locAtLine(rel string, line int) protocol.Location {
+	return protocol.Location{URI: p.fileToURI(rel), Range: lineRange(line)}
 }
 
 // discoverProjects walks workspaceRoot collecting one projectState per

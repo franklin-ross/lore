@@ -323,6 +323,13 @@ export class LoreWikiPanel {
     return out;
   }
 
+  // Renders one inbound or outbound reference section.
+  //
+  // freeTextLabel is the heading shown for refs whose source is empty
+  // (mentions outside any entity definition). Pass "Free text" for the
+  // inbound section so those refs appear under a real heading. Pass ""
+  // for outbound: an entity can't legitimately mention something with no
+  // target name, so any empty-source group is a glitch and we drop it.
   function renderRefGroups(title, groups, freeTextLabel) {
     if (!groups || !groups.length) return [];
     const out = [el("h2", null, title)];

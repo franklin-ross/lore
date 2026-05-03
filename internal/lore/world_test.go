@@ -1,9 +1,6 @@
 package lore
 
-import (
-	"strings"
-	"testing"
-)
+import "testing"
 
 func TestDisambiguateEntitiesWithSameNameDifferentTypes(t *testing.T) {
 	world := setupTestWorld(t, "Barovia (town): Gothic, dark, misty, rundown.\n\nBarovia (nation): Perpetually cloudy. Nobody can leave.\n")
@@ -248,48 +245,20 @@ Vistani (faction): Wandering folk.
 	}
 }
 
-// Long sentences containing multiple references would otherwise render
-// as identical rows in the wiki. Trimming the Context to a few words
-// before each match disambiguates them visually.
-func TestReferenceContextTrimsToFourWordsBeforeMatch(t *testing.T) {
-	world := setupTestWorld(t, `Yltry (character): A wizard.
-
-Vallaki (location): Walled town.
-
-Casimir (npc): Yltry meets the dusk elf at the gates of Vallaki on a misty morning.
-`)
-
-	refs := world.GetReferences("Vallaki")
-	var ctx string
-	for _, r := range refs {
-		if r.SourceEntity == "Casimir" {
-			ctx = r.Context
-		}
-	}
-	if ctx == "" {
-		t.Fatal("expected ref to Vallaki from Casimir")
-	}
-	// Match position is "Vallaki" near the end; 4 words before is
-	// "the gates of Vallaki" — leading prose should be elided.
-	if !strings.HasPrefix(ctx, "… ") {
-		t.Errorf("expected leading ellipsis, got %q", ctx)
-	}
-	if !strings.Contains(ctx, "Vallaki") {
-		t.Errorf("trimmed context lost the match: %q", ctx)
-	}
-}
-
-func TestReferenceContextNoTrimWhenShort(t *testing.T) {
+// Reference.MatchOffset locates the matched name within Context so
+// display layers can crop a preview without rescanning the line.
+func TestReferenceMatchOffsetLocatesMatchInContext(t *testing.T) {
 	world := setupTestWorld(t, `Vallaki (location): Walled town.
 
-Casimir (npc): Met Vallaki guards.
+Casimir (npc): Met Vallaki guards near the gate.
 `)
 	for _, r := range world.GetReferences("Vallaki") {
 		if r.SourceEntity != "Casimir" {
 			continue
 		}
-		if strings.HasPrefix(r.Context, "… ") {
-			t.Errorf("short context should not be trimmed: %q", r.Context)
+		got := r.Context[r.MatchOffset : r.MatchOffset+len("Vallaki")]
+		if got != "Vallaki" {
+			t.Errorf("MatchOffset=%d points to %q in %q, want Vallaki", r.MatchOffset, got, r.Context)
 		}
 	}
 }

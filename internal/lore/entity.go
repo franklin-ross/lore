@@ -64,7 +64,8 @@ type Reference struct {
 	File         string
 	Line         int
 	SourceEntity string // name of the entity whose definition contains this ref; empty for free text
-	Context      string // the line of text containing the reference
+	Context      string // the line of text containing the reference, leading/trailing whitespace stripped
+	MatchOffset  int    // byte offset in Context where the matched name starts; display layers use this to crop a preview
 }
 
 // SearchResult is a match from a full-text search across entity descriptions.

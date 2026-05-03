@@ -28,65 +28,25 @@ type colouriser struct {
 // them are dropped and `<>&` are not escaped, so VSCode's markdown
 // renderer can still parse them as links.
 func (c *colouriser) Wrap(text string) string {
-	if c == nil || len(c.palette) == 0 || c.world == nil || c.world.Match == nil {
+	if c == nil || len(c.palette) == 0 || c.world == nil {
 		return escapeForHTML(text)
 	}
 
 	protected := protectedURLRanges(text)
 
-	type span struct {
-		start  int
-		end    int
-		colour int
-	}
-
-	lower := strings.ToLower(text)
-	var spans []span
-	for i := range c.world.Match.Entities {
-		em := &c.world.Match.Entities[i]
-		colour := int(entityColourIndex(&c.world.Entities[i]))
-		if em.LowerName != "" {
-			for _, p := range lore.FindWordMatches(lower, em.LowerName) {
-				spans = append(spans, span{p, p + len(em.LowerName), colour})
-			}
-		}
-		for _, la := range em.LowerAliases {
-			for _, p := range lore.FindWordMatches(lower, la) {
-				spans = append(spans, span{p, p + len(la), colour})
-			}
-		}
-	}
-
+	matches := lore.ScanEntities(c.world, text, false)
 	if len(protected) > 0 {
-		filtered := spans[:0]
-		for _, s := range spans {
-			if !overlapsRange(s.start, s.end, protected) {
-				filtered = append(filtered, s)
+		filtered := matches[:0]
+		for _, m := range matches {
+			if !overlapsRange(m.Start, m.End, protected) {
+				filtered = append(filtered, m)
 			}
 		}
-		spans = filtered
+		matches = filtered
 	}
 
-	if len(spans) == 0 && len(protected) == 0 {
+	if len(matches) == 0 && len(protected) == 0 {
 		return escapeForHTML(text)
-	}
-
-	// Greedy resolve: longer matches win at the same start, and any span
-	// overlapping a previously kept span is dropped.
-	sort.Slice(spans, func(i, j int) bool {
-		if spans[i].start != spans[j].start {
-			return spans[i].start < spans[j].start
-		}
-		return (spans[i].end - spans[i].start) > (spans[j].end - spans[j].start)
-	})
-	kept := spans[:0]
-	lastEnd := -1
-	for _, s := range spans {
-		if s.start < lastEnd {
-			continue
-		}
-		kept = append(kept, s)
-		lastEnd = s.end
 	}
 
 	var b strings.Builder
@@ -121,19 +81,19 @@ func (c *colouriser) Wrap(text string) string {
 	}
 
 	prev := 0
-	for _, s := range kept {
-		emitGap(prev, s.start)
-		idx := s.colour
+	for _, m := range matches {
+		emitGap(prev, m.Start)
+		idx := int(entityColourIndex(&c.world.Entities[m.EntityIdx]))
 		if idx < 0 || idx >= len(c.palette) {
-			b.WriteString(escapeForHTML(text[s.start:s.end]))
+			b.WriteString(escapeForHTML(text[m.Start:m.End]))
 		} else {
 			b.WriteString(`<span style="color:`)
 			b.WriteString(c.palette[idx])
 			b.WriteString(`;">`)
-			b.WriteString(escapeForHTML(text[s.start:s.end]))
+			b.WriteString(escapeForHTML(text[m.Start:m.End]))
 			b.WriteString(`</span>`)
 		}
-		prev = s.end
+		prev = m.End
 	}
 	emitGap(prev, len(text))
 	return b.String()

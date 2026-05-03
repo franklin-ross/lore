@@ -2,9 +2,7 @@ package lsp
 
 import (
 	"encoding/json"
-	"slices"
 	"sort"
-	"strings"
 
 	"lore/internal/lore"
 
@@ -37,10 +35,26 @@ type EntityFieldEntry struct {
 // ContextSegment is one chunk of display text with an optional palette
 // colour. ColourIndex is -1 for plain text and a non-negative palette
 // index for entity-name spans. Concatenating Text across segments
-// reproduces the original source string exactly.
+// reproduces the original source string exactly. The custom marshaller
+// drops the colourIndex field from JSON when the sentinel -1 is set,
+// so plain segments serialise as just `{"text":"…"}`.
 type ContextSegment struct {
-	Text        string `json:"text"`
-	ColourIndex int32  `json:"colourIndex"`
+	Text        string
+	ColourIndex int32 // -1 = no colour (omitted from JSON)
+}
+
+// MarshalJSON writes the segment with colourIndex omitted when the
+// sentinel -1 is set.
+func (s ContextSegment) MarshalJSON() ([]byte, error) {
+	if s.ColourIndex < 0 {
+		return json.Marshal(struct {
+			Text string `json:"text"`
+		}{s.Text})
+	}
+	return json.Marshal(struct {
+		Text        string `json:"text"`
+		ColourIndex int32  `json:"colourIndex"`
+	}{s.Text, s.ColourIndex})
 }
 
 // EntityDescriptionBlock is one authored definition of the entity. The
@@ -65,15 +79,31 @@ type EntityRefItem struct {
 
 // EntityRefGroup buckets references by their related entity. For inbound
 // groups Source names the entity whose definition contains the references
-// (empty Source == free-text mentions outside any entity definition). For
-// outbound groups Source names the entity being mentioned. ColourIndex
-// is the related entity's palette index so the wiki view can colour the
-// group heading; -1 when unresolved (free text, or related entity not
-// found in this project).
+// (empty Source == free-text mentions outside any entity definition).
+// For outbound groups Source names the entity being mentioned.
+// ColourIndex is -1 when the related name doesn't resolve to an entity
+// in this project (free text, or stale name); the custom marshaller
+// drops the field from JSON in that case.
 type EntityRefGroup struct {
-	Source      string          `json:"source"`
-	ColourIndex int32           `json:"colourIndex"`
-	Refs        []EntityRefItem `json:"refs"`
+	Source      string
+	ColourIndex int32 // -1 = no colour (omitted from JSON)
+	Refs        []EntityRefItem
+}
+
+// MarshalJSON writes the group with colourIndex omitted for free-text
+// and unresolved sources.
+func (g EntityRefGroup) MarshalJSON() ([]byte, error) {
+	if g.ColourIndex < 0 {
+		return json.Marshal(struct {
+			Source string          `json:"source"`
+			Refs   []EntityRefItem `json:"refs"`
+		}{g.Source, g.Refs})
+	}
+	return json.Marshal(struct {
+		Source      string          `json:"source"`
+		ColourIndex int32           `json:"colourIndex"`
+		Refs        []EntityRefItem `json:"refs"`
+	}{g.Source, g.ColourIndex, g.Refs})
 }
 
 // EntityStateEventItem mirrors lore.StateEvent for the wire: the op as a
@@ -148,20 +178,20 @@ func (s *Server) entityDetailsScope(p *EntityDetailsParams) *projectState {
 }
 
 func buildEntityDetails(ps *projectState, ent *lore.Entity) *EntityDetailsResult {
-	out := &EntityDetailsResult{
-		Found:       true,
-		Name:        ent.Name,
-		Type:        ent.Type,
-		ColourIndex: entityColourIndex(ent),
-		Aliases:     append([]string(nil), ent.Aliases...),
-		Tags:        activeTags(ent.Tags),
-		Fields:      buildFieldEntries(ent.Fields),
+	world := ps.world()
+	return &EntityDetailsResult{
+		Found:        true,
+		Name:         ent.Name,
+		Type:         ent.Type,
+		ColourIndex:  entityColourIndex(ent),
+		Aliases:      append([]string(nil), ent.Aliases...),
+		Tags:         activeTags(ent.Tags),
+		Fields:       buildFieldEntries(ent.Fields),
+		Descriptions: buildDescriptionBlocks(ps, world, ent),
+		InboundRefs:  buildInboundRefs(ps, world, ent),
+		OutboundRefs: buildOutboundRefs(ps, world, ent),
+		StateHistory: buildStateHistory(ps, ent),
 	}
-	out.Descriptions = buildDescriptionBlocks(ps, ent)
-	out.InboundRefs = buildInboundRefs(ps, ent)
-	out.OutboundRefs = buildOutboundRefs(ps, ent)
-	out.StateHistory = buildStateHistory(ps, ent)
-	return out
 }
 
 func buildFieldEntries(fields map[string]lore.FieldValue) []EntityFieldEntry {
@@ -180,11 +210,10 @@ func buildFieldEntries(fields map[string]lore.FieldValue) []EntityFieldEntry {
 	return out
 }
 
-func buildDescriptionBlocks(ps *projectState, ent *lore.Entity) []EntityDescriptionBlock {
+func buildDescriptionBlocks(ps *projectState, world *lore.World, ent *lore.Entity) []EntityDescriptionBlock {
 	if len(ent.Descriptions) == 0 {
 		return nil
 	}
-	world := ps.world()
 	out := make([]EntityDescriptionBlock, 0, len(ent.Descriptions))
 	for _, d := range ent.Descriptions {
 		text := d.CleanText
@@ -193,7 +222,7 @@ func buildDescriptionBlocks(ps *projectState, ent *lore.Entity) []EntityDescript
 		}
 		out = append(out, EntityDescriptionBlock{
 			Segments:  buildContextSegments(world, text),
-			Location:  protocol.Location{URI: ps.fileToURI(d.File), Range: lineRange(d.Line)},
+			Location:  ps.locAtLine(d.File, d.Line),
 			StartLine: uint32(d.Line),
 			EndLine:   uint32(d.EndLine),
 		})
@@ -205,55 +234,57 @@ func buildDescriptionBlocks(ps *projectState, ent *lore.Entity) []EntityDescript
 // entity that owns the mention. Refs from outside any entity definition
 // (free-text prose) collapse into a single group with empty Source.
 // Group order: source entities alphabetically, free text last.
-func buildInboundRefs(ps *projectState, ent *lore.Entity) []EntityRefGroup {
-	world := ps.world()
+func buildInboundRefs(ps *projectState, world *lore.World, ent *lore.Entity) []EntityRefGroup {
 	refs := world.GetReferences(ent.Name)
 	if len(refs) == 0 {
 		return nil
 	}
 	bySource := make(map[string][]EntityRefItem)
 	for _, r := range refs {
-		bySource[r.SourceEntity] = append(bySource[r.SourceEntity], EntityRefItem{
-			Segments: buildContextSegments(world, r.Context),
-			Location: protocol.Location{URI: ps.fileToURI(r.File), Range: lineRange(r.Line)},
-		})
+		bySource[r.SourceEntity] = append(bySource[r.SourceEntity], buildRefItem(ps, world, r))
 	}
 	return sortedGroups(world, bySource)
 }
 
 // buildOutboundRefs walks the reference index in reverse: every entry
 // where SourceEntity equals our entity is a reference *from* this entity
-// to the keyed target. Groups by target entity name. Self-references —
-// where the entity's own header / aside text mentions its canonical name
-// or any of its aliases — are dropped, so the wiki's Mentions section
+// to the keyed target. Groups by target entity name. Self-references
+// (target == ent.Name) are dropped, so the wiki's Mentions section
 // shows only refs the entity makes to *other* entities.
-func buildOutboundRefs(ps *projectState, ent *lore.Entity) []EntityRefGroup {
-	world := ps.world()
+func buildOutboundRefs(ps *projectState, world *lore.World, ent *lore.Entity) []EntityRefGroup {
 	byTarget := make(map[string][]EntityRefItem)
 	for target, refs := range world.References {
-		if isSameEntityName(ent, target) {
+		if target == ent.Name {
 			continue
 		}
 		for _, r := range refs {
 			if r.SourceEntity != ent.Name {
 				continue
 			}
-			byTarget[target] = append(byTarget[target], EntityRefItem{
-				Segments: buildContextSegments(world, r.Context),
-				Location: protocol.Location{URI: ps.fileToURI(r.File), Range: lineRange(r.Line)},
-			})
+			byTarget[target] = append(byTarget[target], buildRefItem(ps, world, r))
 		}
 	}
 	if len(byTarget) == 0 {
 		return nil
 	}
-	return sortedGroups(ps.world(), byTarget)
+	return sortedGroups(world, byTarget)
+}
+
+// buildRefItem packages one Reference for the wiki: trims the source
+// line to a few words before the match, then colourises the preview so
+// entity names inside it appear in their palette colours.
+func buildRefItem(ps *projectState, world *lore.World, r lore.Reference) EntityRefItem {
+	preview := trimContextBeforeMatch(r.Context, r.MatchOffset, 4)
+	return EntityRefItem{
+		Segments: buildContextSegments(world, preview),
+		Location: ps.locAtLine(r.File, r.Line),
+	}
 }
 
 // sortedGroups turns a name→refs map into a deterministic slice. Empty
 // keys ("free text") sort to the end so populated source/target buckets
-// lead the list. ColourIndex resolves the related entity's palette slot
-// (-1 if the name doesn't match any entity in the project, e.g. free text).
+// lead the list. ColourIndex is non-nil only when the related name
+// resolves to a known entity in this project.
 func sortedGroups(world *lore.World, m map[string][]EntityRefItem) []EntityRefGroup {
 	names := make([]string, 0, len(m))
 	for n := range m {
@@ -276,8 +307,8 @@ func sortedGroups(world *lore.World, m map[string][]EntityRefItem) []EntityRefGr
 	return out
 }
 
-// lookupColourIndex finds entity `name` in `world` and returns its palette
-// index, or -1 if no entity owns that name.
+// lookupColourIndex returns the palette index for the entity named
+// `name`, or -1 when no entity owns that name (e.g. free-text group).
 func lookupColourIndex(world *lore.World, name string) int32 {
 	if name == "" {
 		return -1
@@ -311,19 +342,6 @@ func buildStateHistory(ps *projectState, ent *lore.Entity) []EntityStateEventIte
 	return out
 }
 
-// isSameEntityName reports whether `name` matches the entity's canonical
-// name or any of its aliases (case-insensitive). Used to filter
-// self-references out of the outbound list.
-func isSameEntityName(ent *lore.Entity, name string) bool {
-	if name == "" {
-		return false
-	}
-	if ent.Name == name {
-		return true
-	}
-	return slices.Contains(ent.Aliases, name)
-}
-
 func stateOpName(op lore.StateOp) string {
 	switch op {
 	case lore.StateOpAdd:
@@ -339,96 +357,72 @@ func stateOpName(op lore.StateOp) string {
 }
 
 // buildContextSegments splits `text` into alternating plain and
-// entity-coloured chunks for the wiki webview. Matches use the same
-// global containment dedup as findReferences (longer canonical name
-// suppresses sub-spans, alias inside name collapses), so the highlights
-// agree with what shows up in the buffer's semantic tokens.
-//
-// Returns a single plain segment when the world has no match index or
-// the text contains no entity mentions, so the caller never has to
-// guard against an empty slice.
+// entity-coloured chunks for the wiki webview. Match resolution is
+// delegated to lore.ScanEntities so the highlights agree exactly with
+// what the reference scanner records and the colouriser paints.
 func buildContextSegments(world *lore.World, text string) []ContextSegment {
 	if text == "" {
 		return nil
 	}
-	if world == nil || world.Match == nil || len(world.Match.Entities) == 0 {
+	matches := lore.ScanEntities(world, text, false)
+	if len(matches) == 0 {
 		return []ContextSegment{{Text: text, ColourIndex: -1}}
 	}
-	lower := strings.ToLower(text)
-
-	type cand struct {
-		start, end int
-		entityIdx  int
-	}
-	var all []cand
-	for i := range world.Match.Entities {
-		em := &world.Match.Entities[i]
-		if em.LowerName != "" {
-			for _, p := range lore.FindWordMatches(lower, em.LowerName) {
-				all = append(all, cand{p, p + len(em.LowerName), i})
-			}
-		}
-		for _, la := range em.LowerAliases {
-			for _, p := range lore.FindWordMatches(lower, la) {
-				all = append(all, cand{p, p + len(la), i})
-			}
-		}
-	}
-	if len(all) == 0 {
-		return []ContextSegment{{Text: text, ColourIndex: -1}}
-	}
-
-	sort.Slice(all, func(a, b int) bool {
-		if all[a].start != all[b].start {
-			return all[a].start < all[b].start
-		}
-		if (all[a].end - all[a].start) != (all[b].end - all[b].start) {
-			return (all[a].end - all[a].start) > (all[b].end - all[b].start)
-		}
-		return all[a].entityIdx < all[b].entityIdx
-	})
-	kept := all[:0]
-	for _, m := range all {
-		skip := false
-		for _, k := range kept {
-			if k.start > m.start || m.end > k.end {
-				continue
-			}
-			equal := k.start == m.start && k.end == m.end
-			if equal {
-				if k.entityIdx == m.entityIdx {
-					skip = true
-					break
-				}
-				continue
-			}
-			skip = true
-			break
-		}
-		if !skip {
-			kept = append(kept, m)
-		}
-	}
-	// Re-sort kept by start ascending — needed because the dedup above
-	// preserved sort-by-start order but the equal-span case could have
-	// kept multiple entries at the same position; emitting in start
-	// order guarantees the output reads left-to-right.
-	sort.Slice(kept, func(i, j int) bool { return kept[i].start < kept[j].start })
-
-	out := make([]ContextSegment, 0, len(kept)*2+1)
+	out := make([]ContextSegment, 0, len(matches)*2+1)
 	prev := 0
-	for _, k := range kept {
-		if k.start > prev {
-			out = append(out, ContextSegment{Text: text[prev:k.start], ColourIndex: -1})
+	for _, m := range matches {
+		if m.Start > prev {
+			out = append(out, ContextSegment{Text: text[prev:m.Start], ColourIndex: -1})
 		}
-		colour := int32(entityColourIndex(&world.Entities[k.entityIdx]))
-		out = append(out, ContextSegment{Text: text[k.start:k.end], ColourIndex: colour})
-		prev = k.end
+		idx := int32(entityColourIndex(&world.Entities[m.EntityIdx]))
+		out = append(out, ContextSegment{Text: text[m.Start:m.End], ColourIndex: idx})
+		prev = m.End
 	}
 	if prev < len(text) {
 		out = append(out, ContextSegment{Text: text[prev:], ColourIndex: -1})
 	}
 	return out
+}
+
+// trimContextBeforeMatch returns `text` starting at most `wordsBefore`
+// whitespace-separated tokens before `matchOffset`, prefixed with "… "
+// when leading bytes were dropped. Several refs in the same long
+// sentence would otherwise render as visually identical wiki rows;
+// cropping each preview around its match makes them distinguishable.
+// Punctuation stays attached to the word it sits beside (only space
+// and tab count as separators).
+func trimContextBeforeMatch(text string, matchOffset, wordsBefore int) string {
+	if matchOffset <= 0 || wordsBefore <= 0 {
+		return text
+	}
+	var wordStarts []int
+	inWord := false
+	for i := 0; i < len(text); i++ {
+		isWord := text[i] != ' ' && text[i] != '\t'
+		if isWord && !inWord {
+			wordStarts = append(wordStarts, i)
+		}
+		inWord = isWord
+	}
+	matchWord := -1
+	for i, s := range wordStarts {
+		if s > matchOffset {
+			break
+		}
+		matchWord = i
+	}
+	if matchWord < 0 {
+		return text
+	}
+	cutWord := matchWord - wordsBefore
+	if cutWord <= 0 {
+		return text
+	}
+	cutAt := wordStarts[cutWord]
+	if cutAt == 0 {
+		return text
+	}
+	return "… " + text[cutAt:]
 }
 
 // decodeEntityDetails unmarshals the request payload. Used by loreHandler.

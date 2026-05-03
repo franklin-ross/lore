@@ -289,180 +289,34 @@ func findOrCreateEntity(world *World, name, entityType string) *Entity {
 	return &world.Entities[len(world.Entities)-1]
 }
 
-// findReferences scans file content for mentions of known entities and adds
-// them to the world's reference index. It reads the pre-lowered lookup data
-// off world.Match, so the hot loop never re-lowercases an entity name.
+// findReferences scans file content for mentions of known entities and
+// adds them to the world's reference index. Match resolution is delegated
+// to ScanEntities, which performs the global containment dedup the wiki
+// view and colouriser rely on too.
 func findReferences(world *World, content, file string) {
-	mi := world.Match
-	if mi == nil || len(mi.Entities) == 0 {
+	if world.Match == nil || len(world.Match.Entities) == 0 {
 		return
 	}
 
 	lines := strings.Split(content, "\n")
-
 	for lineIdx, line := range lines {
 		lineNum := lineIdx + 1
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" {
 			continue
 		}
-		lowerLine := strings.ToLower(line)
+		leadingWS := len(line) - len(strings.TrimLeft(line, " \t"))
 
-		leadingWS := 0
-		for leadingWS < len(line) && (line[leadingWS] == ' ' || line[leadingWS] == '\t') {
-			leadingWS++
-		}
-
-		// Collect every candidate match on this line across every
-		// entity, then run one global containment-dedup pass. Without a
-		// global pass, a longer canonical name like "Vistani Camp near
-		// Vallaki" wouldn't suppress sub-spans from the "Vistani" and
-		// "Vallaki" entities — each would still emit its own ref and
-		// the wiki would show duplicate-looking rows for the same word.
-		type cand struct {
-			start, end int
-			entityIdx  int
-		}
-		var all []cand
-		for i := range mi.Entities {
-			em := &mi.Entities[i]
-			for _, s := range candidateSpans(lowerLine, em, mi.Types) {
-				all = append(all, cand{s.start, s.end, i})
-			}
-		}
-		if len(all) == 0 {
-			continue
-		}
-		sort.Slice(all, func(a, b int) bool {
-			if all[a].start != all[b].start {
-				return all[a].start < all[b].start
-			}
-			if (all[a].end - all[a].start) != (all[b].end - all[b].start) {
-				return (all[a].end - all[a].start) > (all[b].end - all[b].start)
-			}
-			return all[a].entityIdx < all[b].entityIdx
-		})
-
-		kept := all[:0]
-		for _, m := range all {
-			skip := false
-			for _, k := range kept {
-				if k.start > m.start || m.end > k.end {
-					continue
-				}
-				equal := k.start == m.start && k.end == m.end
-				if equal {
-					// Two entities with the same name claim the same
-					// span — ambiguous reference, both kept. Within
-					// the same entity (alias literally equal to its
-					// own name) drop the duplicate.
-					if k.entityIdx == m.entityIdx {
-						skip = true
-						break
-					}
-					continue
-				}
-				// m is strictly contained in k — drop. Covers both
-				// within-entity overlap (alias inside name, plain
-				// name inside disambig form) and cross-entity overlap
-				// (Vistani inside Vistani Camp near Vallaki).
-				skip = true
-				break
-			}
-			if !skip {
-				kept = append(kept, m)
-			}
-		}
-
-		for _, m := range kept {
-			matchInTrimmed := max(m.start-leadingWS, 0)
-			world.AddReference(world.Entities[m.entityIdx].Name, Reference{
+		for _, m := range ScanEntities(world, line, true) {
+			world.AddReference(world.Entities[m.EntityIdx].Name, Reference{
 				File:         file,
 				Line:         lineNum,
-				SourceEntity: findEntityAtMention(world, file, lineNum, m.start),
-				Context:      trimContextBeforeMatch(trimmed, matchInTrimmed, 4),
+				SourceEntity: findEntityAtMention(world, file, lineNum, m.Start),
+				Context:      trimmed,
+				MatchOffset:  max(m.Start-leadingWS, 0),
 			})
 		}
 	}
-}
-
-// trimContextBeforeMatch returns `text` starting at most `wordsBefore`
-// whitespace-separated tokens before `matchPos`, prefixed with "… " when
-// any leading bytes were dropped. Used to keep reference previews short
-// enough that several refs in the same sentence don't render as visually
-// identical rows in the wiki. Punctuation stays attached to the word it
-// sits beside (only space and tab count as separators).
-func trimContextBeforeMatch(text string, matchPos, wordsBefore int) string {
-	if matchPos <= 0 || wordsBefore <= 0 {
-		return text
-	}
-	var wordStarts []int
-	inWord := false
-	for i := 0; i < len(text); i++ {
-		isWord := text[i] != ' ' && text[i] != '\t'
-		if isWord && !inWord {
-			wordStarts = append(wordStarts, i)
-		}
-		inWord = isWord
-	}
-	matchWord := -1
-	for i, s := range wordStarts {
-		if s > matchPos {
-			break
-		}
-		matchWord = i
-	}
-	if matchWord < 0 {
-		return text
-	}
-	cutWord := matchWord - wordsBefore
-	if cutWord <= 0 {
-		return text
-	}
-	cutAt := wordStarts[cutWord]
-	if cutAt == 0 {
-		return text
-	}
-	return "… " + text[cutAt:]
-}
-
-// matchSpan is a [start, end) byte range for one candidate match within
-// a line, used internally by candidateSpans.
-type matchSpan struct{ start, end int }
-
-// candidateSpans returns every potential mention of `em` on the line:
-// disambiguated form (Name (type)), plain name, and each alias. The
-// caller does the global containment dedup so this function intentionally
-// does not collapse overlapping spans on its own.
-func candidateSpans(lowerLine string, em *EntityMatch, knownTypes map[string]struct{}) []matchSpan {
-	var out []matchSpan
-
-	if em.LowerType != "" {
-		for _, pos := range FindWordMatches(lowerLine, em.LowerName) {
-			end := pos + len(em.LowerName)
-			after := MatchesTypeSuffix(lowerLine, end, em.LowerType)
-			if after < 0 {
-				continue
-			}
-			out = append(out, matchSpan{pos, after})
-		}
-	}
-
-	for _, pos := range FindWordMatches(lowerLine, em.LowerName) {
-		end := pos + len(em.LowerName)
-		if MatchesAnyTypeSuffix(lowerLine, end, knownTypes) >= 0 {
-			continue
-		}
-		out = append(out, matchSpan{pos, end})
-	}
-
-	for _, la := range em.LowerAliases {
-		for _, pos := range FindWordMatches(lowerLine, la) {
-			out = append(out, matchSpan{pos, pos + len(la)})
-		}
-	}
-
-	return out
 }
 
 
