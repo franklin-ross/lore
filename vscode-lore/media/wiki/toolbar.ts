@@ -1,9 +1,32 @@
-import { el } from "./dom.js";
+import { el } from "./dom.ts";
+import type { SearchController } from "./search.ts";
+
+export interface BreadcrumbPage {
+  kind: "entity" | "type" | "home";
+  value: string;
+}
+
+export interface ToolbarActions {
+  back(): void;
+  forward(): void;
+  openHome(): void;
+  openHistoryIndex(index: number): void;
+}
+
+export interface ToolbarController {
+  setBreadcrumbs(items: BreadcrumbPage[], cursor: number): void;
+  setNav(canBack: boolean, canForward: boolean): void;
+  focusSearch(): void;
+}
 
 // mountToolbar wires the back/forward buttons, breadcrumbs, and the
-// toolbar's search input. The search controller is owned by main.js and
+// toolbar's search input. The search controller is owned by main.ts and
 // passed in so the home page can attach its own input to the same state.
-export function mountToolbar(host, ctx, search) {
+export function mountToolbar(
+  host: HTMLElement,
+  ctx: ToolbarActions,
+  search: SearchController,
+): ToolbarController {
   host.innerHTML = "";
 
   const back = el("button", {
@@ -28,7 +51,7 @@ export function mountToolbar(host, ctx, search) {
     type: "text",
     class: "search-input",
     placeholder: "Search entities and types…",
-  });
+  }) as HTMLInputElement;
   const searchResults = el("div", { class: "search-results" });
   const searchWrap = el("div", { class: "search-wrap" }, searchInput, searchResults);
   search.attach(searchInput, searchResults);
@@ -64,7 +87,7 @@ export function mountToolbar(host, ctx, search) {
   };
 }
 
-function labelFor(p) {
+function labelFor(p: BreadcrumbPage): string {
   if (p.kind === "home") return "Home";
   if (p.kind === "type") return p.value + " (type)";
   return p.value;

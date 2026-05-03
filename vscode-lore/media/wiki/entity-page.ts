@@ -1,11 +1,42 @@
-import { el, basename, section, aliasSpans } from "./dom.js";
-import { colour, renderSegments } from "./segments.js";
-import { renderRefGroups } from "./refs.js";
+import { el, basename, section, aliasSpans, type LspLocation } from "./dom.ts";
+import { colour, renderSegments, type ContextSegment } from "./segments.ts";
+import { renderRefGroups, type RefGroup } from "./refs.ts";
+import type { PageCtx } from "./ctx.ts";
+
+export interface EntityField {
+  name: string;
+  value: string;
+}
+export interface DescriptionBlock {
+  segments: ContextSegment[];
+  location: LspLocation;
+  startLine: number;
+  endLine: number;
+}
+export interface StateEvent {
+  op: "add" | "remove" | "set" | "increment" | "unknown";
+  target: string;
+  value?: string;
+  location: LspLocation;
+}
+export interface EntityDetails {
+  found: boolean;
+  name?: string;
+  type?: string;
+  colourIndex?: number;
+  aliases?: string[];
+  tags?: string[];
+  fields?: EntityField[];
+  descriptions?: DescriptionBlock[];
+  inboundRefs?: RefGroup[];
+  outboundRefs?: RefGroup[];
+  stateHistory?: StateEvent[];
+}
 
 // renderEntityPage builds the full DOM for one entity's wiki page. ctx
 // supplies palette + state callbacks (openEntity, openType, navigate,
 // collapsed, onToggle, activeTab, setActiveTab).
-export function renderEntityPage(d, ctx) {
+export function renderEntityPage(d: EntityDetails | undefined, ctx: PageCtx): HTMLElement[] {
   if (!d || !d.found) {
     return [el("p", { class: "empty" }, "Entity not found in this project.")];
   }
@@ -18,39 +49,40 @@ export function renderEntityPage(d, ctx) {
   ];
 }
 
-function renderHeader(d, ctx) {
+function renderHeader(d: EntityDetails, ctx: PageCtx): HTMLElement[] {
   const c = colour(ctx.palette, d.colourIndex);
-  const name = el("span", { style: c ? { color: c } : undefined }, d.name);
+  const name = el("span", { style: c ? ({ color: c } as Partial<CSSStyleDeclaration>) : undefined }, d.name ?? "");
   const h1 = el("h1", null, name);
   for (const span of aliasSpans(d.aliases, c)) h1.appendChild(span);
   if (d.type) {
+    const type = d.type;
     h1.appendChild(el("span", {
       class: "type",
       title: "Open type page",
-      onclick: () => ctx.openType(d.type),
-    }, d.type));
+      onclick: () => ctx.openType(type),
+    }, type));
   }
   return [h1];
 }
 
-function renderStateBody(d) {
+function renderStateBody(d: EntityDetails): HTMLElement[] {
   const hasTags = d.tags && d.tags.length;
   const hasFields = d.fields && d.fields.length;
   if (!hasTags && !hasFields) {
     return [el("p", { class: "empty" }, "No state.")];
   }
-  const out = [];
+  const out: HTMLElement[] = [];
   if (hasTags) {
     const wrap = el("div", null);
-    for (const t of d.tags) wrap.appendChild(el("span", { class: "pill" }, "+" + t));
+    for (const t of d.tags!) wrap.appendChild(el("span", { class: "pill" }, "+" + t));
     out.push(wrap);
   }
   if (hasFields) {
     const tbl = el("table", { class: "fields" });
-    for (const f of d.fields) {
+    for (const f of d.fields!) {
       tbl.appendChild(el("tr", null,
         el("td", { class: "k" }, f.name),
-        el("td", null, f.value)
+        el("td", null, f.value),
       ));
     }
     out.push(tbl);
@@ -58,22 +90,22 @@ function renderStateBody(d) {
   return out;
 }
 
-function directiveText(ev) {
+function directiveText(ev: StateEvent): string {
   switch (ev.op) {
     case "add": return "+" + ev.target;
     case "remove":
       return ev.value ? ev.target + " -= " + ev.value : "-" + ev.target;
-    case "set": return ev.target + " = " + ev.value;
-    case "increment": return ev.target + " += " + ev.value;
+    case "set": return ev.target + " = " + (ev.value ?? "");
+    case "increment": return ev.target + " += " + (ev.value ?? "");
   }
   return ev.target;
 }
 
-function renderHistoryBody(d, ctx) {
+function renderHistoryBody(d: EntityDetails, ctx: PageCtx): HTMLElement[] {
   if (!d.stateHistory || !d.stateHistory.length) {
     return [el("p", { class: "empty" }, "No state history.")];
   }
-  const out = [];
+  const out: HTMLElement[] = [];
   for (const ev of d.stateHistory) {
     const line = (ev.location?.range?.start?.line ?? 0) + 1;
     const row = el("div", {
@@ -81,14 +113,14 @@ function renderHistoryBody(d, ctx) {
       onclick: () => ctx.navigate(ev.location.uri, line),
     },
       el("span", null, directiveText(ev)),
-      el("span", { class: "loc" }, basename(ev.location.uri) + ":" + line)
+      el("span", { class: "loc" }, basename(ev.location.uri) + ":" + line),
     );
     out.push(row);
   }
   return out;
 }
 
-function renderStateSection(d, ctx) {
+function renderStateSection(d: EntityDetails, ctx: PageCtx): HTMLElement[] {
   const hasState = (d.tags && d.tags.length) || (d.fields && d.fields.length);
   const hasHistory = d.stateHistory && d.stateHistory.length;
   if (!hasState && !hasHistory) return [];
@@ -119,9 +151,9 @@ function renderStateSection(d, ctx) {
   return [section("State", ctx.collapsed, ctx.onToggle, tabs, statePanel, historyPanel)];
 }
 
-function renderDescriptions(d, ctx) {
+function renderDescriptions(d: EntityDetails, ctx: PageCtx): HTMLElement[] {
   if (!d.descriptions || !d.descriptions.length) return [];
-  const blocks = [];
+  const blocks: HTMLElement[] = [];
   for (const block of d.descriptions) {
     const tooltip = block.endLine && block.endLine > block.startLine
       ? basename(block.location.uri) + ":" + block.startLine + "–" + block.endLine

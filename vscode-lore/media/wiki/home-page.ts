@@ -1,10 +1,12 @@
-import { el } from "./dom.js";
+import { el } from "./dom.ts";
+import type { Catalog } from "./search.ts";
+import type { PageCtx } from "./ctx.ts";
 
 // renderHomePage shows a centred search box plus chips for every type in
 // the catalog. The search input attaches to the shared search controller
 // so suggestions render directly underneath it (and stay in sync with the
 // toolbar input).
-export function renderHomePage(catalog, ctx) {
+export function renderHomePage(catalog: Catalog | undefined, ctx: PageCtx): HTMLElement[] {
   const wrap = el("div", { class: "home" });
   wrap.appendChild(el("h1", null, "Lore Wiki"));
 
@@ -12,7 +14,7 @@ export function renderHomePage(catalog, ctx) {
     type: "text",
     class: "search-input home-search",
     placeholder: "Search entities and types…",
-  });
+  }) as HTMLInputElement;
   const results = el("div", { class: "search-results" });
   const searchWrap = el("div", { class: "search-wrap" }, input, results);
   ctx.search.attach(input, results);
@@ -30,7 +32,7 @@ export function renderHomePage(catalog, ctx) {
         onclick: () => ctx.openType(t.name),
       },
         t.name,
-        el("span", { class: "type-count" }, String(t.count))
+        el("span", { class: "type-count" }, String(t.count)),
       ));
     }
     wrap.appendChild(types);

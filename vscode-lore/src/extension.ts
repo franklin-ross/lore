@@ -5,19 +5,28 @@ import { execFileSync } from "node:child_process";
 import {
   LanguageClient,
   TransportKind,
+  type ServerOptions,
+  type LanguageClientOptions,
 } from "vscode-languageclient/node";
-import { LoreEntitiesProvider } from "./entities-tree.js";
-import { LoreWikiPanel } from "./wiki-panel.js";
+import { LoreEntitiesProvider } from "./entities-tree.ts";
+import { LoreWikiPanel } from "./wiki-panel.ts";
 
-/** @type {string} */
 let extensionPath = "";
+
+interface DefinitionRangeItem {
+  range: { start: { line: number; character: number }; end: { line: number; character: number } };
+  colourIndex: number;
+}
+interface DefinitionRangesResponse {
+  ranges?: DefinitionRangeItem[];
+}
 
 // resolveServerPath picks the lore binary in this order:
 //   1. lore.serverPath setting (explicit user override)
 //   2. bundled binary at <extensionPath>/bin/lore[.exe]
 //   3. "lore" on PATH (fallback for source installs and dev)
-function resolveServerPath() {
-  const override = vscode.workspace.getConfiguration("lore").get("serverPath");
+function resolveServerPath(): string {
+  const override = vscode.workspace.getConfiguration("lore").get<string>("serverPath");
   if (override) return override;
 
   const exe = process.platform === "win32" ? "lore.exe" : "lore";
@@ -44,8 +53,7 @@ function resolveServerPath() {
   return bundled;
 }
 
-/** @type {LanguageClient | undefined} */
-let client;
+let client: LanguageClient | undefined;
 
 // Palette is loaded from the extension manifest's
 // editor.semanticTokenColorCustomizations rules at activation time, so the
@@ -54,71 +62,70 @@ let client;
 // Index matches the colourIndex returned by the server's lore/definitionRanges
 // request, which itself matches the loreColour{A..Z} bit position used by
 // semantic-token modifiers.
-/** @type {string[]} */
-let palette = [];
+let palette: string[] = [];
+
+interface RuleEntry { foreground?: string }
 
 // loadPaletteFromManifest extracts the foreground hex for each
 // loreEntity.loreColour{A..Z} rule contributed by this extension. Returns
 // an array indexed 0..25 = A..Z. Missing entries fall back to white so a
 // malformed manifest still renders (visibly broken) rather than crashing.
-function loadPaletteFromManifest(extension) {
-  const rules =
-    extension?.packageJSON?.contributes?.configurationDefaults?.[
-      "editor.semanticTokenColorCustomizations"
-    ]?.["[*]"]?.rules ?? {};
-  const out = new Array(26).fill("#FFFFFF");
+function loadPaletteFromManifest(extension: vscode.Extension<unknown> | undefined): string[] {
+  const pkg = extension?.packageJSON as Record<string, unknown> | undefined;
+  const contrib = pkg?.contributes as Record<string, unknown> | undefined;
+  const defaults = contrib?.configurationDefaults as Record<string, unknown> | undefined;
+  const tokens = defaults?.["editor.semanticTokenColorCustomizations"] as Record<string, unknown> | undefined;
+  const star = tokens?.["[*]"] as Record<string, unknown> | undefined;
+  const rules = (star?.rules as Record<string, RuleEntry> | undefined) ?? {};
+  const out = new Array<string>(26).fill("#FFFFFF");
   for (const [key, val] of Object.entries(rules)) {
     const m = /^loreEntity\.loreColour([A-Z])$/.exec(key);
     if (!m || !val || typeof val.foreground !== "string") continue;
-    out[m[1].charCodeAt(0) - 65] = val.foreground;
+    out[m[1]!.charCodeAt(0) - 65] = val.foreground;
   }
   return out;
 }
 
-/** @type {vscode.TextEditorDecorationType[]} */
-let underlineDecorations = [];
-/** @type {vscode.TextEditorDecorationType[]} */
-let backgroundDecorations = [];
+let underlineDecorations: vscode.TextEditorDecorationType[] = [];
+let backgroundDecorations: vscode.TextEditorDecorationType[] = [];
 
-function buildDecorations() {
+function buildDecorations(): void {
   underlineDecorations = palette.map((hex) =>
     vscode.window.createTextEditorDecorationType({
       textDecoration: `underline solid ${hex}`,
       isWholeLine: false,
       rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed,
-    })
+    }),
   );
   backgroundDecorations = palette.map((hex) =>
     vscode.window.createTextEditorDecorationType({
       backgroundColor: hexToRgba(hex, 0.18),
       isWholeLine: false,
       rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed,
-    })
+    }),
   );
 }
 
-function disposeDecorations() {
+function disposeDecorations(): void {
   for (const d of underlineDecorations) d.dispose();
   for (const d of backgroundDecorations) d.dispose();
   underlineDecorations = [];
   backgroundDecorations = [];
 }
 
-function hexToRgba(hex, alpha) {
+function hexToRgba(hex: string, alpha: number): string {
   const r = parseInt(hex.slice(1, 3), 16);
   const g = parseInt(hex.slice(3, 5), 16);
   const b = parseInt(hex.slice(5, 7), 16);
   return `rgba(${r},${g},${b},${alpha})`;
 }
 
-function definitionStyle() {
-  return (
-    vscode.workspace.getConfiguration("lore").get("definitionStyle") ||
-    "background"
-  );
+function definitionStyle(): "background" | "underline" | "none" {
+  const v = vscode.workspace.getConfiguration("lore").get<string>("definitionStyle") ?? "background";
+  return v as "background" | "underline" | "none";
 }
 
-function clearDecorations(editor) {
+function clearDecorations(editor: vscode.TextEditor): void {
   for (const d of underlineDecorations) editor.setDecorations(d, []);
   for (const d of backgroundDecorations) editor.setDecorations(d, []);
 }
@@ -127,10 +134,9 @@ function clearDecorations(editor) {
 // stat the filesystem on every cursor move. Project membership only
 // changes when the user adds or removes a lore.toml, both of which would
 // also trigger an extension reload.
-/** @type {Map<string, boolean>} */
-const projectCache = new Map();
+const projectCache = new Map<string, boolean>();
 
-function isInLoreProject(uri) {
+function isInLoreProject(uri: vscode.Uri | undefined): boolean {
   if (!uri || uri.scheme !== "file") return false;
   const cached = projectCache.get(uri.fsPath);
   if (cached !== undefined) return cached;
@@ -149,14 +155,14 @@ function isInLoreProject(uri) {
   return false;
 }
 
-function updateInProjectContext(editor) {
+function updateInProjectContext(editor: vscode.TextEditor | undefined): void {
   const inProject = !!editor
     && editor.document.languageId === "markdown"
     && isInLoreProject(editor.document.uri);
   vscode.commands.executeCommand("setContext", "lore.inProject", inProject);
 }
 
-async function refreshEditor(editor) {
+async function refreshEditor(editor: vscode.TextEditor | undefined): Promise<void> {
   if (!editor || editor.document.languageId !== "markdown") return;
   if (!client) return;
   if (underlineDecorations.length === 0) return;
@@ -167,10 +173,9 @@ async function refreshEditor(editor) {
     return;
   }
 
-  /** @type {{ranges: {range: {start: {line: number, character: number}, end: {line: number, character: number}}, colourIndex: number}[]} | undefined} */
-  let response;
+  let response: DefinitionRangesResponse | undefined;
   try {
-    response = await client.sendRequest("lore/definitionRanges", {
+    response = await client.sendRequest<DefinitionRangesResponse>("lore/definitionRanges", {
       textDocument: { uri: editor.document.uri.toString() },
     });
   } catch {
@@ -182,35 +187,34 @@ async function refreshEditor(editor) {
     return;
   }
 
-  /** @type {vscode.Range[][]} */
-  const perColour = palette.map(() => []);
+  const perColour: vscode.Range[][] = palette.map(() => []);
   for (const r of response.ranges) {
     if (r.colourIndex < 0 || r.colourIndex >= palette.length) continue;
-    perColour[r.colourIndex].push(
+    perColour[r.colourIndex]!.push(
       new vscode.Range(
         r.range.start.line,
         r.range.start.character,
         r.range.end.line,
-        r.range.end.character
-      )
+        r.range.end.character,
+      ),
     );
   }
 
   const active = style === "background" ? backgroundDecorations : underlineDecorations;
   const inactive = style === "background" ? underlineDecorations : backgroundDecorations;
   for (let i = 0; i < palette.length; i++) {
-    editor.setDecorations(active[i], perColour[i]);
-    editor.setDecorations(inactive[i], []);
+    editor.setDecorations(active[i]!, perColour[i]!);
+    editor.setDecorations(inactive[i]!, []);
   }
 }
 
-function refreshAllVisible() {
+function refreshAllVisible(): void {
   for (const editor of vscode.window.visibleTextEditors) {
     refreshEditor(editor);
   }
 }
 
-function buildInitializationOptions() {
+function buildInitializationOptions(): Record<string, unknown> {
   const config = vscode.workspace.getConfiguration("lore");
   return {
     hoverStateMode: config.get("hover.stateMode") || "both",
@@ -219,18 +223,16 @@ function buildInitializationOptions() {
   };
 }
 
-function buildClient() {
+function buildClient(): LanguageClient {
   const serverPath = resolveServerPath();
 
-  /** @type {import("vscode-languageclient/node").ServerOptions} */
-  const serverOptions = {
+  const serverOptions: ServerOptions = {
     command: serverPath,
     args: ["lsp"],
     transport: TransportKind.stdio,
   };
 
-  /** @type {import("vscode-languageclient/node").LanguageClientOptions} */
-  const clientOptions = {
+  const clientOptions: LanguageClientOptions = {
     documentSelector: [{ scheme: "file", language: "markdown" }],
     synchronize: {
       fileEvents: vscode.workspace.createFileSystemWatcher("**/*.md"),
@@ -248,13 +250,13 @@ function buildClient() {
         const hover = await next(document, position, token);
         if (!hover) return hover;
         hover.contents = hover.contents.map((c) => {
-          let value;
-          let isTrusted;
+          let value: string;
+          let isTrusted: boolean | { readonly enabledCommands: readonly string[] } | undefined;
           if (typeof c === "string") {
             value = c;
           } else if (c && typeof c === "object" && "value" in c) {
-            value = c.value;
-            isTrusted = c.isTrusted;
+            value = (c as { value: string }).value;
+            isTrusted = (c as { isTrusted?: boolean }).isTrusted;
           } else {
             return c;
           }
@@ -272,11 +274,11 @@ function buildClient() {
     "lore",
     "Lore Language Server",
     serverOptions,
-    clientOptions
+    clientOptions,
   );
 }
 
-async function restartClient() {
+async function restartClient(): Promise<void> {
   if (client) {
     await client.stop();
   }
@@ -285,18 +287,18 @@ async function restartClient() {
   refreshAllVisible();
 }
 
-export function activate(/** @type {vscode.ExtensionContext} */ context) {
+export function activate(context: vscode.ExtensionContext): void {
   extensionPath = context.extensionPath;
   palette = loadPaletteFromManifest(context.extension);
   buildDecorations();
 
   const entitiesProvider = new LoreEntitiesProvider(() => client);
   const wikiPanel = new LoreWikiPanel(() => client, palette, context);
-  const setFilterContext = (active) =>
+  const setFilterContext = (active: boolean) =>
     vscode.commands.executeCommand(
       "setContext",
       "lore.entities.filterActive",
-      active
+      active,
     );
   setFilterContext(false);
   updateInProjectContext(vscode.window.activeTextEditor);
@@ -304,10 +306,10 @@ export function activate(/** @type {vscode.ExtensionContext} */ context) {
   context.subscriptions.push(
     vscode.window.registerTreeDataProvider(
       "loreEntities",
-      entitiesProvider
+      entitiesProvider,
     ),
     vscode.commands.registerCommand("lore.entities.refresh", () =>
-      entitiesProvider.refresh()
+      entitiesProvider.refresh(),
     ),
     vscode.commands.registerCommand("lore.entities.search", async () => {
       const previous = entitiesProvider.getFilter();
@@ -341,7 +343,7 @@ export function activate(/** @type {vscode.ExtensionContext} */ context) {
         // word range if the wide regex doesn't match.
         const wide = doc.getWordRangeAtPosition(
           sel.active,
-          /[A-Za-z][A-Za-z0-9_'-]*(?: [A-Za-z][A-Za-z0-9_'-]*)*/
+          /[A-Za-z][A-Za-z0-9_'-]*(?: [A-Za-z][A-Za-z0-9_'-]*)*/,
         );
         const range = wide || doc.getWordRangeAtPosition(sel.active);
         if (range) entity = doc.getText(range).trim();
@@ -349,18 +351,18 @@ export function activate(/** @type {vscode.ExtensionContext} */ context) {
       if (!entity) return;
       await wikiPanel.show(entity, doc.uri.toString());
     }),
-    vscode.commands.registerCommand("lore.openWiki", async (arg) => {
+    vscode.commands.registerCommand("lore.openWiki", async (arg: unknown) => {
       // Invocation paths:
       //  - palette / programmatic with no arg → open the wiki landing
       //    page so the user can search inside the panel itself
       //  - palette with string → open that entity directly
       //  - tree-view inline action → vscode passes the TreeItem; its
-      //    `label` is the entity name (set in entities-tree.js).
+      //    `label` is the entity name (set in entities-tree.ts).
       let entity = "";
       if (typeof arg === "string") {
         entity = arg;
-      } else if (arg && typeof arg === "object" && typeof arg.label === "string") {
-        entity = arg.label;
+      } else if (arg && typeof arg === "object" && "label" in arg && typeof (arg as { label: unknown }).label === "string") {
+        entity = (arg as { label: string }).label;
       }
       const editor = vscode.window.activeTextEditor;
       const source = editor ? editor.document.uri.toString() : undefined;
@@ -369,7 +371,7 @@ export function activate(/** @type {vscode.ExtensionContext} */ context) {
       } else {
         await wikiPanel.showHome(source);
       }
-    })
+    }),
   );
 
   client = buildClient();
@@ -387,16 +389,16 @@ export function activate(/** @type {vscode.ExtensionContext} */ context) {
         await config.update(
           "hover.showStateDirectives",
           !current,
-          vscode.ConfigurationTarget.Global
+          vscode.ConfigurationTarget.Global,
         );
         await restartClient();
         entitiesProvider.refresh();
         vscode.window.setStatusBarMessage(
           `Lore: hover state directives ${!current ? "on" : "off"}`,
-          2000
+          2000,
         );
-      }
-    )
+      },
+    ),
   );
 
   context.subscriptions.push(
@@ -410,13 +412,12 @@ export function activate(/** @type {vscode.ExtensionContext} */ context) {
     vscode.window.onDidChangeVisibleTextEditors(refreshAllVisible),
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration("lore.definitionStyle")) refreshAllVisible();
-    })
+    }),
   );
 
   // Debounced reapply on edits — the server reparses after a short delay so
   // we follow with our decorations.
-  /** @type {ReturnType<typeof setTimeout> | undefined} */
-  let debounce;
+  let debounce: ReturnType<typeof setTimeout> | undefined;
   context.subscriptions.push(
     vscode.workspace.onDidChangeTextDocument((e) => {
       if (e.document.languageId !== "markdown") return;
@@ -426,7 +427,7 @@ export function activate(/** @type {vscode.ExtensionContext} */ context) {
         entitiesProvider.refresh();
         wikiPanel.refresh();
       }, 250);
-    })
+    }),
   );
 
   context.subscriptions.push({
@@ -437,7 +438,7 @@ export function activate(/** @type {vscode.ExtensionContext} */ context) {
   });
 }
 
-export function deactivate() {
+export function deactivate(): Thenable<void> | undefined {
   disposeDecorations();
   return client?.stop();
 }

@@ -1,4 +1,35 @@
 import * as vscode from "vscode";
+import type { LanguageClient } from "vscode-languageclient/node";
+
+interface EntityListItem {
+  name: string;
+  type: string;
+  aliases?: string[];
+  tags?: string[];
+  location: {
+    uri: string;
+    range: {
+      start: { line: number; character: number };
+      end: { line: number; character: number };
+    };
+  };
+}
+
+interface EntityListResponse {
+  entities?: EntityListItem[];
+}
+
+interface LoreLocation {
+  uri: string;
+  position: { line: number; character: number };
+}
+
+interface LoreTreeItem extends vscode.TreeItem {
+  _loreType?: string;
+  _loreLocation?: LoreLocation;
+}
+
+type GetClient = () => LanguageClient | undefined;
 
 // LoreEntitiesProvider feeds the "Lore Entities" tree view in the explorer
 // sidebar. Top level groups entities by type ("character", "location", ...);
@@ -9,30 +40,29 @@ import * as vscode from "vscode";
 // A free-text filter (set via the title-bar Search action) matches entities
 // whose name, type, alias, or tag contains the query as a case-insensitive
 // substring. Types with zero matches collapse out of the tree entirely.
-export class LoreEntitiesProvider {
-  constructor(getClient) {
-    this._getClient = getClient;
-    this._onDidChangeTreeData = new vscode.EventEmitter();
-    this.onDidChangeTreeData = this._onDidChangeTreeData.event;
-    this._filter = "";
-  }
+export class LoreEntitiesProvider implements vscode.TreeDataProvider<LoreTreeItem> {
+  private readonly _onDidChangeTreeData = new vscode.EventEmitter<LoreTreeItem | undefined>();
+  readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
+  private _filter = "";
 
-  refresh() {
+  constructor(private readonly _getClient: GetClient) {}
+
+  refresh(): void {
     this._onDidChangeTreeData.fire(undefined);
   }
 
-  setFilter(query) {
+  setFilter(query: string | undefined): void {
     const next = (query ?? "").trim();
     if (next === this._filter) return;
     this._filter = next;
     this.refresh();
   }
 
-  getFilter() {
+  getFilter(): string {
     return this._filter;
   }
 
-  getTreeItem(element) {
+  getTreeItem(element: LoreTreeItem): vscode.TreeItem {
     return element;
   }
 
@@ -41,12 +71,16 @@ export class LoreEntitiesProvider {
   // one request per hover instead of one per entity at refresh time. Falls
   // back to the static tag-list tooltip set in getChildren if anything
   // fails or the cancellation token fires.
-  async resolveTreeItem(item, element, token) {
+  async resolveTreeItem(
+    item: LoreTreeItem,
+    element: LoreTreeItem,
+    token: vscode.CancellationToken,
+  ): Promise<LoreTreeItem> {
     if (!element || !element._loreLocation) return item;
     const client = this._getClient();
     if (!client) return item;
 
-    let hover;
+    let hover: { contents: unknown } | undefined;
     try {
       hover = await client.sendRequest(
         "textDocument/hover",
@@ -54,7 +88,7 @@ export class LoreEntitiesProvider {
           textDocument: { uri: element._loreLocation.uri },
           position: element._loreLocation.position,
         },
-        token
+        token,
       );
     } catch {
       return item;
@@ -70,7 +104,7 @@ export class LoreEntitiesProvider {
     return item;
   }
 
-  async getChildren(element) {
+  async getChildren(element?: LoreTreeItem): Promise<LoreTreeItem[]> {
     const client = this._getClient();
     if (!client) return [];
 
@@ -80,9 +114,9 @@ export class LoreEntitiesProvider {
     const params = activeUri
       ? { textDocument: { uri: activeUri } }
       : {};
-    let response;
+    let response: EntityListResponse | undefined;
     try {
-      response = await client.sendRequest("lore/entityList", params);
+      response = await client.sendRequest<EntityListResponse>("lore/entityList", params);
     } catch {
       return [];
     }
@@ -90,10 +124,10 @@ export class LoreEntitiesProvider {
     const entities = applyFilter(all, this._filter);
 
     if (!element) {
-      const counts = new Map();
+      const counts = new Map<string, number>();
       for (const e of entities) {
         const type = e.type || "(untyped)";
-        counts.set(type, (counts.get(type) || 0) + 1);
+        counts.set(type, (counts.get(type) ?? 0) + 1);
       }
       const types = [...counts.keys()].sort((a, b) => a.localeCompare(b));
       // When a filter is active, expand everything so matches are visible
@@ -102,7 +136,7 @@ export class LoreEntitiesProvider {
         ? vscode.TreeItemCollapsibleState.Expanded
         : vscode.TreeItemCollapsibleState.Collapsed;
       return types.map((type) => {
-        const item = new vscode.TreeItem(type, collapseState);
+        const item: LoreTreeItem = new vscode.TreeItem(type, collapseState);
         item.description = String(counts.get(type));
         item.iconPath = new vscode.ThemeIcon("symbol-namespace");
         item.contextValue = "loreEntityType";
@@ -122,11 +156,11 @@ export class LoreEntitiesProvider {
         e.location.range.start.line,
         e.location.range.start.character,
         e.location.range.end.line,
-        e.location.range.end.character
+        e.location.range.end.character,
       );
-      const item = new vscode.TreeItem(
+      const item: LoreTreeItem = new vscode.TreeItem(
         e.name,
-        vscode.TreeItemCollapsibleState.None
+        vscode.TreeItemCollapsibleState.None,
       );
       item.iconPath = new vscode.ThemeIcon("symbol-object");
       const tags = e.tags ?? [];
@@ -154,33 +188,38 @@ export class LoreEntitiesProvider {
   }
 }
 
+interface MarkedString {
+  language?: string;
+  value?: string;
+}
+
 // hoverContentsToMarkdown flattens an LSP Hover.contents value (string |
 // MarkedString | MarkedString[] | MarkupContent) into a single markdown
 // string suitable for a TreeItem tooltip. Returns "" if the structure is
 // unrecognised so the caller can fall back to its placeholder.
-function hoverContentsToMarkdown(contents) {
+function hoverContentsToMarkdown(contents: unknown): string {
   if (!contents) return "";
   if (typeof contents === "string") return contents;
   if (Array.isArray(contents)) {
     return contents.map(markedStringToMarkdown).filter(Boolean).join("\n\n");
   }
   if (typeof contents === "object") {
-    if ("value" in contents && typeof contents.value === "string") {
-      return contents.value;
-    }
-    return markedStringToMarkdown(contents);
+    const c = contents as MarkedString;
+    if (typeof c.value === "string") return c.value;
+    return markedStringToMarkdown(c);
   }
   return "";
 }
 
-function markedStringToMarkdown(item) {
+function markedStringToMarkdown(item: unknown): string {
   if (typeof item === "string") return item;
   if (item && typeof item === "object") {
-    if (typeof item.value === "string") {
-      if (typeof item.language === "string" && item.language) {
-        return "```" + item.language + "\n" + item.value + "\n```";
+    const m = item as MarkedString;
+    if (typeof m.value === "string") {
+      if (typeof m.language === "string" && m.language) {
+        return "```" + m.language + "\n" + m.value + "\n```";
       }
-      return item.value;
+      return m.value;
     }
   }
   return "";
@@ -189,7 +228,7 @@ function markedStringToMarkdown(item) {
 // applyFilter keeps an entity if any of its searchable fields contains query
 // as a case-insensitive substring. Empty query passes everything through.
 // Searchable fields: canonical name, type, every alias, every tag.
-function applyFilter(entities, query) {
+function applyFilter(entities: EntityListItem[], query: string): EntityListItem[] {
   if (!query) return entities;
   const needle = query.toLowerCase();
   return entities.filter((e) => {
