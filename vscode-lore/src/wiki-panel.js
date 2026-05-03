@@ -193,7 +193,7 @@ export class LoreWikiPanel {
   .err { color: var(--vscode-errorForeground); }
   .history-row {
     display: grid;
-    grid-template-columns: 80px 1fr minmax(120px, max-content);
+    grid-template-columns: 1fr minmax(120px, max-content);
     gap: 12px;
     align-items: baseline;
     padding: 4px 8px;
@@ -203,11 +203,31 @@ export class LoreWikiPanel {
     border-left: 2px solid var(--vscode-panel-border);
   }
   .history-row:hover { background: var(--vscode-list-hoverBackground); }
-  .history-row .op { font-weight: 600; }
   .history-row .loc { color: var(--vscode-descriptionForeground); white-space: nowrap; text-align: right; }
-  .op-add { color: var(--vscode-charts-green); }
-  .op-remove { color: var(--vscode-charts-red); }
-  .op-set, .op-increment { color: var(--vscode-charts-blue); }
+  .tabs {
+    display: flex;
+    gap: 4px;
+    border-bottom: 1px solid var(--vscode-panel-border);
+    margin: 4px 0 8px;
+  }
+  .tab {
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--vscode-descriptionForeground);
+    cursor: pointer;
+    padding: 4px 10px;
+    font: inherit;
+    font-size: 0.95em;
+    margin-bottom: -1px;
+  }
+  .tab:hover { color: var(--vscode-foreground); }
+  .tab.active {
+    color: var(--vscode-foreground);
+    border-bottom-color: var(--vscode-focusBorder, var(--vscode-textLink-foreground));
+  }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
 </style>
 </head>
 <body>
@@ -276,11 +296,13 @@ export class LoreWikiPanel {
     return out;
   }
 
-  function renderState(d) {
+  function renderStateBody(d) {
     const hasTags = d.tags && d.tags.length;
     const hasFields = d.fields && d.fields.length;
-    if (!hasTags && !hasFields) return [];
-    const out = [el("h2", null, "State")];
+    if (!hasTags && !hasFields) {
+      return [el("p", { class: "empty" }, "No state.")];
+    }
+    const out = [];
     if (hasTags) {
       const wrap = el("div", null);
       for (const t of d.tags) wrap.appendChild(el("span", { class: "pill" }, "+" + t));
@@ -297,6 +319,64 @@ export class LoreWikiPanel {
       out.push(tbl);
     }
     return out;
+  }
+
+  function directiveText(ev) {
+    switch (ev.op) {
+      case "add": return "+" + ev.target;
+      case "remove":
+        return ev.value ? ev.target + " -= " + ev.value : "-" + ev.target;
+      case "set": return ev.target + " = " + ev.value;
+      case "increment": return ev.target + " += " + ev.value;
+    }
+    return ev.target;
+  }
+
+  function renderHistoryBody(d) {
+    if (!d.stateHistory || !d.stateHistory.length) {
+      return [el("p", { class: "empty" }, "No state history.")];
+    }
+    const out = [];
+    for (const ev of d.stateHistory) {
+      const line = locLine(ev.location);
+      const row = el("div", {
+        class: "history-row",
+        onclick: () => navigate(ev.location.uri, line),
+      },
+        el("span", null, directiveText(ev)),
+        el("span", { class: "loc" }, basename(ev.location.uri) + ":" + line)
+      );
+      out.push(row);
+    }
+    return out;
+  }
+
+  function renderStateSection(d) {
+    const hasState = (d.tags && d.tags.length) || (d.fields && d.fields.length);
+    const hasHistory = d.stateHistory && d.stateHistory.length;
+    if (!hasState && !hasHistory) return [];
+
+    const stateTab = el("button", { class: "tab active" }, "State");
+    const historyTab = el("button", { class: "tab" }, "History");
+    const tabs = el("div", { class: "tabs" }, stateTab, historyTab);
+
+    const statePanel = el("div", { class: "tab-panel active" }, ...renderStateBody(d));
+    const historyPanel = el("div", { class: "tab-panel" }, ...renderHistoryBody(d));
+
+    stateTab.onclick = () => {
+      stateTab.classList.add("active");
+      historyTab.classList.remove("active");
+      statePanel.classList.add("active");
+      historyPanel.classList.remove("active");
+    };
+    historyTab.onclick = () => {
+      historyTab.classList.add("active");
+      stateTab.classList.remove("active");
+      historyPanel.classList.add("active");
+      statePanel.classList.remove("active");
+    };
+
+    return [el("h2", null, "State"), tabs, statePanel, historyPanel];
   }
 
   // linkToWiki=true makes coloured entity spans clickable, opening the
@@ -397,28 +477,6 @@ export class LoreWikiPanel {
     return out;
   }
 
-  function renderStateHistory(d) {
-    if (!d.stateHistory || !d.stateHistory.length) return [];
-    const out = [el("h2", null, "State History")];
-    for (const ev of d.stateHistory) {
-      const line = locLine(ev.location);
-      const op = el("span", { class: "op op-" + ev.op }, ev.op);
-      const value = ev.value
-        ? ev.target + " = " + ev.value
-        : (ev.op === "remove" ? "−" : "+") + ev.target;
-      const row = el("div", {
-        class: "history-row",
-        onclick: () => navigate(ev.location.uri, line),
-      },
-        op,
-        el("span", null, value),
-        el("span", { class: "loc" }, basename(ev.location.uri) + ":" + line)
-      );
-      out.push(row);
-    }
-    return out;
-  }
-
   function render(details) {
     root.innerHTML = "";
     if (!details || !details.found) {
@@ -428,11 +486,10 @@ export class LoreWikiPanel {
     }
     for (const node of [
       ...renderHeader(details),
-      ...renderState(details),
+      ...renderStateSection(details),
       ...renderDescriptions(details),
       ...renderRefGroups("Mentioned by", details.inboundRefs, "Free text"),
       ...renderRefGroups("Mentions", details.outboundRefs, ""),
-      ...renderStateHistory(details),
     ]) root.appendChild(node);
   }
 
