@@ -129,6 +129,21 @@ export class LoreWikiPanel {
   h1 { font-size: 1.6em; font-weight: 700; }
   h2 { font-size: 1.05em; text-transform: uppercase; letter-spacing: 0.06em;
        color: var(--vscode-descriptionForeground); margin: 24px 0 8px; }
+  h2.collapsible {
+    cursor: pointer;
+    user-select: none;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  h2.collapsible::before {
+    content: "▾";
+    display: inline-block;
+    font-size: 0.85em;
+    width: 0.9em;
+    transition: transform 0.1s ease;
+  }
+  h2.collapsible.collapsed::before { transform: rotate(-90deg); }
   h3 { font-size: 1em; font-weight: 600; margin: 14px 0 4px; }
   .type { color: var(--vscode-descriptionForeground); font-weight: 400;
           font-style: italic; margin-left: 8px; font-size: 0.9em; }
@@ -248,6 +263,32 @@ export class LoreWikiPanel {
   const vscode = acquireVsCodeApi();
   const root = document.getElementById("root");
   let palette = [];
+  const collapsed = new Set();
+
+  function section(title, ...body) {
+    const isCollapsed = collapsed.has(title);
+    const head = el("h2", {
+      class: "collapsible" + (isCollapsed ? " collapsed" : ""),
+    }, title);
+    const wrap = el("div", null);
+    for (const c of body) {
+      if (c == null) continue;
+      if (Array.isArray(c)) for (const cc of c) { if (cc) wrap.appendChild(cc); }
+      else wrap.appendChild(c);
+    }
+    if (isCollapsed) wrap.style.display = "none";
+    head.onclick = () => {
+      const next = !head.classList.contains("collapsed");
+      head.classList.toggle("collapsed", next);
+      wrap.style.display = next ? "none" : "";
+      if (next) collapsed.add(title);
+      else collapsed.delete(title);
+    };
+    const sec = document.createElement("section");
+    sec.appendChild(head);
+    sec.appendChild(wrap);
+    return sec;
+  }
 
   function colour(idx) {
     if (idx == null || idx < 0 || idx >= palette.length) return undefined;
@@ -388,7 +429,7 @@ export class LoreWikiPanel {
       statePanel.classList.remove("active");
     };
 
-    return [el("h2", null, "State"), tabs, statePanel, historyPanel];
+    return [section("State", tabs, statePanel, historyPanel)];
   }
 
   // linkToWiki=true makes coloured entity spans clickable, opening the
@@ -426,7 +467,7 @@ export class LoreWikiPanel {
 
   function renderDescriptions(d) {
     if (!d.descriptions || !d.descriptions.length) return [];
-    const out = [el("h2", null, "Descriptions")];
+    const blocks = [];
     for (const block of d.descriptions) {
       const tooltip = block.endLine && block.endLine > block.startLine
         ? basename(block.location.uri) + ":" + block.startLine + "–" + block.endLine
@@ -438,9 +479,9 @@ export class LoreWikiPanel {
       });
       const text = el("div", { class: "desc-text" });
       renderSegments(block.segments, text, true);
-      out.push(el("div", { class: "desc-block" }, jump, text));
+      blocks.push(el("div", { class: "desc-block" }, jump, text));
     }
-    return out;
+    return [section("Descriptions", ...blocks)];
   }
 
   // Renders one inbound or outbound reference section.
@@ -452,7 +493,7 @@ export class LoreWikiPanel {
   // target name, so any empty-source group is a glitch and we drop it.
   function renderRefGroups(title, groups, freeTextLabel) {
     if (!groups || !groups.length) return [];
-    const out = [el("h2", null, title)];
+    const items = [];
     for (const g of groups) {
       const label = g.source || freeTextLabel;
       if (!label) continue;
@@ -482,9 +523,10 @@ export class LoreWikiPanel {
         );
         group.appendChild(row);
       }
-      out.push(group);
+      items.push(group);
     }
-    return out;
+    if (!items.length) return [];
+    return [section(title, ...items)];
   }
 
   function render(details) {
