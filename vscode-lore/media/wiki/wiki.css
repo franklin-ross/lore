@@ -202,13 +202,18 @@ h3 { font-size: 1em; font-weight: 600; margin: 14px 0 4px; }
   margin-top: 4px;
 }
 
+.header-tags {
+  margin-top: 6px;
+}
+
 .pill {
   display: inline-block;
-  padding: 1px 8px;
+  padding: 2px 9px;
   margin: 2px 4px 2px 0;
   border-radius: 10px;
-  background: var(--vscode-badge-background);
-  color: var(--vscode-badge-foreground);
+  background: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground));
+  border: 1px solid var(--vscode-panel-border);
+  color: var(--vscode-foreground);
   font-size: 0.85em;
   font-family: var(--vscode-editor-font-family);
 }
