@@ -308,6 +308,11 @@ func findReferences(world *World, content, file string) {
 		}
 		lowerLine := strings.ToLower(line)
 
+		leadingWS := 0
+		for leadingWS < len(line) && (line[leadingWS] == ' ' || line[leadingWS] == '\t') {
+			leadingWS++
+		}
+
 		// Collect every candidate match on this line across every
 		// entity, then run one global containment-dedup pass. Without a
 		// global pass, a longer canonical name like "Vistani Camp near
@@ -370,14 +375,55 @@ func findReferences(world *World, content, file string) {
 		}
 
 		for _, m := range kept {
+			matchInTrimmed := max(m.start-leadingWS, 0)
 			world.AddReference(world.Entities[m.entityIdx].Name, Reference{
 				File:         file,
 				Line:         lineNum,
 				SourceEntity: findEntityAtMention(world, file, lineNum, m.start),
-				Context:      trimmed,
+				Context:      trimContextBeforeMatch(trimmed, matchInTrimmed, 4),
 			})
 		}
 	}
+}
+
+// trimContextBeforeMatch returns `text` starting at most `wordsBefore`
+// whitespace-separated tokens before `matchPos`, prefixed with "… " when
+// any leading bytes were dropped. Used to keep reference previews short
+// enough that several refs in the same sentence don't render as visually
+// identical rows in the wiki. Punctuation stays attached to the word it
+// sits beside (only space and tab count as separators).
+func trimContextBeforeMatch(text string, matchPos, wordsBefore int) string {
+	if matchPos <= 0 || wordsBefore <= 0 {
+		return text
+	}
+	var wordStarts []int
+	inWord := false
+	for i := 0; i < len(text); i++ {
+		isWord := text[i] != ' ' && text[i] != '\t'
+		if isWord && !inWord {
+			wordStarts = append(wordStarts, i)
+		}
+		inWord = isWord
+	}
+	matchWord := -1
+	for i, s := range wordStarts {
+		if s > matchPos {
+			break
+		}
+		matchWord = i
+	}
+	if matchWord < 0 {
+		return text
+	}
+	cutWord := matchWord - wordsBefore
+	if cutWord <= 0 {
+		return text
+	}
+	cutAt := wordStarts[cutWord]
+	if cutAt == 0 {
+		return text
+	}
+	return "… " + text[cutAt:]
 }
 
 // matchSpan is a [start, end) byte range for one candidate match within
