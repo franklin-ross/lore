@@ -151,19 +151,31 @@ export class LoreWikiPanel {
     font-size: 0.95em;
   }
   table.fields td.k { color: var(--vscode-descriptionForeground); }
-  .desc-block { margin: 12px 0 16px; }
-  .desc-meta {
-    display: flex; align-items: center; gap: 8px;
-    font-size: 0.85em; color: var(--vscode-descriptionForeground);
-    margin-bottom: 4px;
+  .desc-block {
+    display: flex;
+    align-items: stretch;
+    gap: 8px;
+    margin: 12px 0 16px;
   }
-  .desc-text { white-space: pre-wrap; }
-  .jump {
-    background: transparent; border: 1px solid var(--vscode-button-border, transparent);
-    color: var(--vscode-textLink-foreground); cursor: pointer;
-    padding: 1px 8px; border-radius: 3px; font-size: 0.85em;
+  .desc-text { white-space: pre-wrap; flex: 1; min-width: 0; }
+  .desc-jump {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 14px;
+    width: 14px;
+    color: var(--vscode-descriptionForeground);
+    background: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground));
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 0.95em;
+    line-height: 1;
+    user-select: none;
   }
-  .jump:hover { background: var(--vscode-list-hoverBackground); }
+  .desc-jump:hover {
+    background: var(--vscode-list-activeSelectionBackground, var(--vscode-list-hoverBackground));
+    color: var(--vscode-list-activeSelectionForeground, var(--vscode-textLink-foreground));
+  }
   .ref-group { margin: 8px 0 16px; }
   .ref-group .label {
     display: inline-block; font-weight: 600; font-size: 0.95em;
@@ -416,19 +428,17 @@ export class LoreWikiPanel {
     if (!d.descriptions || !d.descriptions.length) return [];
     const out = [el("h2", null, "Descriptions")];
     for (const block of d.descriptions) {
-      const range = block.endLine && block.endLine > block.startLine
-        ? "L" + block.startLine + "–" + block.endLine
-        : "L" + block.startLine;
-      const meta = el("div", { class: "desc-meta" },
-        basename(block.location.uri) + " · " + range,
-        el("button", {
-          class: "jump",
-          onclick: () => navigate(block.location.uri, block.startLine),
-        }, "Jump ↗")
-      );
+      const tooltip = block.endLine && block.endLine > block.startLine
+        ? basename(block.location.uri) + ":" + block.startLine + "–" + block.endLine
+        : basename(block.location.uri) + ":" + block.startLine;
+      const jump = el("span", {
+        class: "desc-jump",
+        title: "Jump to " + tooltip,
+        onclick: () => navigate(block.location.uri, block.startLine),
+      });
       const text = el("div", { class: "desc-text" });
       renderSegments(block.segments, text, true);
-      out.push(el("div", { class: "desc-block" }, meta, text));
+      out.push(el("div", { class: "desc-block" }, jump, text));
     }
     return out;
   }
