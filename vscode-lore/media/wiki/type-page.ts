@@ -1,4 +1,4 @@
-import { el, basename, locLine, aliasSpans, type LspLocation } from "./dom.ts";
+import { el, basename, locLine, aliasSpans, tagPills, type LspLocation } from "./dom.ts";
 import { colour, renderSegments, type ContextSegment } from "./segments.ts";
 import type { PageCtx } from "./ctx.ts";
 
@@ -58,6 +58,7 @@ function renderTypeEntityEntry(ent: TypeEntityEntry, ctx: PageCtx): HTMLElement 
     ent.name,
     ...aliasSpans(ent.aliases, c),
   );
+  for (const pill of tagPills(ent.tags)) heading.appendChild(pill);
   const wrap = el("div", { class: "type-entry" }, heading);
   if (ent.definitions && ent.definitions.length) {
     for (const def of ent.definitions) {

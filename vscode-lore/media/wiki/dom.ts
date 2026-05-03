@@ -118,3 +118,16 @@ export function aliasSpans(aliases: string[] | undefined, baseColour: string | u
   }
   return out;
 }
+
+// tagPills renders one `+tag` pill per active tag, each as a small inline
+// `.pill` for sitting beside an entity header. The first pill carries a
+// `.first` modifier so CSS can widen the gap from the preceding name or
+// alias text without affecting pill-to-pill spacing.
+export function tagPills(tags: string[] | undefined): HTMLElement[] {
+  if (!tags || !tags.length) return [];
+  const out: HTMLElement[] = [];
+  tags.forEach((t, i) => {
+    out.push(el("span", { class: "pill pill-inline" + (i === 0 ? " first" : "") }, "+" + t));
+  });
+  return out;
+}

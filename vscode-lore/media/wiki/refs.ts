@@ -1,4 +1,4 @@
-import { el, basename, locLine, section, aliasSpans, type LspLocation } from "./dom.ts";
+import { el, basename, locLine, section, aliasSpans, tagPills, type LspLocation } from "./dom.ts";
 import { renderSegments, colour, type ContextSegment } from "./segments.ts";
 import type { PageCtx } from "./ctx.ts";
 
@@ -10,6 +10,7 @@ export interface RefItem {
 export interface RefGroup {
   source: string;
   aliases?: string[];
+  tags?: string[];
   colourIndex?: number;
   refs: RefItem[];
 }
@@ -46,6 +47,7 @@ function refGroup(label: string, g: RefGroup, ctx: PageCtx): HTMLElement {
   }
   if (Object.keys(headingStyle).length) headingAttrs.style = headingStyle;
   const heading = el("h3", headingAttrs, label, ...aliasSpans(g.aliases, c));
+  for (const pill of tagPills(g.tags)) heading.appendChild(pill);
   const group = el("div", { class: "ref-group" }, heading);
   for (const r of g.refs) {
     group.appendChild(refRow(r, ctx));

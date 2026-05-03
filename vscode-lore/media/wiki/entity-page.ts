@@ -62,32 +62,27 @@ function renderHeader(d: EntityDetails, ctx: PageCtx): HTMLElement[] {
       onclick: () => ctx.openType(type),
     }, type));
   }
-  return [h1];
+  const out: HTMLElement[] = [h1];
+  if (d.tags && d.tags.length) {
+    const tagWrap = el("div", { class: "header-tags" });
+    for (const t of d.tags) tagWrap.appendChild(el("span", { class: "pill" }, "+" + t));
+    out.push(tagWrap);
+  }
+  return out;
 }
 
 function renderStateBody(d: EntityDetails): HTMLElement[] {
-  const hasTags = d.tags && d.tags.length;
-  const hasFields = d.fields && d.fields.length;
-  if (!hasTags && !hasFields) {
-    return [el("p", { class: "empty" }, "No state.")];
+  if (!d.fields || !d.fields.length) {
+    return [el("p", { class: "empty" }, "No fields.")];
   }
-  const out: HTMLElement[] = [];
-  if (hasTags) {
-    const wrap = el("div", null);
-    for (const t of d.tags!) wrap.appendChild(el("span", { class: "pill" }, "+" + t));
-    out.push(wrap);
+  const tbl = el("table", { class: "fields" });
+  for (const f of d.fields) {
+    tbl.appendChild(el("tr", null,
+      el("td", { class: "k" }, f.name),
+      el("td", null, f.value),
+    ));
   }
-  if (hasFields) {
-    const tbl = el("table", { class: "fields" });
-    for (const f of d.fields!) {
-      tbl.appendChild(el("tr", null,
-        el("td", { class: "k" }, f.name),
-        el("td", null, f.value),
-      ));
-    }
-    out.push(tbl);
-  }
-  return out;
+  return [tbl];
 }
 
 function directiveText(ev: StateEvent): string {
@@ -121,9 +116,9 @@ function renderHistoryBody(d: EntityDetails, ctx: PageCtx): HTMLElement[] {
 }
 
 function renderStateSection(d: EntityDetails, ctx: PageCtx): HTMLElement[] {
-  const hasState = (d.tags && d.tags.length) || (d.fields && d.fields.length);
+  const hasFields = d.fields && d.fields.length;
   const hasHistory = d.stateHistory && d.stateHistory.length;
-  if (!hasState && !hasHistory) return [];
+  if (!hasFields && !hasHistory) return [];
 
   const isHistory = ctx.activeTab === "history";
   const stateTab = el("button", { class: "tab" + (isHistory ? "" : " active") }, "State");

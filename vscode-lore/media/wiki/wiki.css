@@ -206,6 +206,16 @@ h3 { font-size: 1em; font-weight: 600; margin: 14px 0 4px; }
   margin-top: 6px;
 }
 
+.pill-inline {
+  margin-left: 4px;
+  font-size: 0.75em;
+  padding: 1px 7px;
+  vertical-align: middle;
+}
+.pill-inline.first {
+  margin-left: 12px;
+}
+
 .pill {
   display: inline-block;
   padding: 2px 9px;

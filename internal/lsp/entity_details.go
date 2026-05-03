@@ -97,6 +97,7 @@ type EntityRefItem struct {
 type EntityRefGroup struct {
 	Source      string
 	Aliases     []string
+	Tags        []string
 	ColourIndex int32 // -1 = no colour (omitted from JSON)
 	Refs        []EntityRefItem
 }
@@ -113,9 +114,10 @@ func (g EntityRefGroup) MarshalJSON() ([]byte, error) {
 	return json.Marshal(struct {
 		Source      string          `json:"source"`
 		Aliases     []string        `json:"aliases,omitempty"`
+		Tags        []string        `json:"tags,omitempty"`
 		ColourIndex int32           `json:"colourIndex"`
 		Refs        []EntityRefItem `json:"refs"`
-	}{g.Source, g.Aliases, g.ColourIndex, g.Refs})
+	}{g.Source, g.Aliases, g.Tags, g.ColourIndex, g.Refs})
 }
 
 // EntityStateEventItem mirrors lore.StateEvent for the wire: the op as a
@@ -380,10 +382,11 @@ func sortedGroups(world *lore.World, m map[string][]EntityRefItem) []EntityRefGr
 	})
 	out := make([]EntityRefGroup, len(names))
 	for i, n := range names {
-		idx, aliases := lookupColourAndAliases(world, n)
+		idx, aliases, tags := lookupGroupMeta(world, n)
 		out[i] = EntityRefGroup{
 			Source:      n,
 			Aliases:     aliases,
+			Tags:        tags,
 			ColourIndex: idx,
 			Refs:        m[n],
 		}
@@ -391,18 +394,18 @@ func sortedGroups(world *lore.World, m map[string][]EntityRefItem) []EntityRefGr
 	return out
 }
 
-// lookupColourAndAliases returns the palette index and aliases for the entity
-// named `name`. Both fall back to empty when no entity owns that name (e.g.
-// a free-text group, or a stale label that no longer resolves).
-func lookupColourAndAliases(world *lore.World, name string) (int32, []string) {
+// lookupGroupMeta returns the palette index, aliases, and active tags for
+// the entity named `name`. All fall back to empty when no entity owns that
+// name (e.g. a free-text group, or a stale label that no longer resolves).
+func lookupGroupMeta(world *lore.World, name string) (int32, []string, []string) {
 	if name == "" {
-		return -1, nil
+		return -1, nil, nil
 	}
 	ent, err := world.FindEntity(name)
 	if err != nil || ent == nil {
-		return -1, nil
+		return -1, nil, nil
 	}
-	return int32(entityColourIndex(ent)), append([]string(nil), ent.Aliases...)
+	return int32(entityColourIndex(ent)), append([]string(nil), ent.Aliases...), activeTags(ent.Tags)
 }
 
 func buildStateHistory(ps *projectState, ent *lore.Entity) []EntityStateEventItem {
