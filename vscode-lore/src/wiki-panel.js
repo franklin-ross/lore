@@ -41,7 +41,12 @@ export class LoreWikiPanel {
         this.current = undefined;
       });
     } else {
-      this.panel.reveal(vscode.ViewColumn.Beside, true);
+      // Reveal without a viewColumn so the panel stays in its current
+      // group. Passing Beside here resolves relative to the active group,
+      // and when the user clicks an entity link inside the wiki the wiki
+      // itself is active — Beside then splits a new column to the right
+      // and shrinks the layout.
+      this.panel.reveal(undefined, true);
     }
     this.current = { entity, source };
     this.panel.title = `Lore: ${entity}`;
