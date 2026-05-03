@@ -40,6 +40,23 @@ type Description struct {
 	StartColumn int
 	EndLine     int
 	EndColumn   int
+
+	// IsAside is true for `(Name: body)` constructs lifted out of free
+	// text. It exists so reference attribution can treat the aside's
+	// header (the `Name (type) | Alias:` portion before the body) as
+	// outer-prose territory: a name written in an aside header is read
+	// naturally as part of the surrounding sentence, so refs to it
+	// should attribute to free text rather than the aside's own entity.
+	IsAside bool
+
+	// BodyColumn is the byte column on Line where the description body
+	// begins (after `Name [(type)] [| Alias]: ` for header definitions,
+	// or after the same in an aside header). For asides, attribution
+	// only treats [BodyColumn, EndColumn) as the entity's territory —
+	// positions in [StartColumn, BodyColumn) belong to the surrounding
+	// prose. For header definitions BodyColumn is informational; the
+	// whole line still attributes to the entity.
+	BodyColumn int
 }
 
 // Reference records a mention of an entity in a file.

@@ -207,6 +207,44 @@ Casimir (npc): Lives at Vistani Camp near Vallaki.
 	}
 }
 
+// An aside's header (Name (type) | Alias: portion) reads naturally as
+// part of the surrounding sentence. References to the aside-defined
+// entity that appear in the header itself should attribute to free
+// text, not to the aside entity (which would otherwise self-mention
+// every aside header). Body content remains the entity's territory.
+func TestReferenceAttributionAsideHeaderIsFreeText(t *testing.T) {
+	world := setupTestWorld(t, `Yltry (character): A wizard.
+
+Yltry meets (Captain Casimir (npc) | Casimir: Dusk elf with ties to the Vistani.). He had bad dreams.
+
+Vistani (faction): Wandering folk.
+`)
+
+	// "Captain Casimir" in the aside header → free text mention.
+	refs := world.GetReferences("Captain Casimir")
+	var line3Sources []string
+	for _, r := range refs {
+		if r.Line == 3 {
+			line3Sources = append(line3Sources, r.SourceEntity)
+		}
+	}
+	if len(line3Sources) == 0 {
+		t.Fatalf("expected line-3 ref to Captain Casimir; got %+v", refs)
+	}
+	for _, src := range line3Sources {
+		if src != "" {
+			t.Errorf("aside-header ref to Captain Casimir attributed to %q, want free text", src)
+		}
+	}
+
+	// "Vistani" in the aside body → Captain Casimir's outbound.
+	for _, r := range world.GetReferences("Vistani") {
+		if r.Line == 3 && r.SourceEntity != "Captain Casimir" {
+			t.Errorf("aside-body ref to Vistani attributed to %q, want Captain Casimir", r.SourceEntity)
+		}
+	}
+}
+
 func TestFindEntityAmbiguous(t *testing.T) {
 	world := setupTestWorld(t, "Barovia (town): The main town.\n\nBarovia (nation): The country.\n")
 

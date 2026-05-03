@@ -29,6 +29,16 @@ type Definition struct {
 	StartColumn int
 	EndLine     int // 1-based, inclusive
 	EndColumn   int // 0-based byte column on EndLine, exclusive
+
+	// IsAside flags `(Name: body)` constructs so reference attribution
+	// can treat the aside header as outer-prose territory. Header-line
+	// definitions stay false.
+	IsAside bool
+
+	// BodyColumn is the byte column on Line where the description body
+	// begins (after `: ` on the header line). Sourced from segments[0]
+	// when present; otherwise falls back to StartColumn.
+	BodyColumn int
 }
 
 // ParseFile runs the per-file parse: walks lines, pulls out header candidates,
@@ -121,6 +131,7 @@ func ParseFile(path, content string) *FileParse {
 			StartColumn: 0,
 			EndLine:     endLine,
 			EndColumn:   endCol,
+			BodyColumn:  headerCol,
 		})
 	}
 
@@ -141,6 +152,8 @@ func ParseFile(path, content string) *FileParse {
 			StartColumn: hit.OpenColumn,
 			EndLine:     hit.Line,
 			EndColumn:   hit.CloseColumn,
+			IsAside:     true,
+			BodyColumn:  hit.BodyColumn,
 		})
 	}
 	sort.SliceStable(fp.Definitions, func(i, j int) bool {
@@ -222,6 +235,8 @@ func Merge(files []*FileParse) *World {
 				StartColumn: def.StartColumn,
 				EndLine:     def.EndLine,
 				EndColumn:   def.EndColumn,
+				IsAside:     def.IsAside,
+				BodyColumn:  def.BodyColumn,
 			})
 		}
 	}
@@ -465,6 +480,12 @@ func MatchesAnyTypeSuffix(lowerText string, pos int, lowerTypes map[string]struc
 // inside an aside attribute to the aside-defined entity rather than the
 // surrounding owner. Returns "" when the position falls outside every
 // description (free text).
+//
+// For asides only the body span [BodyColumn, EndColumn) counts as the
+// entity's territory: the aside header reads naturally as part of the
+// surrounding prose, so a name appearing in the header (e.g. "Captain
+// Casimir" inside `(Captain Casimir (npc) | Casimir: …)`) attributes to
+// free text rather than to the aside's own entity.
 func findEntityAtMention(world *World, file string, line, byteCol int) string {
 	var bestName string
 	bestSize := -1
@@ -476,7 +497,11 @@ func findEntityAtMention(world *World, file string, line, byteCol int) string {
 			if line < desc.Line || line > desc.EndLine {
 				continue
 			}
-			startOK := line > desc.Line || byteCol >= desc.StartColumn
+			startCol := desc.StartColumn
+			if desc.IsAside {
+				startCol = desc.BodyColumn
+			}
+			startOK := line > desc.Line || byteCol >= startCol
 			endOK := line < desc.EndLine || byteCol < desc.EndColumn
 			if !startOK || !endOK {
 				continue
