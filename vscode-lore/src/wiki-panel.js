@@ -263,7 +263,27 @@ export class LoreWikiPanel {
   const vscode = acquireVsCodeApi();
   const root = document.getElementById("root");
   let palette = [];
-  const collapsed = new Set();
+
+  // View state persists across re-renders triggered by editor edits, and
+  // across webview reloads via vscode.setState. Collapse and tab choice
+  // follow the user globally; scroll only restores when the rendered
+  // entity matches the one in the persisted state.
+  const persisted = vscode.getState() || {};
+  const collapsed = new Set(persisted.collapsed || []);
+  let activeTab = persisted.activeTab || "state"; // "state" | "history"
+  let lastEntity = persisted.entity || null;
+  let lastScroll = persisted.scroll || 0;
+
+  function saveState() {
+    vscode.setState({
+      collapsed: [...collapsed],
+      activeTab,
+      entity: lastEntity,
+      scroll: window.scrollY,
+    });
+  }
+
+  window.addEventListener("scroll", () => { saveState(); }, { passive: true });
 
   function section(title, ...body) {
     const isCollapsed = collapsed.has(title);
@@ -283,6 +303,7 @@ export class LoreWikiPanel {
       wrap.style.display = next ? "none" : "";
       if (next) collapsed.add(title);
       else collapsed.delete(title);
+      saveState();
     };
     const sec = document.createElement("section");
     sec.appendChild(head);
@@ -409,24 +430,29 @@ export class LoreWikiPanel {
     const hasHistory = d.stateHistory && d.stateHistory.length;
     if (!hasState && !hasHistory) return [];
 
-    const stateTab = el("button", { class: "tab active" }, "State");
-    const historyTab = el("button", { class: "tab" }, "History");
+    const isHistory = activeTab === "history";
+    const stateTab = el("button", { class: "tab" + (isHistory ? "" : " active") }, "State");
+    const historyTab = el("button", { class: "tab" + (isHistory ? " active" : "") }, "History");
     const tabs = el("div", { class: "tabs" }, stateTab, historyTab);
 
-    const statePanel = el("div", { class: "tab-panel active" }, ...renderStateBody(d));
-    const historyPanel = el("div", { class: "tab-panel" }, ...renderHistoryBody(d));
+    const statePanel = el("div", { class: "tab-panel" + (isHistory ? "" : " active") }, ...renderStateBody(d));
+    const historyPanel = el("div", { class: "tab-panel" + (isHistory ? " active" : "") }, ...renderHistoryBody(d));
 
     stateTab.onclick = () => {
       stateTab.classList.add("active");
       historyTab.classList.remove("active");
       statePanel.classList.add("active");
       historyPanel.classList.remove("active");
+      activeTab = "state";
+      saveState();
     };
     historyTab.onclick = () => {
       historyTab.classList.add("active");
       stateTab.classList.remove("active");
       historyPanel.classList.add("active");
       statePanel.classList.remove("active");
+      activeTab = "history";
+      saveState();
     };
 
     return [section("State", tabs, statePanel, historyPanel)];
@@ -530,10 +556,16 @@ export class LoreWikiPanel {
   }
 
   function render(details) {
+    // Preserve scroll across re-renders for the same entity (edit-driven
+    // refreshes). Switching to a different entity resets to the top.
+    const sameEntity = details && details.name && details.name === lastEntity;
+    const scrollY = sameEntity ? window.scrollY : 0;
+
     root.innerHTML = "";
     if (!details || !details.found) {
       root.appendChild(el("p", { class: "empty" },
         "Entity not found in this project."));
+      lastEntity = null;
       return;
     }
     for (const node of [
@@ -543,6 +575,15 @@ export class LoreWikiPanel {
       ...renderRefGroups("Mentioned by", details.inboundRefs, "Free text"),
       ...renderRefGroups("Mentions", details.outboundRefs, ""),
     ]) root.appendChild(node);
+
+    lastEntity = details.name;
+    // Restore scroll after layout. Use rAF so the new DOM has settled.
+    const targetScroll = sameEntity ? scrollY : lastScroll;
+    if (!sameEntity) lastScroll = 0;
+    requestAnimationFrame(() => {
+      window.scrollTo(0, targetScroll);
+      saveState();
+    });
   }
 
   window.addEventListener("message", (e) => {
