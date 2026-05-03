@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"slices"
 	"sort"
+	"strings"
 
 	"lore/internal/lore"
 
@@ -33,21 +34,32 @@ type EntityFieldEntry struct {
 	Value string `json:"value"`
 }
 
-// EntityDescriptionBlock is one authored definition of the entity.
-// Markdown is the description prose with directive spans removed so the
-// wiki shows clean text. Location points at the description's first line
-// so the client can render a "jump to source" link.
+// ContextSegment is one chunk of display text with an optional palette
+// colour. ColourIndex is -1 for plain text and a non-negative palette
+// index for entity-name spans. Concatenating Text across segments
+// reproduces the original source string exactly.
+type ContextSegment struct {
+	Text        string `json:"text"`
+	ColourIndex int32  `json:"colourIndex"`
+}
+
+// EntityDescriptionBlock is one authored definition of the entity. The
+// description prose is shipped as colourised segments so the wiki can
+// highlight entity-name mentions inside the body using the same palette
+// as the surrounding editor. Location points at the description's first
+// line so the client can render a "jump to source" link.
 type EntityDescriptionBlock struct {
-	Markdown  string            `json:"markdown"`
+	Segments  []ContextSegment  `json:"segments"`
 	Location  protocol.Location `json:"location"`
 	StartLine uint32            `json:"startLine"`
 	EndLine   uint32            `json:"endLine"`
 }
 
-// EntityRefItem is a single reference occurrence: the line of source text
-// containing the mention plus a Location the client uses to jump there.
+// EntityRefItem is a single reference occurrence. Segments is the
+// trimmed-context preview, already split into entity-name and plain
+// chunks for inline colouring.
 type EntityRefItem struct {
-	Context  string            `json:"context"`
+	Segments []ContextSegment  `json:"segments"`
 	Location protocol.Location `json:"location"`
 }
 
@@ -172,6 +184,7 @@ func buildDescriptionBlocks(ps *projectState, ent *lore.Entity) []EntityDescript
 	if len(ent.Descriptions) == 0 {
 		return nil
 	}
+	world := ps.world()
 	out := make([]EntityDescriptionBlock, 0, len(ent.Descriptions))
 	for _, d := range ent.Descriptions {
 		text := d.CleanText
@@ -179,7 +192,7 @@ func buildDescriptionBlocks(ps *projectState, ent *lore.Entity) []EntityDescript
 			text = d.Text
 		}
 		out = append(out, EntityDescriptionBlock{
-			Markdown:  text,
+			Segments:  buildContextSegments(world, text),
 			Location:  protocol.Location{URI: ps.fileToURI(d.File), Range: lineRange(d.Line)},
 			StartLine: uint32(d.Line),
 			EndLine:   uint32(d.EndLine),
@@ -201,7 +214,7 @@ func buildInboundRefs(ps *projectState, ent *lore.Entity) []EntityRefGroup {
 	bySource := make(map[string][]EntityRefItem)
 	for _, r := range refs {
 		bySource[r.SourceEntity] = append(bySource[r.SourceEntity], EntityRefItem{
-			Context:  r.Context,
+			Segments: buildContextSegments(world, r.Context),
 			Location: protocol.Location{URI: ps.fileToURI(r.File), Range: lineRange(r.Line)},
 		})
 	}
@@ -226,7 +239,7 @@ func buildOutboundRefs(ps *projectState, ent *lore.Entity) []EntityRefGroup {
 				continue
 			}
 			byTarget[target] = append(byTarget[target], EntityRefItem{
-				Context:  r.Context,
+				Segments: buildContextSegments(world, r.Context),
 				Location: protocol.Location{URI: ps.fileToURI(r.File), Range: lineRange(r.Line)},
 			})
 		}
@@ -323,6 +336,99 @@ func stateOpName(op lore.StateOp) string {
 		return "increment"
 	}
 	return "unknown"
+}
+
+// buildContextSegments splits `text` into alternating plain and
+// entity-coloured chunks for the wiki webview. Matches use the same
+// global containment dedup as findReferences (longer canonical name
+// suppresses sub-spans, alias inside name collapses), so the highlights
+// agree with what shows up in the buffer's semantic tokens.
+//
+// Returns a single plain segment when the world has no match index or
+// the text contains no entity mentions, so the caller never has to
+// guard against an empty slice.
+func buildContextSegments(world *lore.World, text string) []ContextSegment {
+	if text == "" {
+		return nil
+	}
+	if world == nil || world.Match == nil || len(world.Match.Entities) == 0 {
+		return []ContextSegment{{Text: text, ColourIndex: -1}}
+	}
+	lower := strings.ToLower(text)
+
+	type cand struct {
+		start, end int
+		entityIdx  int
+	}
+	var all []cand
+	for i := range world.Match.Entities {
+		em := &world.Match.Entities[i]
+		if em.LowerName != "" {
+			for _, p := range lore.FindWordMatches(lower, em.LowerName) {
+				all = append(all, cand{p, p + len(em.LowerName), i})
+			}
+		}
+		for _, la := range em.LowerAliases {
+			for _, p := range lore.FindWordMatches(lower, la) {
+				all = append(all, cand{p, p + len(la), i})
+			}
+		}
+	}
+	if len(all) == 0 {
+		return []ContextSegment{{Text: text, ColourIndex: -1}}
+	}
+
+	sort.Slice(all, func(a, b int) bool {
+		if all[a].start != all[b].start {
+			return all[a].start < all[b].start
+		}
+		if (all[a].end - all[a].start) != (all[b].end - all[b].start) {
+			return (all[a].end - all[a].start) > (all[b].end - all[b].start)
+		}
+		return all[a].entityIdx < all[b].entityIdx
+	})
+	kept := all[:0]
+	for _, m := range all {
+		skip := false
+		for _, k := range kept {
+			if k.start > m.start || m.end > k.end {
+				continue
+			}
+			equal := k.start == m.start && k.end == m.end
+			if equal {
+				if k.entityIdx == m.entityIdx {
+					skip = true
+					break
+				}
+				continue
+			}
+			skip = true
+			break
+		}
+		if !skip {
+			kept = append(kept, m)
+		}
+	}
+	// Re-sort kept by start ascending — needed because the dedup above
+	// preserved sort-by-start order but the equal-span case could have
+	// kept multiple entries at the same position; emitting in start
+	// order guarantees the output reads left-to-right.
+	sort.Slice(kept, func(i, j int) bool { return kept[i].start < kept[j].start })
+
+	out := make([]ContextSegment, 0, len(kept)*2+1)
+	prev := 0
+	for _, k := range kept {
+		if k.start > prev {
+			out = append(out, ContextSegment{Text: text[prev:k.start], ColourIndex: -1})
+		}
+		colour := int32(entityColourIndex(&world.Entities[k.entityIdx]))
+		out = append(out, ContextSegment{Text: text[k.start:k.end], ColourIndex: colour})
+		prev = k.end
+	}
+	if prev < len(text) {
+		out = append(out, ContextSegment{Text: text[prev:], ColourIndex: -1})
+	}
+	return out
 }
 
 // decodeEntityDetails unmarshals the request payload. Used by loreHandler.

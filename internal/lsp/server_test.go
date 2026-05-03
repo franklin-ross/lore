@@ -646,11 +646,44 @@ func TestEntityDetailsBasic(t *testing.T) {
 		t.Fatal("expected at least one description block")
 	}
 	desc := got.Descriptions[0]
-	if !strings.Contains(desc.Markdown, "Fighter") {
-		t.Errorf("description markdown missing prose: %q", desc.Markdown)
+	if len(desc.Segments) == 0 {
+		t.Fatal("description has no segments")
+	}
+	var joined strings.Builder
+	for _, seg := range desc.Segments {
+		joined.WriteString(seg.Text)
+	}
+	if !strings.Contains(joined.String(), "Fighter") {
+		t.Errorf("description segments missing prose: %q", joined.String())
 	}
 	if desc.Location.URI == "" {
 		t.Error("description location URI empty")
+	}
+}
+
+func TestEntityDetailsBodyHighlightsEntities(t *testing.T) {
+	s := setupTestServer(t, testContent)
+	got, err := s.entityDetails(&EntityDetailsParams{
+		Entity:       "Cragmaw Hideout",
+		TextDocument: &protocol.TextDocumentIdentifier{URI: "file:///test/test.md"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Descriptions) == 0 {
+		t.Fatal("expected description for Cragmaw Hideout")
+	}
+	// Cragmaw's description mentions "Sildar" — that segment should
+	// arrive with a non-default colour index so the webview can paint
+	// it in Sildar's palette colour.
+	var sawColouredSildar bool
+	for _, seg := range got.Descriptions[0].Segments {
+		if strings.Contains(seg.Text, "Sildar") && seg.ColourIndex >= 0 {
+			sawColouredSildar = true
+		}
+	}
+	if !sawColouredSildar {
+		t.Errorf("expected coloured Sildar segment in description; got %+v", got.Descriptions[0].Segments)
 	}
 }
 

@@ -289,6 +289,19 @@ export class LoreWikiPanel {
     return out;
   }
 
+  function renderSegments(segments, parent) {
+    if (!segments || !segments.length) return parent;
+    for (const seg of segments) {
+      const c = colour(seg.colourIndex);
+      if (c) {
+        parent.appendChild(el("span", { style: { color: c } }, seg.text));
+      } else {
+        parent.appendChild(document.createTextNode(seg.text));
+      }
+    }
+    return parent;
+  }
+
   function renderDescriptions(d) {
     if (!d.descriptions || !d.descriptions.length) return [];
     const out = [el("h2", null, "Descriptions")];
@@ -303,10 +316,9 @@ export class LoreWikiPanel {
           onclick: () => navigate(block.location.uri, block.startLine),
         }, "Jump ↗")
       );
-      out.push(el("div", { class: "desc-block" },
-        meta,
-        el("div", { class: "desc-text" }, (block.markdown || "").trim())
-      ));
+      const text = el("div", { class: "desc-text" });
+      renderSegments(block.segments, text);
+      out.push(el("div", { class: "desc-block" }, meta, text));
     }
     return out;
   }
@@ -322,12 +334,14 @@ export class LoreWikiPanel {
       const group = el("div", { class: "ref-group" }, heading);
       for (const r of g.refs) {
         const line = locLine(r.location);
+        const ctx = el("span", { class: "ctx" });
+        renderSegments(r.segments, ctx);
         const row = el("div", {
           class: "ref-row",
           onclick: () => navigate(r.location.uri, line),
         },
           el("span", { class: "loc" }, basename(r.location.uri) + ":" + line),
-          el("span", { class: "ctx" }, (r.context || "").trim())
+          ctx
         );
         group.appendChild(row);
       }
