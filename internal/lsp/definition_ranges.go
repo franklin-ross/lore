@@ -112,5 +112,13 @@ func (h *loreHandler) Handle(ctx *glsp.Context) (any, bool, bool, error) {
 		result, err := h.server.entityList(p)
 		return result, true, true, err
 	}
+	if ctx.Method == MethodLoreEntityDetails {
+		p, err := decodeEntityDetails(ctx.Params)
+		if err != nil {
+			return nil, true, false, nil
+		}
+		result, err := h.server.entityDetails(p)
+		return result, true, true, err
+	}
 	return h.inner.Handle(ctx)
 }

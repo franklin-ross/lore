@@ -7,6 +7,7 @@ import {
   TransportKind,
 } from "vscode-languageclient/node";
 import { LoreEntitiesProvider } from "./entities-tree.js";
+import { LoreWikiPanel } from "./wiki-panel.js";
 
 /** @type {string} */
 let extensionPath = "";
@@ -257,6 +258,7 @@ export function activate(/** @type {vscode.ExtensionContext} */ context) {
   buildDecorations();
 
   const entitiesProvider = new LoreEntitiesProvider(() => client);
+  const wikiPanel = new LoreWikiPanel(() => client, palette, context);
   const setFilterContext = (active) =>
     vscode.commands.executeCommand(
       "setContext",
@@ -290,6 +292,30 @@ export function activate(/** @type {vscode.ExtensionContext} */ context) {
     vscode.commands.registerCommand("lore.entities.clearFilter", () => {
       entitiesProvider.setFilter("");
       setFilterContext(false);
+    }),
+    vscode.commands.registerCommand("lore.openWiki", async (arg) => {
+      // Invocation paths:
+      //  - palette / programmatic with no arg → prompt
+      //  - palette with string → that string
+      //  - tree-view inline action → vscode passes the TreeItem; its
+      //    `label` is the entity name (set in entities-tree.js).
+      let entity = "";
+      if (typeof arg === "string") {
+        entity = arg;
+      } else if (arg && typeof arg === "object" && typeof arg.label === "string") {
+        entity = arg.label;
+      }
+      if (!entity) {
+        const input = await vscode.window.showInputBox({
+          placeHolder: "Entity name",
+          prompt: "Lore: open entity wiki",
+        });
+        if (!input) return;
+        entity = input;
+      }
+      const editor = vscode.window.activeTextEditor;
+      const source = editor ? editor.document.uri.toString() : undefined;
+      await wikiPanel.show(entity, source);
     })
   );
 
@@ -344,6 +370,7 @@ export function activate(/** @type {vscode.ExtensionContext} */ context) {
       debounce = setTimeout(() => {
         refreshAllVisible();
         entitiesProvider.refresh();
+        wikiPanel.refresh();
       }, 250);
     })
   );

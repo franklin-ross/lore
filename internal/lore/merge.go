@@ -291,79 +291,119 @@ func findReferences(world *World, content, file string) {
 		if trimmed == "" {
 			continue
 		}
-		lowerTrimmed := strings.ToLower(trimmed)
+		lowerLine := strings.ToLower(line)
 
-		disambigMatched := make(map[int]bool)
-
-		// Pass 1: disambiguated references like "Barovia (town)" — any number
-		// of spaces between the name and the `(type)` are accepted.
+		// Collect every candidate match on this line across every
+		// entity, then run one global containment-dedup pass. Without a
+		// global pass, a longer canonical name like "Vistani Camp near
+		// Vallaki" wouldn't suppress sub-spans from the "Vistani" and
+		// "Vallaki" entities — each would still emit its own ref and
+		// the wiki would show duplicate-looking rows for the same word.
+		type cand struct {
+			start, end int
+			entityIdx  int
+		}
+		var all []cand
 		for i := range mi.Entities {
 			em := &mi.Entities[i]
-			if em.LowerType == "" {
-				continue
+			for _, s := range candidateSpans(lowerLine, em, mi.Types) {
+				all = append(all, cand{s.start, s.end, i})
 			}
-			for _, pos := range FindWordMatches(lowerTrimmed, em.LowerName) {
-				end := pos + len(em.LowerName)
-				if MatchesTypeSuffix(lowerTrimmed, end, em.LowerType) < 0 {
+		}
+		if len(all) == 0 {
+			continue
+		}
+		sort.Slice(all, func(a, b int) bool {
+			if all[a].start != all[b].start {
+				return all[a].start < all[b].start
+			}
+			if (all[a].end - all[a].start) != (all[b].end - all[b].start) {
+				return (all[a].end - all[a].start) > (all[b].end - all[b].start)
+			}
+			return all[a].entityIdx < all[b].entityIdx
+		})
+
+		kept := all[:0]
+		for _, m := range all {
+			skip := false
+			for _, k := range kept {
+				if k.start > m.start || m.end > k.end {
 					continue
 				}
-				disambigMatched[i] = true
-				world.AddReference(world.Entities[i].Name, Reference{
-					File:         file,
-					Line:         lineNum,
-					SourceEntity: findEntityAtLine(world, file, lineNum),
-					Context:      trimmed,
-				})
-				break
-			}
-		}
-
-		// Pass 2: plain name or alias matching, excluding anything already
-		// counted as a disambiguated reference on this line.
-		for i := range mi.Entities {
-			if disambigMatched[i] {
-				continue
-			}
-			em := &mi.Entities[i]
-
-			matched := false
-			if HasWordMatch(lowerTrimmed, em.LowerName) {
-				if !isOnlyDisambiguated(lowerTrimmed, em.LowerName, mi.Types) {
-					matched = true
-				}
-			}
-			if !matched {
-				for _, la := range em.LowerAliases {
-					if HasWordMatch(lowerTrimmed, la) {
-						matched = true
+				equal := k.start == m.start && k.end == m.end
+				if equal {
+					// Two entities with the same name claim the same
+					// span — ambiguous reference, both kept. Within
+					// the same entity (alias literally equal to its
+					// own name) drop the duplicate.
+					if k.entityIdx == m.entityIdx {
+						skip = true
 						break
 					}
+					continue
 				}
+				// m is strictly contained in k — drop. Covers both
+				// within-entity overlap (alias inside name, plain
+				// name inside disambig form) and cross-entity overlap
+				// (Vistani inside Vistani Camp near Vallaki).
+				skip = true
+				break
 			}
-			if matched {
-				world.AddReference(world.Entities[i].Name, Reference{
-					File:         file,
-					Line:         lineNum,
-					SourceEntity: findEntityAtLine(world, file, lineNum),
-					Context:      trimmed,
-				})
+			if !skip {
+				kept = append(kept, m)
 			}
+		}
+
+		for _, m := range kept {
+			world.AddReference(world.Entities[m.entityIdx].Name, Reference{
+				File:         file,
+				Line:         lineNum,
+				SourceEntity: findEntityAtMention(world, file, lineNum, m.start),
+				Context:      trimmed,
+			})
 		}
 	}
 }
 
-// isOnlyDisambiguated reports whether every standalone-word occurrence of
-// name in text is already followed by optional spaces and a "(type)"
-// suffix for some known entity type. All inputs must already be lowercased.
-func isOnlyDisambiguated(lowerText, lowerName string, lowerTypes map[string]struct{}) bool {
-	for _, pos := range FindWordMatches(lowerText, lowerName) {
-		end := pos + len(lowerName)
-		if MatchesAnyTypeSuffix(lowerText, end, lowerTypes) < 0 {
-			return false
+// matchSpan is a [start, end) byte range for one candidate match within
+// a line, used internally by candidateSpans.
+type matchSpan struct{ start, end int }
+
+// candidateSpans returns every potential mention of `em` on the line:
+// disambiguated form (Name (type)), plain name, and each alias. The
+// caller does the global containment dedup so this function intentionally
+// does not collapse overlapping spans on its own.
+func candidateSpans(lowerLine string, em *EntityMatch, knownTypes map[string]struct{}) []matchSpan {
+	var out []matchSpan
+
+	if em.LowerType != "" {
+		for _, pos := range FindWordMatches(lowerLine, em.LowerName) {
+			end := pos + len(em.LowerName)
+			after := MatchesTypeSuffix(lowerLine, end, em.LowerType)
+			if after < 0 {
+				continue
+			}
+			out = append(out, matchSpan{pos, after})
 		}
 	}
-	return true
+
+	for _, pos := range FindWordMatches(lowerLine, em.LowerName) {
+		end := pos + len(em.LowerName)
+		if MatchesAnyTypeSuffix(lowerLine, end, knownTypes) >= 0 {
+			continue
+		}
+		out = append(out, matchSpan{pos, end})
+	}
+
+	for _, la := range em.LowerAliases {
+		for _, pos := range FindWordMatches(lowerLine, la) {
+			out = append(out, matchSpan{pos, pos + len(la)})
+		}
+	}
+
+	return out
 }
+
 
 // SkipSpaces returns the first index at or after pos that isn't a plain
 // space character. Tabs and other whitespace are intentionally not skipped —
@@ -418,15 +458,49 @@ func MatchesAnyTypeSuffix(lowerText string, pos int, lowerTypes map[string]struc
 	return typeStart + closeOffset + 1
 }
 
-// findEntityAtLine returns the name of the entity whose header sits on the
-// given file:line, if any.
-func findEntityAtLine(world *World, file string, line int) string {
+// findEntityAtMention returns the entity whose description span (line +
+// byte-column range) contains the given mention position. When multiple
+// descriptions overlap — typically an inline aside nested inside the line
+// of a header description — the tightest containing span wins, so refs
+// inside an aside attribute to the aside-defined entity rather than the
+// surrounding owner. Returns "" when the position falls outside every
+// description (free text).
+func findEntityAtMention(world *World, file string, line, byteCol int) string {
+	var bestName string
+	bestSize := -1
 	for _, ent := range world.Entities {
 		for _, desc := range ent.Descriptions {
-			if desc.File == file && desc.Line == line {
-				return ent.Name
+			if desc.File != file {
+				continue
+			}
+			if line < desc.Line || line > desc.EndLine {
+				continue
+			}
+			startOK := line > desc.Line || byteCol >= desc.StartColumn
+			endOK := line < desc.EndLine || byteCol < desc.EndColumn
+			if !startOK || !endOK {
+				continue
+			}
+			size := descSpanSize(desc)
+			if bestSize == -1 || size < bestSize {
+				bestSize = size
+				bestName = ent.Name
 			}
 		}
 	}
-	return ""
+	return bestName
+}
+
+// descSpanSize ranks descriptions for tightest-match selection. Single-line
+// spans (asides) get a size equal to their column extent; multi-line spans
+// get a value that's always larger than any single-line span, so an aside
+// nested inside a header definition wins.
+func descSpanSize(d Description) int {
+	if d.EndLine > d.Line {
+		// Use a base offset that exceeds any plausible single-line column
+		// extent, then add (EndLine - Line) so a tighter multi-line span
+		// still beats a looser one if both somehow contain the position.
+		return 1<<20 + (d.EndLine-d.Line)*1024
+	}
+	return d.EndColumn - d.StartColumn
 }

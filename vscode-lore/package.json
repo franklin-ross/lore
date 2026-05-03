@@ -82,6 +82,12 @@
                 "title": "Lore: Clear Entities Filter",
                 "category": "Lore",
                 "icon": "$(clear-all)"
+            },
+            {
+                "command": "lore.openWiki",
+                "title": "Lore: Open Entity Wiki",
+                "category": "Lore",
+                "icon": "$(book)"
             }
         ],
         "views": {
@@ -110,6 +116,13 @@
                     "command": "lore.entities.refresh",
                     "when": "view == loreEntities",
                     "group": "navigation@3"
+                }
+            ],
+            "view/item/context": [
+                {
+                    "command": "lore.openWiki",
+                    "when": "view == loreEntities && viewItem == loreEntity",
+                    "group": "inline"
                 }
             ]
         },

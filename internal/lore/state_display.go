@@ -52,6 +52,13 @@ func formatField(name string, v FieldValue) string {
 	return fmt.Sprintf("%s: %s", name, formatFieldValue(v))
 }
 
+// FormatFieldValue renders just the value portion of a field (no name).
+// Numbers print as integers when whole, otherwise as decimals; text values
+// sort alphabetically and quote items containing punctuation.
+func FormatFieldValue(v FieldValue) string {
+	return formatFieldValue(v)
+}
+
 // formatFieldValue renders just the value portion of a field (no name).
 func formatFieldValue(v FieldValue) string {
 	switch v.Kind {
