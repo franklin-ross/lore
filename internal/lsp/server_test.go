@@ -1,6 +1,7 @@
 package lsp
 
 import (
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -617,6 +618,32 @@ func TestFormatEntityHoverColourisesNamesAndDescriptions(t *testing.T) {
 	strahdHex := s.palette[entityColourIndex(strahd)]
 	if !strings.Contains(out, `<span style="color:`+strahdHex+`;">Strahd</span>`) {
 		t.Fatalf("hover did not wrap Strahd reference in description: %q", out)
+	}
+}
+
+func TestFileToURIEncodesSpecialChars(t *testing.T) {
+	ps := &projectState{root: "/workspace/notes"}
+	cases := []struct {
+		rel  string
+		want string
+	}{
+		{"plain.md", "file:///workspace/notes/plain.md"},
+		{"what?.md", "file:///workspace/notes/what%3F.md"},
+		{"with space.md", "file:///workspace/notes/with%20space.md"},
+		{"hash#tag.md", "file:///workspace/notes/hash%23tag.md"},
+		{"sub/dir/file?.md", "file:///workspace/notes/sub/dir/file%3F.md"},
+	}
+	for _, tc := range cases {
+		got := ps.fileToURI(tc.rel)
+		if got != tc.want {
+			t.Errorf("fileToURI(%q) = %q, want %q", tc.rel, got, tc.want)
+		}
+		// Round-trip: VSCode-side parsing should recover the path.
+		back := uriToPath(&got)
+		wantPath := filepath.Join(ps.root, filepath.FromSlash(tc.rel))
+		if back != wantPath {
+			t.Errorf("uriToPath(%q) = %q, want %q", got, back, wantPath)
+		}
 	}
 }
 

@@ -2,6 +2,7 @@ package lsp
 
 import (
 	"io/fs"
+	"net/url"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -19,8 +20,19 @@ type projectState struct {
 }
 
 // fileToURI returns a file:// URI for a project-root-relative path.
+// Path bytes are percent-encoded so filenames containing URI reserved
+// characters (`?`, `#`, ` `, etc.) survive the round trip through
+// VSCode's URI parser.
 func (p *projectState) fileToURI(rel string) string {
-	return "file://" + filepath.Join(p.root, filepath.FromSlash(rel))
+	abs := filepath.Join(p.root, filepath.FromSlash(rel))
+	// On Windows the leading drive letter needs the URL path to start
+	// with `/`; on POSIX the path is already absolute. filepath.ToSlash
+	// converts separators so url.URL.String() emits forward slashes.
+	p2 := filepath.ToSlash(abs)
+	if !strings.HasPrefix(p2, "/") {
+		p2 = "/" + p2
+	}
+	return (&url.URL{Scheme: "file", Path: p2}).String()
 }
 
 // world returns the merged world for this project's current files.
