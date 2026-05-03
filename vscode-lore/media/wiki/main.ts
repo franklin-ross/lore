@@ -40,6 +40,11 @@ interface PersistedState {
   activeTab?: "state" | "history";
   scrollByPage?: Record<string, number>;
   lastPageKey?: string | null;
+  // Mirrors the extension's navigation history so the panel serializer can
+  // restore the last page after an editor restart. Each entry includes
+  // source so cross-project lookups land in the right project.
+  history?: BreadcrumbPage[];
+  cursor?: number;
 }
 
 const vscode = acquireVsCodeApi();
@@ -52,6 +57,8 @@ let activeTab: "state" | "history" = persisted.activeTab ?? "state";
 const scrollByPage: Record<string, number> = persisted.scrollByPage ?? {};
 let lastPageKey: string | null = persisted.lastPageKey ?? null;
 let palette: string[] = [];
+let lastHistory: BreadcrumbPage[] = persisted.history ?? [];
+let lastCursor: number = persisted.cursor ?? -1;
 
 function saveState(): void {
   vscode.setState<PersistedState>({
@@ -59,6 +66,8 @@ function saveState(): void {
     activeTab,
     scrollByPage,
     lastPageKey,
+    history: lastHistory,
+    cursor: lastCursor,
   });
 }
 
@@ -114,7 +123,9 @@ function render(msg: PageMessage): void {
   const sameAsLast = key === lastPageKey;
 
   search.setCatalog(msg.catalog);
-  toolbar.setBreadcrumbs(msg.breadcrumbs ?? [], msg.cursor ?? -1);
+  lastHistory = msg.breadcrumbs ?? [];
+  lastCursor = msg.cursor ?? -1;
+  toolbar.setBreadcrumbs(lastHistory, lastCursor);
   toolbar.setNav(!!msg.canBack, !!msg.canForward);
 
   root.innerHTML = "";

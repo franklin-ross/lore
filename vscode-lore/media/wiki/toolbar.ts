@@ -4,6 +4,10 @@ import type { SearchController } from "./search.ts";
 export interface BreadcrumbPage {
   kind: "entity" | "type" | "home";
   value: string;
+  // Source URI of the editor that owned the page when it was opened. The
+  // toolbar ignores it; main.ts persists it so the panel serializer can
+  // restore the page in the right project after an editor restart.
+  source?: string;
 }
 
 export interface ToolbarActions {

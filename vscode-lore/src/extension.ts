@@ -303,6 +303,16 @@ export function activate(context: vscode.ExtensionContext): void {
   setFilterContext(false);
   updateInProjectContext(vscode.window.activeTextEditor);
 
+  // Serializer hands the wiki webview back to us across editor restarts so
+  // the panel restores its last page instead of staying blank.
+  context.subscriptions.push(
+    vscode.window.registerWebviewPanelSerializer("loreWiki", {
+      async deserializeWebviewPanel(panel: vscode.WebviewPanel, state: unknown): Promise<void> {
+        await wikiPanel.restore(panel, state);
+      },
+    }),
+  );
+
   context.subscriptions.push(
     vscode.window.registerTreeDataProvider(
       "loreEntities",

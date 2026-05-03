@@ -217,9 +217,11 @@ export class LoreWikiPanel {
     return { entities, types };
   }
 
-  // Snapshot of the history stack for breadcrumb rendering.
-  private breadcrumbsSnapshot(): { kind: WikiPageKind; value: string }[] {
-    return this.history.map((p) => ({ kind: p.kind, value: p.value }));
+  // Snapshot of the history stack for breadcrumb rendering. Includes
+  // `source` so the webview can persist it via setState — the panel
+  // serializer reads it back on editor restart to restore the last page.
+  private breadcrumbsSnapshot(): WikiPage[] {
+    return this.history.map((p) => ({ ...p }));
   }
 
   private ensurePanel(): void {
@@ -238,13 +240,44 @@ export class LoreWikiPanel {
         localResourceRoots: [webviewRoot],
       },
     );
-    this.panel.webview.html = this.renderShell();
-    this.panel.webview.onDidReceiveMessage((msg: IncomingMessage) => this.onMessage(msg));
-    this.panel.onDidDispose(() => {
+    this.attach(this.panel);
+  }
+
+  // attach wires up message + dispose handlers and (re)installs the
+  // webview HTML. Used both by initial creation and by the panel
+  // serializer when VSCode hands back a panel after a restart.
+  private attach(panel: vscode.WebviewPanel): void {
+    this.panel = panel;
+    const webviewRoot = vscode.Uri.joinPath(this.context.extensionUri, "out", "wiki");
+    panel.webview.options = {
+      enableScripts: true,
+      localResourceRoots: [webviewRoot],
+    };
+    panel.webview.html = this.renderShell();
+    panel.webview.onDidReceiveMessage((msg: IncomingMessage) => this.onMessage(msg));
+    panel.onDidDispose(() => {
       this.panel = undefined;
       this.history = [];
       this.cursor = -1;
     });
+  }
+
+  // restore is the WebviewPanelSerializer entry point. VSCode hands back
+  // the previously-persisted panel along with the webview's last setState
+  // value; we hydrate the navigation history from that and let the
+  // refresh on `ready` paint the last page.
+  async restore(panel: vscode.WebviewPanel, raw: unknown): Promise<void> {
+    const state = (raw && typeof raw === "object") ? raw as { history?: unknown; cursor?: unknown } : {};
+    const history = sanitiseHistory(state.history);
+    if (history.length > 0) {
+      this.history = history;
+      const c = typeof state.cursor === "number" ? state.cursor : history.length - 1;
+      this.cursor = c >= 0 && c < history.length ? c : history.length - 1;
+    }
+    this.attach(panel);
+    this.updateTitle();
+    // The webview will load main.js, post `ready`, and the resulting
+    // refresh() will fetch the current page's data and paint it.
   }
 
   private updateTitle(): void {
@@ -351,6 +384,26 @@ export class LoreWikiPanel {
 function samePage(a: WikiPage | undefined, b: WikiPage): boolean {
   if (!a) return false;
   return a.kind === b.kind && a.value === b.value;
+}
+
+// sanitiseHistory validates a deserialised history blob. Returns [] if the
+// shape doesn't match — the panel falls back to a fresh state rather than
+// trusting persisted garbage from an older extension version.
+function sanitiseHistory(raw: unknown): WikiPage[] {
+  if (!Array.isArray(raw)) return [];
+  const out: WikiPage[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const p = item as { kind?: unknown; value?: unknown; source?: unknown };
+    if (p.kind !== "entity" && p.kind !== "type" && p.kind !== "home") continue;
+    if (typeof p.value !== "string") continue;
+    out.push({
+      kind: p.kind,
+      value: p.value,
+      source: typeof p.source === "string" ? p.source : undefined,
+    });
+  }
+  return out;
 }
 
 function makeNonce(): string {
