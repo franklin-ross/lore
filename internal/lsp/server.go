@@ -468,7 +468,7 @@ func formatEntityHover(ent *lore.Entity, cursorFile string, cursorLine int, mode
 	}
 	if len(texts) > 0 {
 		b.WriteString("\n\n---\n\n")
-		b.WriteString(truncate(strings.Join(texts, "\n\n"), 2000))
+		b.WriteString(strings.Join(texts, "\n\n"))
 	}
 	return b.String()
 }
