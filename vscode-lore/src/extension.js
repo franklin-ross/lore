@@ -123,6 +123,39 @@ function clearDecorations(editor) {
   for (const d of backgroundDecorations) editor.setDecorations(d, []);
 }
 
+// Cache of resolved fsPath → bool so the F12 context-key update doesn't
+// stat the filesystem on every cursor move. Project membership only
+// changes when the user adds or removes a lore.toml, both of which would
+// also trigger an extension reload.
+/** @type {Map<string, boolean>} */
+const projectCache = new Map();
+
+function isInLoreProject(uri) {
+  if (!uri || uri.scheme !== "file") return false;
+  const cached = projectCache.get(uri.fsPath);
+  if (cached !== undefined) return cached;
+  let dir = path.dirname(uri.fsPath);
+  const root = path.parse(dir).root;
+  while (dir && dir !== root) {
+    if (fs.existsSync(path.join(dir, "lore.toml"))) {
+      projectCache.set(uri.fsPath, true);
+      return true;
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  projectCache.set(uri.fsPath, false);
+  return false;
+}
+
+function updateInProjectContext(editor) {
+  const inProject = !!editor
+    && editor.document.languageId === "markdown"
+    && isInLoreProject(editor.document.uri);
+  vscode.commands.executeCommand("setContext", "lore.inProject", inProject);
+}
+
 async function refreshEditor(editor) {
   if (!editor || editor.document.languageId !== "markdown") return;
   if (!client) return;
@@ -266,6 +299,7 @@ export function activate(/** @type {vscode.ExtensionContext} */ context) {
       active
     );
   setFilterContext(false);
+  updateInProjectContext(vscode.window.activeTextEditor);
 
   context.subscriptions.push(
     vscode.window.registerTreeDataProvider(
@@ -292,6 +326,28 @@ export function activate(/** @type {vscode.ExtensionContext} */ context) {
     vscode.commands.registerCommand("lore.entities.clearFilter", () => {
       entitiesProvider.setFilter("");
       setFilterContext(false);
+    }),
+    vscode.commands.registerCommand("lore.openWikiAtCursor", async () => {
+      const editor = vscode.window.activeTextEditor;
+      if (!editor) return;
+      const doc = editor.document;
+      const sel = editor.selection;
+      let entity = "";
+      if (!sel.isEmpty) {
+        entity = doc.getText(sel).trim();
+      } else {
+        // Allow multi-word entity names by widening the word range past
+        // single spaces between letter runs. Falls back to the default
+        // word range if the wide regex doesn't match.
+        const wide = doc.getWordRangeAtPosition(
+          sel.active,
+          /[A-Za-z][A-Za-z0-9_'-]*(?: [A-Za-z][A-Za-z0-9_'-]*)*/
+        );
+        const range = wide || doc.getWordRangeAtPosition(sel.active);
+        if (range) entity = doc.getText(range).trim();
+      }
+      if (!entity) return;
+      await wikiPanel.show(entity, doc.uri.toString());
     }),
     vscode.commands.registerCommand("lore.openWiki", async (arg) => {
       // Invocation paths:
@@ -349,6 +405,7 @@ export function activate(/** @type {vscode.ExtensionContext} */ context) {
   context.subscriptions.push(
     vscode.window.onDidChangeActiveTextEditor((editor) => {
       refreshEditor(editor);
+      updateInProjectContext(editor);
       // The tree view is scoped to the active editor's project, so refresh
       // whenever focus moves so the user sees the right campaign.
       entitiesProvider.refresh();

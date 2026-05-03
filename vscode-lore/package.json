@@ -88,6 +88,18 @@
                 "title": "Lore: Open Entity Wiki",
                 "category": "Lore",
                 "icon": "$(book)"
+            },
+            {
+                "command": "lore.openWikiAtCursor",
+                "title": "Lore: Open Entity Wiki at Cursor",
+                "category": "Lore"
+            }
+        ],
+        "keybindings": [
+            {
+                "command": "lore.openWikiAtCursor",
+                "key": "f12",
+                "when": "editorTextFocus && editorLangId == markdown && lore.inProject"
             }
         ],
         "views": {
