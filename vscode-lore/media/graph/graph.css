@@ -61,6 +61,25 @@ body {
   border-color: var(--vscode-button-background);
 }
 
+.slider {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.8em;
+  color: var(--vscode-descriptionForeground);
+}
+
+.slider input[type="range"] {
+  width: 80px;
+}
+
+.slider-value {
+  min-width: 2.5em;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--vscode-foreground);
+}
+
 .focus-indicator {
   color: var(--vscode-descriptionForeground);
   font-size: 0.85em;
@@ -114,6 +133,25 @@ body {
 .graph-edge-def {
   stroke-width: 1.2;
   fill: none;
+}
+
+.graph-centroid {
+  fill: none;
+  stroke: var(--vscode-descriptionForeground);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 3;
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.graph-centroid-label {
+  fill: var(--vscode-descriptionForeground);
+  font-size: 10px;
+  font-style: italic;
+  text-anchor: middle;
+  pointer-events: none;
+  user-select: none;
+  opacity: 0.7;
 }
 
 .err {
