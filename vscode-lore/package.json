@@ -75,24 +75,6 @@
                 "category": "Lore"
             },
             {
-                "command": "lore.entities.refresh",
-                "title": "Refresh Entities",
-                "category": "Lore",
-                "icon": "$(refresh)"
-            },
-            {
-                "command": "lore.entities.search",
-                "title": "Filter Entities",
-                "category": "Lore",
-                "icon": "$(search)"
-            },
-            {
-                "command": "lore.entities.clearFilter",
-                "title": "Clear Entities Filter",
-                "category": "Lore",
-                "icon": "$(clear-all)"
-            },
-            {
                 "command": "lore.openWiki",
                 "title": "Open Wiki",
                 "category": "Lore",
@@ -111,42 +93,6 @@
                 "when": "editorTextFocus && editorLangId == markdown && lore.inProject"
             }
         ],
-        "views": {
-            "explorer": [
-                {
-                    "id": "loreEntities",
-                    "name": "Lore Entities",
-                    "icon": "$(book)",
-                    "contextualTitle": "Lore Entities"
-                }
-            ]
-        },
-        "menus": {
-            "view/title": [
-                {
-                    "command": "lore.entities.search",
-                    "when": "view == loreEntities",
-                    "group": "navigation@1"
-                },
-                {
-                    "command": "lore.entities.clearFilter",
-                    "when": "view == loreEntities && lore.entities.filterActive",
-                    "group": "navigation@2"
-                },
-                {
-                    "command": "lore.entities.refresh",
-                    "when": "view == loreEntities",
-                    "group": "navigation@3"
-                }
-            ],
-            "view/item/context": [
-                {
-                    "command": "lore.openWiki",
-                    "when": "view == loreEntities && viewItem == loreEntity",
-                    "group": "inline"
-                }
-            ]
-        },
         "configuration": {
             "title": "Lore",
             "properties": {

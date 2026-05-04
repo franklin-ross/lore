@@ -8,7 +8,6 @@ import {
   type ServerOptions,
   type LanguageClientOptions,
 } from "vscode-languageclient/node";
-import { LoreEntitiesProvider } from "./entities-tree.ts";
 import { LoreWikiPanel } from "./wiki-panel.ts";
 
 let extensionPath = "";
@@ -292,15 +291,7 @@ export function activate(context: vscode.ExtensionContext): void {
   palette = loadPaletteFromManifest(context.extension);
   buildDecorations();
 
-  const entitiesProvider = new LoreEntitiesProvider(() => client);
   const wikiPanel = new LoreWikiPanel(() => client, palette, context);
-  const setFilterContext = (active: boolean) =>
-    vscode.commands.executeCommand(
-      "setContext",
-      "lore.entities.filterActive",
-      active,
-    );
-  setFilterContext(false);
   updateInProjectContext(vscode.window.activeTextEditor);
 
   // Serializer hands the wiki webview back to us across editor restarts so
@@ -314,31 +305,6 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 
   context.subscriptions.push(
-    vscode.window.registerTreeDataProvider(
-      "loreEntities",
-      entitiesProvider,
-    ),
-    vscode.commands.registerCommand("lore.entities.refresh", () =>
-      entitiesProvider.refresh(),
-    ),
-    vscode.commands.registerCommand("lore.entities.search", async () => {
-      const previous = entitiesProvider.getFilter();
-      const input = vscode.window.createInputBox();
-      input.placeholder = "Filter by name, type, alias, or tag";
-      input.prompt = "Lore: filter entities";
-      input.value = previous;
-      input.onDidChangeValue((value) => {
-        entitiesProvider.setFilter(value);
-        setFilterContext(value.trim().length > 0);
-      });
-      input.onDidAccept(() => input.hide());
-      input.onDidHide(() => input.dispose());
-      input.show();
-    }),
-    vscode.commands.registerCommand("lore.entities.clearFilter", () => {
-      entitiesProvider.setFilter("");
-      setFilterContext(false);
-    }),
     vscode.commands.registerCommand("lore.openWikiAtCursor", async () => {
       const editor = vscode.window.activeTextEditor;
       if (!editor) return;
@@ -362,18 +328,7 @@ export function activate(context: vscode.ExtensionContext): void {
       await wikiPanel.showWord(entity, doc.uri.toString());
     }),
     vscode.commands.registerCommand("lore.openWiki", async (arg: unknown) => {
-      // Invocation paths:
-      //  - palette / programmatic with no arg → open the wiki landing
-      //    page so the user can search inside the panel itself
-      //  - palette with string → open that entity directly
-      //  - tree-view inline action → vscode passes the TreeItem; its
-      //    `label` is the entity name (set in entities-tree.ts).
-      let entity = "";
-      if (typeof arg === "string") {
-        entity = arg;
-      } else if (arg && typeof arg === "object" && "label" in arg && typeof (arg as { label: unknown }).label === "string") {
-        entity = (arg as { label: string }).label;
-      }
+      const entity = typeof arg === "string" ? arg : "";
       const editor = vscode.window.activeTextEditor;
       const source = editor ? editor.document.uri.toString() : undefined;
       if (entity) {
@@ -387,7 +342,6 @@ export function activate(context: vscode.ExtensionContext): void {
   client = buildClient();
   client.start().then(() => {
     refreshAllVisible();
-    entitiesProvider.refresh();
   });
 
   context.subscriptions.push(
@@ -402,7 +356,6 @@ export function activate(context: vscode.ExtensionContext): void {
           vscode.ConfigurationTarget.Global,
         );
         await restartClient();
-        entitiesProvider.refresh();
         vscode.window.setStatusBarMessage(
           `Lore: hover state directives ${!current ? "on" : "off"}`,
           2000,
@@ -415,9 +368,6 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.window.onDidChangeActiveTextEditor((editor) => {
       refreshEditor(editor);
       updateInProjectContext(editor);
-      // The tree view is scoped to the active editor's project, so refresh
-      // whenever focus moves so the user sees the right campaign.
-      entitiesProvider.refresh();
     }),
     vscode.window.onDidChangeVisibleTextEditors(refreshAllVisible),
     vscode.workspace.onDidChangeConfiguration((e) => {
@@ -434,7 +384,6 @@ export function activate(context: vscode.ExtensionContext): void {
       if (debounce) clearTimeout(debounce);
       debounce = setTimeout(() => {
         refreshAllVisible();
-        entitiesProvider.refresh();
         wikiPanel.refresh();
       }, 250);
     }),
