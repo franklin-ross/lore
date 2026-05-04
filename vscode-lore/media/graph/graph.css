@@ -1,0 +1,122 @@
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  font-family: var(--vscode-font-family);
+  color: var(--vscode-foreground);
+  background: var(--vscode-editor-background);
+  overflow: hidden;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+}
+
+#toolbar {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--vscode-panel-border);
+  flex: 0 0 auto;
+}
+
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  cursor: pointer;
+}
+
+.scope-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.scope-label {
+  color: var(--vscode-descriptionForeground);
+  font-size: 0.85em;
+}
+
+.scope-btn {
+  background: transparent;
+  color: var(--vscode-foreground);
+  border: 1px solid var(--vscode-panel-border);
+  padding: 2px 8px;
+  border-radius: 3px;
+  font: inherit;
+  font-size: 0.85em;
+  cursor: pointer;
+}
+
+.scope-btn:hover {
+  background: var(--vscode-toolbar-hoverBackground);
+}
+
+.scope-btn.active {
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+  border-color: var(--vscode-button-background);
+}
+
+.focus-indicator {
+  color: var(--vscode-descriptionForeground);
+  font-size: 0.85em;
+}
+
+#root {
+  flex: 1 1 auto;
+  position: relative;
+  overflow: hidden;
+}
+
+.graph-svg {
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+  display: block;
+}
+
+.graph-svg:active {
+  cursor: grabbing;
+}
+
+.graph-node {
+  cursor: pointer;
+  stroke: var(--vscode-editor-background);
+  stroke-width: 1.5;
+  transition: r 120ms ease;
+}
+
+.graph-node.focused {
+  stroke: var(--vscode-focusBorder);
+  stroke-width: 3;
+  filter: drop-shadow(0 0 4px var(--vscode-focusBorder));
+}
+
+.graph-label {
+  transition: opacity 200ms ease;
+}
+
+.graph-label {
+  font-size: 11px;
+  fill: var(--vscode-foreground);
+  pointer-events: none;
+  user-select: none;
+}
+
+.graph-label.focused {
+  font-weight: bold;
+}
+
+.graph-edge-def {
+  stroke-width: 1.2;
+  fill: none;
+}
+
+.err {
+  color: var(--vscode-errorForeground);
+  padding: 1rem;
+}

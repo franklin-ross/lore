@@ -9,6 +9,8 @@ import {
   type LanguageClientOptions,
 } from "vscode-languageclient/node";
 import { LoreWikiPanel } from "./wiki-panel.ts";
+import { LoreGraphPanel } from "./graph-panel.ts";
+import { EntityFocusBus } from "./entity-focus-bus.ts";
 
 let extensionPath = "";
 
@@ -291,17 +293,25 @@ export function activate(context: vscode.ExtensionContext): void {
   palette = loadPaletteFromManifest(context.extension);
   buildDecorations();
 
-  const wikiPanel = new LoreWikiPanel(() => client, palette, context);
+  const focusBus = new EntityFocusBus();
+  const wikiPanel = new LoreWikiPanel(() => client, palette, context, focusBus);
+  const graphPanel = new LoreGraphPanel(() => client, palette, context, focusBus);
   updateInProjectContext(vscode.window.activeTextEditor);
 
-  // Serializer hands the wiki webview back to us across editor restarts so
-  // the panel restores its last page instead of staying blank.
+  // Serializers hand each webview back to us across editor restarts so
+  // the panels restore their last state instead of staying blank.
   context.subscriptions.push(
     vscode.window.registerWebviewPanelSerializer("loreWiki", {
       async deserializeWebviewPanel(panel: vscode.WebviewPanel, state: unknown): Promise<void> {
         await wikiPanel.restore(panel, state);
       },
     }),
+    vscode.window.registerWebviewPanelSerializer("loreGraph", {
+      async deserializeWebviewPanel(panel: vscode.WebviewPanel, state: unknown): Promise<void> {
+        await graphPanel.restore(panel, state);
+      },
+    }),
+    { dispose: () => focusBus.dispose() },
   );
 
   context.subscriptions.push(
@@ -336,6 +346,12 @@ export function activate(context: vscode.ExtensionContext): void {
       } else {
         await wikiPanel.showHome(source);
       }
+    }),
+    vscode.commands.registerCommand("lore.openGraph", async (arg: unknown) => {
+      const entity = typeof arg === "string" ? arg : undefined;
+      const editor = vscode.window.activeTextEditor;
+      const source = editor ? editor.document.uri.toString() : undefined;
+      await graphPanel.show(source, entity);
     }),
   );
 
@@ -372,6 +388,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.window.onDidChangeVisibleTextEditors(refreshAllVisible),
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration("lore.definitionStyle")) refreshAllVisible();
+      if (e.affectsConfiguration("lore.graph.arrowSize")) graphPanel.refresh();
     }),
   );
 
@@ -385,6 +402,7 @@ export function activate(context: vscode.ExtensionContext): void {
       debounce = setTimeout(() => {
         refreshAllVisible();
         wikiPanel.refresh();
+        graphPanel.refresh();
       }, 250);
     }),
   );

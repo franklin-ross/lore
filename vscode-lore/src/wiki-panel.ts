@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import type { LanguageClient } from "vscode-languageclient/node";
+import type { EntityFocusBus } from "./entity-focus-bus.ts";
 
 export type WikiPageKind = "entity" | "type" | "home";
 
@@ -46,11 +47,13 @@ export class LoreWikiPanel {
   private panel: vscode.WebviewPanel | undefined;
   private history: WikiPage[] = [];
   private cursor = -1;
+  private busSub: vscode.Disposable | undefined;
 
   constructor(
     private readonly getClient: () => LanguageClient | undefined,
     private readonly palette: string[],
     private readonly context: vscode.ExtensionContext,
+    private readonly bus: EntityFocusBus,
   ) {}
 
   current(): WikiPage | undefined {
@@ -177,6 +180,12 @@ export class LoreWikiPanel {
       canBack: this.cursor > 0,
       canForward: this.cursor < this.history.length - 1,
     });
+
+    // Broadcast focus so the graph panel (when open) can re-centre on the
+    // active entity without a separate request roundtrip.
+    if (page.kind === "entity") {
+      this.bus.fire({ entity: page.value, source: page.source, origin: "wiki" });
+    }
   }
 
   private async fetchPayload(client: LanguageClient, page: WikiPage): Promise<unknown> {
@@ -259,6 +268,16 @@ export class LoreWikiPanel {
       this.panel = undefined;
       this.history = [];
       this.cursor = -1;
+      this.busSub?.dispose();
+      this.busSub = undefined;
+    });
+    // React to focus events from elsewhere (graph panel today, others
+    // later). Skip our own emissions to avoid feedback when the user
+    // navigates inside the wiki itself.
+    this.busSub?.dispose();
+    this.busSub = this.bus.onDidFocus((focus) => {
+      if (focus.origin === "wiki") return;
+      void this.show(focus.entity, focus.source);
     });
   }
 

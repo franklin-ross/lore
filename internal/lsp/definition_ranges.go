@@ -95,45 +95,66 @@ type loreHandler struct {
 	server *Server
 }
 
+// Handle dispatches one JSON-RPC request. The four return values come from
+// the glsp.Handler interface (common.go in tliron/glsp):
+//
+//	result       — value marshalled back as the JSON-RPC `result`. nil for
+//	               notifications, errors, or when the method isn't ours.
+//	validMethod  — true when ctx.Method matched a handler in this dispatcher.
+//	               false tells the caller to fall through; glsp turns an
+//	               unmatched method into a "method not found" response.
+//	validParams  — true when ctx.Params unmarshalled cleanly. false produces
+//	               an "invalid params" response.
+//	err          — handler-level failure (panics, internal errors), distinct
+//	               from validation; non-nil becomes "internal error".
+//
+// Pattern per case: params parse fail returns (nil, true, false, nil) —
+// valid method, bad params. Success returns (result, true, true, err) and
+// lets the handler's err propagate. Unknown methods fall through to
+// h.inner.Handle so glsp can serve the built-in LSP surface.
 func (h *loreHandler) Handle(ctx *glsp.Context) (any, bool, bool, error) {
-	if ctx.Method == MethodLoreDefinitionRanges {
+	switch ctx.Method {
+	case MethodLoreDefinitionRanges:
 		var p DefinitionRangesParams
 		if err := json.Unmarshal(ctx.Params, &p); err != nil {
 			return nil, true, false, nil
 		}
 		result, err := h.server.definitionRanges(&p)
 		return result, true, true, err
-	}
-	if ctx.Method == MethodLoreEntityList {
+	case MethodLoreEntityList:
 		p, err := decodeEntityList(ctx.Params)
 		if err != nil {
 			return nil, true, false, nil
 		}
 		result, err := h.server.entityList(p)
 		return result, true, true, err
-	}
-	if ctx.Method == MethodLoreEntityDetails {
+	case MethodLoreEntityDetails:
 		p, err := decodeEntityDetails(ctx.Params)
 		if err != nil {
 			return nil, true, false, nil
 		}
 		result, err := h.server.entityDetails(p)
 		return result, true, true, err
-	}
-	if ctx.Method == MethodLoreTypeDetails {
+	case MethodLoreTypeDetails:
 		p, err := decodeTypeDetails(ctx.Params)
 		if err != nil {
 			return nil, true, false, nil
 		}
 		result, err := h.server.typeDetails(p)
 		return result, true, true, err
-	}
-	if ctx.Method == MethodLoreLookup {
+	case MethodLoreLookup:
 		p, err := decodeLookup(ctx.Params)
 		if err != nil {
 			return nil, true, false, nil
 		}
 		result, err := h.server.lookup(p)
+		return result, true, true, err
+	case MethodLoreGraph:
+		p, err := decodeGraph(ctx.Params)
+		if err != nil {
+			return nil, true, false, nil
+		}
+		result, err := h.server.graph(p)
 		return result, true, true, err
 	}
 	return h.inner.Handle(ctx)
