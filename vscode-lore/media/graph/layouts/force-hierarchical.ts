@@ -41,13 +41,14 @@ interface SimLink extends SimulationLinkDatum<SimNode> {
 const NODE_RADIUS = 7;
 
 const DEFAULTS = {
-    linkDistance: 90,
-    linkStrength: 0.6,
+    linkDistance: 200,
+    linkStrength: 0.1,
+    clusterDistance: 50,
     clusterStrength: 1.0,
-    clusterDistance: 60,
-    chargeStrength: -1500,
-    centroidGravity: 0,
-    clustering: false,
+    chargeStrength: -250,
+    centroidGravity: 0.2,
+    clustering: true,
+    showCentroids: false,
 };
 
 const OPTIONS: OptionSpec[] = [
@@ -71,6 +72,15 @@ const OPTIONS: OptionSpec[] = [
         default: DEFAULTS.linkStrength,
     },
     {
+        key: "clusterDistance",
+        label: "cluster dist",
+        type: "range",
+        min: 20,
+        max: 200,
+        step: 5,
+        default: DEFAULTS.clusterDistance,
+    },
+    {
         key: "clusterStrength",
         label: "cluster str",
         type: "range",
@@ -79,15 +89,6 @@ const OPTIONS: OptionSpec[] = [
         step: 0.05,
         decimals: 2,
         default: DEFAULTS.clusterStrength,
-    },
-    {
-        key: "clusterDistance",
-        label: "cluster dist",
-        type: "range",
-        min: 20,
-        max: 200,
-        step: 5,
-        default: DEFAULTS.clusterDistance,
     },
     {
         key: "chargeStrength",
@@ -113,6 +114,12 @@ const OPTIONS: OptionSpec[] = [
         label: "clustering",
         type: "toggle",
         default: DEFAULTS.clustering,
+    },
+    {
+        key: "showCentroids",
+        label: "show centroids",
+        type: "toggle",
+        default: DEFAULTS.showCentroids,
     },
 ];
 
@@ -141,6 +148,10 @@ function createForceHierarchical(): LayoutEngine {
     let chargeStrength = DEFAULTS.chargeStrength;
     let centroidGravity = DEFAULTS.centroidGravity;
     let clustering = DEFAULTS.clustering;
+    // Debug ghost-centroid markers (dashed rings + type label). Sim runs
+    // them either way; toggle just gates whether the engine surfaces
+    // them through onCentroidsChanged for the renderer to paint.
+    let showCentroids = DEFAULTS.showCentroids;
 
     let maxMemberCount = 1;
     const memberCountByType = new Map<string, number>();
@@ -179,9 +190,9 @@ function createForceHierarchical(): LayoutEngine {
             const overshoot = dist - clusterDistance;
             const ratio = Math.min(overshoot / denom, RATIO_CAP);
             const adjust =
-                (ratio * ratio * denom / dist)
-                * alpha
-                * centroidLinkStrengthFor(l);
+                ((ratio * ratio * denom) / dist) *
+                alpha *
+                centroidLinkStrengthFor(l);
             if (m.vx !== undefined) m.vx += dx * adjust * memberShare;
             if (m.vy !== undefined) m.vy += dy * adjust * memberShare;
             if (c.vx !== undefined) c.vx -= dx * adjust * centroidShare;
@@ -198,8 +209,8 @@ function createForceHierarchical(): LayoutEngine {
         // linear or sqrt scaling the smallest types still drift far to
         // the rim under charge repulsion; log flattens further.
         return (
-            centroidGravity * Math.log(1 + count)
-                / Math.log(1 + maxMemberCount)
+            (centroidGravity * Math.log(1 + count)) /
+            Math.log(1 + maxMemberCount)
         );
     }
 
@@ -265,10 +276,9 @@ function createForceHierarchical(): LayoutEngine {
         if (entityLinks) entityLinks.links(links);
     }
 
-    const sim: Simulation<SimNode, SimLink> = forceSimulation<
-        SimNode,
-        SimLink
-    >([])
+    const sim: Simulation<SimNode, SimLink> = forceSimulation<SimNode, SimLink>(
+        [],
+    )
         .force(
             "link",
             forceLink<SimNode, SimLink>([])
@@ -304,10 +314,12 @@ function createForceHierarchical(): LayoutEngine {
     }
 
     function emitCentroids(): void {
-        const list: RenderCentroid[] = centroids.map((c) => ({
-            id: c.id,
-            type: c.type ?? "(untyped)",
-        }));
+        const list: RenderCentroid[] = showCentroids
+            ? centroids.map((c) => ({
+                  id: c.id,
+                  type: c.type ?? "(untyped)",
+              }))
+            : [];
         handlers.onCentroidsChanged(list);
     }
 
@@ -362,21 +374,17 @@ function createForceHierarchical(): LayoutEngine {
             case "linkDistance": {
                 if (typeof value !== "number" || value === linkDistance) return;
                 linkDistance = value;
-                sim
-                    .force<ReturnType<typeof forceLink<SimNode, SimLink>>>(
-                        "link",
-                    )
-                    ?.distance(value);
+                sim.force<ReturnType<typeof forceLink<SimNode, SimLink>>>(
+                    "link",
+                )?.distance(value);
                 break;
             }
             case "linkStrength": {
                 if (typeof value !== "number" || value === linkStrength) return;
                 linkStrength = value;
-                sim
-                    .force<ReturnType<typeof forceLink<SimNode, SimLink>>>(
-                        "link",
-                    )
-                    ?.strength(value);
+                sim.force<ReturnType<typeof forceLink<SimNode, SimLink>>>(
+                    "link",
+                )?.strength(value);
                 break;
             }
             case "clusterStrength": {
@@ -397,25 +405,21 @@ function createForceHierarchical(): LayoutEngine {
                 if (typeof value !== "number" || value === chargeStrength)
                     return;
                 chargeStrength = value;
-                sim
-                    .force<ReturnType<typeof forceManyBody<SimNode>>>("charge")
-                    ?.strength(value);
+                sim.force<ReturnType<typeof forceManyBody<SimNode>>>(
+                    "charge",
+                )?.strength(value);
                 break;
             }
             case "centroidGravity": {
                 if (typeof value !== "number" || value === centroidGravity)
                     return;
                 centroidGravity = value;
-                sim
-                    .force<ReturnType<typeof forceX<SimNode>>>(
-                        "centroidGravityX",
-                    )
-                    ?.strength(centroidGravityFor);
-                sim
-                    .force<ReturnType<typeof forceY<SimNode>>>(
-                        "centroidGravityY",
-                    )
-                    ?.strength(centroidGravityFor);
+                sim.force<ReturnType<typeof forceX<SimNode>>>(
+                    "centroidGravityX",
+                )?.strength(centroidGravityFor);
+                sim.force<ReturnType<typeof forceY<SimNode>>>(
+                    "centroidGravityY",
+                )?.strength(centroidGravityFor);
                 break;
             }
             case "clustering": {
@@ -425,6 +429,13 @@ function createForceHierarchical(): LayoutEngine {
                 applySimulationContents();
                 emitCentroids();
                 sim.alpha(Math.max(sim.alpha(), 0.2)).restart();
+                return;
+            }
+            case "showCentroids": {
+                if (typeof value !== "boolean" || value === showCentroids)
+                    return;
+                showCentroids = value;
+                emitCentroids();
                 return;
             }
             default:

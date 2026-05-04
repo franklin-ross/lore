@@ -20,6 +20,7 @@ body {
   padding: 0.5rem 0.75rem;
   border-bottom: 1px solid var(--vscode-panel-border);
   flex: 0 0 auto;
+  position: relative;
 }
 
 .toggle {
@@ -157,4 +158,97 @@ body {
 .err {
   color: var(--vscode-errorForeground);
   padding: 1rem;
+}
+
+.settings-toggle {
+  font-size: 1em;
+  line-height: 1;
+  padding: 2px 6px;
+  margin-left: auto;
+}
+
+.settings-panel {
+  display: none;
+  position: absolute;
+  top: 100%;
+  right: 0.5rem;
+  margin-top: 4px;
+  min-width: 260px;
+  background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
+  color: var(--vscode-editorWidget-foreground, var(--vscode-foreground));
+  border: 1px solid var(--vscode-editorWidget-border, var(--vscode-panel-border));
+  border-radius: 4px;
+  padding: 8px 12px 12px;
+  z-index: 100;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.settings-panel.open {
+  display: block;
+}
+
+.settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0 0 6px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--vscode-panel-border);
+}
+
+.settings-title {
+  font-size: 0.9em;
+  font-weight: 600;
+}
+
+.settings-close {
+  background: transparent;
+  border: none;
+  color: var(--vscode-foreground);
+  font-size: 1.1em;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+.settings-close:hover {
+  background: var(--vscode-toolbar-hoverBackground);
+}
+
+.settings-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.settings-body .slider {
+  display: grid;
+  grid-template-columns: 6.5em 1fr 3em;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-body .slider input[type="range"] {
+  width: 100%;
+}
+
+.settings-toggle-row {
+  display: grid;
+  grid-template-columns: 6.5em 1fr;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8em;
+  color: var(--vscode-descriptionForeground);
+}
+
+.settings-footer {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--vscode-panel-border);
+}
+
+.settings-restore {
+  font-size: 0.8em;
 }

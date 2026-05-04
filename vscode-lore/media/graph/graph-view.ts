@@ -11,7 +11,13 @@ import {
     type RenderNode,
 } from "./graph-renderer.ts";
 import { forceHierarchicalFactory } from "./layouts/force-hierarchical.ts";
-import type { LayoutEngine } from "./layouts/types.ts";
+import type {
+    LayoutEngine,
+    LayoutFactory,
+    OptionSpec,
+} from "./layouts/types.ts";
+
+export type { OptionSpec, RangeOption, ToggleOption } from "./layouts/types.ts";
 
 export interface GraphNode {
     label: string;
@@ -36,19 +42,20 @@ export interface GraphHandlers {
     onOpenEntity(label: string): void;
 }
 
+export interface LayoutDescriptor {
+    id: string;
+    label: string;
+    options: OptionSpec[];
+}
+
 export interface GraphView {
     update(payload: GraphPayload, focus: string | null | undefined): void;
     setFocus(label: string | null | undefined): void;
     setHopLimit(limit: number | null): void;
     setArrowSize(size: number): void;
     setTypeFilter(types: string[] | null): void;
-    setClustering(on: boolean): void;
-    setLinkDistance(d: number): void;
-    setLinkStrength(s: number): void;
-    setClusterStrength(s: number): void;
-    setClusterDistance(d: number): void;
-    setChargeStrength(s: number): void;
-    setCentroidGravity(s: number): void;
+    setOption(key: string, value: number | boolean): void;
+    getLayout(): LayoutDescriptor;
     dispose(): void;
 }
 
@@ -62,7 +69,8 @@ export function mountGraph(
     let lastLinks: RenderLink[] = [];
     let lastCentroids: RenderCentroid[] = [];
 
-    const engine: LayoutEngine = forceHierarchicalFactory.create();
+    const factory: LayoutFactory = forceHierarchicalFactory;
+    const engine: LayoutEngine = factory.create();
 
     const renderer: GraphRenderer = mountRenderer(
         host,
@@ -152,32 +160,16 @@ export function mountGraph(
         renderer.setArrowSize(size);
     }
 
-    function setClustering(on: boolean): void {
-        engine.setOption("clustering", on);
+    function setOption(key: string, value: number | boolean): void {
+        engine.setOption(key, value);
     }
 
-    function setLinkDistance(d: number): void {
-        engine.setOption("linkDistance", d);
-    }
-
-    function setLinkStrength(s: number): void {
-        engine.setOption("linkStrength", s);
-    }
-
-    function setClusterStrength(s: number): void {
-        engine.setOption("clusterStrength", s);
-    }
-
-    function setClusterDistance(d: number): void {
-        engine.setOption("clusterDistance", d);
-    }
-
-    function setChargeStrength(s: number): void {
-        engine.setOption("chargeStrength", s);
-    }
-
-    function setCentroidGravity(s: number): void {
-        engine.setOption("centroidGravity", s);
+    function getLayout(): LayoutDescriptor {
+        return {
+            id: factory.id,
+            label: factory.label,
+            options: factory.options,
+        };
     }
 
     function dispose(): void {
@@ -191,13 +183,8 @@ export function mountGraph(
         setHopLimit,
         setArrowSize,
         setTypeFilter,
-        setClustering,
-        setLinkDistance,
-        setLinkStrength,
-        setClusterStrength,
-        setClusterDistance,
-        setChargeStrength,
-        setCentroidGravity,
+        setOption,
+        getLayout,
         dispose,
     };
 }
