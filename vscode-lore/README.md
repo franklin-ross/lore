@@ -22,6 +22,7 @@ The extension uses the bundled `lore` binary. Override via `lore.serverPath` if 
 - **Definition styling** — tinted background or underline on the canonical occurrence of each name.
 - **Wiki view** — full picture of an entity (state, history, descriptions, inbound and outbound references). Open via `F12` on a name, the entity tree, or the `Lore: Open Entity Wiki` command.
 - **Entity tree** in the Explorer sidebar with filter and refresh.
+- **Knowledge graph** — interactive force-directed view of every entity and the references between them. See [Knowledge Graph](#knowledge-graph) below.
 
 ## Commands
 
@@ -35,6 +36,7 @@ All commands appear in the palette under the `Lore:` prefix.
 | `Lore: Filter Entities`               | Filter the entity tree by name, type, alias, or tag.                          |
 | `Lore: Clear Entities Filter`         | Clear the entity-tree filter.                                                 |
 | `Lore: Toggle Hover State Directives` | Show/hide inline state directives inside description prose in the hover view. |
+| `Lore: Open Knowledge Graph`          | Open the interactive force-directed graph of every entity.                    |
 
 ## Keybindings
 
@@ -61,6 +63,52 @@ To unbind or rebind, use `Preferences: Open Keyboard Shortcuts (JSON)`:
 | `lore.hover.showStateDirectives` | `false`          | Show inline `+tag` / `field = …` directives inside description prose in the hover view.     |
 | `lore.definitionStyle`           | `background`     | How to highlight the canonical occurrence of a name — `background`, `underline`, or `none`. |
 | `lore.trace.server`              | `off`            | LSP message tracing — `off`, `messages`, or `verbose`.                                      |
+
+## Knowledge Graph
+
+`Lore: Open Knowledge Graph` opens an interactive force-directed view of every entity in the project, with edges drawn between entities that reference each other. Single-click focuses a node (mirrors to the wiki); double-click opens the entity wiki; drag pins a node; click empty space to clear focus.
+
+### Toolbar
+
+- **Hops** — `1` / `2` / `all`, limits visible nodes to those within N edges of the focused node
+- **Types** — opens a quick-pick to filter visible entity types
+- **Layout** — picks the simulation algorithm (see below)
+- **⚙︎** — opens the settings panel for the active layout
+
+### Layouts
+
+Three force-directed simulations are available; pick whichever reads best for the question you're asking. The settings panel exposes layout-specific sliders, plus a **Restore defaults** button.
+
+#### Force (hierarchical) — default
+
+Nodes of the same type cluster together, and are attracted to other nodes they reference. Busy clusters tend towards the middle, while smaller clusters float to the outside. Leads to a hub-and-spoke style around busy nodes and clusters.
+
+- **Strengths**: colocates similar types of nodes; minimises distance between busy types
+- **Weaknesses**: well-connected nodes may have long edges; small groups are out of sight
+
+#### Force (flat)
+
+Pure link-graph, nodes attracts connected nodes.
+
+- **Strengths**: shows the actual reference structure without type bias; fewer long edges
+- **Weaknesses**: weakly-connected entities drift to the rim; no visual grouping if you care about types
+
+#### ForceAtlas2
+
+Gephi's ForceAtlas2 algorithm via [graphology](https://graphology.github.io). Barnes-Hut optimised, scales well to 1k+ nodes. No type-aware clustering — communities emerge from edge density alone.
+
+- **Strengths**: separates densely-linked communities cleanly, especially with **lin-log mode** on; handles uneven graphs better than the d3 forces
+- **Weaknesses**: difficult to tune, can produce tight blobs
+
+If you see a cramped overlapping ball with FA2: try `scaling` 50–100, enable `lin-log`, and drop **Hops** to 1 or 2.
+
+If hubs feel "crushed" toward the centre while leaves spread to the rim: keep `dissuade hubs` on (default). It divides each edge's attraction by the source's degree, so hubs aren't yanked toward every connected leaf.
+
+`edge influence` only bites when `lin-log` is off. Lin-log replaces linear attraction `d` with `log(1+d)`, which compresses distance so much that the weight exponent has little visible effect. Turn lin-log off to see edge weight respond to the slider.
+
+### Settings persistence
+
+Each layout persists slider and toggle values independently. Switching from `Force (hierarchical)` to `ForceAtlas2` and back restores both layouts' last-tuned state.
 
 ## Reporting Issues
 
