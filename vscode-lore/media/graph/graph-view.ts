@@ -10,7 +10,11 @@ import {
     type RenderLink,
     type RenderNode,
 } from "./graph-renderer.ts";
-import { findLayout, layoutFactories } from "./layouts/registry.ts";
+import {
+    defaultFactory,
+    layoutEntries,
+    loadFactory,
+} from "./layouts/registry.ts";
 import type {
     LayoutEngine,
     LayoutFactory,
@@ -66,7 +70,7 @@ export interface GraphView {
     setLayout(
         id: string,
         getOption?: (key: string) => number | boolean | undefined,
-    ): void;
+    ): Promise<void>;
     dispose(): void;
 }
 
@@ -80,7 +84,7 @@ export function mountGraph(
     let lastLinks: RenderLink[] = [];
     let lastCentroids: RenderCentroid[] = [];
 
-    let factory: LayoutFactory = layoutFactories[0]!;
+    let factory: LayoutFactory = defaultFactory;
     let engine: LayoutEngine = factory.create();
 
     const renderer: GraphRenderer = mountRenderer(
@@ -192,18 +196,21 @@ export function mountGraph(
     }
 
     function getLayouts(): LayoutChoice[] {
-        return layoutFactories.map((f) => ({ id: f.id, label: f.label }));
+        return layoutEntries.map((e) => ({ id: e.id, label: e.label }));
     }
 
-    // setLayout swaps the active engine. Positions reset (the new
-    // engine starts from scratch) but data, focus, and renderer state
-    // carry across. Per-option values come from getOption(key) when
-    // provided, otherwise the new engine's defaults apply.
-    function setLayout(
+    // setLayout swaps the active engine. Non-default factories are
+    // loaded via dynamic import, so this is async — the chunk lands
+    // on first switch then is cached for the session. Positions reset
+    // (new engine starts from scratch) but data, focus, and renderer
+    // state carry across. Per-option values come from getOption(key)
+    // when provided, otherwise the new engine's defaults apply.
+    async function setLayout(
         id: string,
         getOption?: (key: string) => number | boolean | undefined,
-    ): void {
-        const next = findLayout(id);
+    ): Promise<void> {
+        if (id === factory.id) return;
+        const next = await loadFactory(id);
         if (!next || next === factory) return;
         engine.stop();
         engine.dispose();

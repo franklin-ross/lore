@@ -149,22 +149,14 @@ const view = mountGraph(
   () => palette,
 );
 
-// Switch to persisted layout if it differs from the registry default.
-// setLayout applies persisted/default options on the new engine before
-// it kicks off, so the second loop below is idempotent in that case.
+// activeLayout is mutable so layout switches can replace it. Initial
+// value is the registry default; we may swap to a persisted choice
+// asynchronously below.
 let activeLayout = view.getLayout();
-const wantedLayoutId = persisted.activeLayoutId ?? activeLayout.id;
-if (
-  wantedLayoutId !== activeLayout.id
-  && view.getLayouts().some((l) => l.id === wantedLayoutId)
-) {
-  view.setLayout(wantedLayoutId, (key) => readOption(wantedLayoutId, key));
-  activeLayout = view.getLayout();
-}
-persisted.activeLayoutId = activeLayout.id;
 
-// Apply persisted (or default) option values for the active layout
-// before any UI renders, so initial paint reflects user preference.
+// Apply persisted (or default) option values for the active default
+// layout immediately, so first paint reflects user preference even
+// before any persisted-layout switch lands.
 for (const opt of activeLayout.options) {
   const stored = readOption(activeLayout.id, opt.key);
   const value = stored !== undefined ? stored : opt.default;
@@ -179,6 +171,29 @@ const settingsPanel = buildSettingsPanel();
 let settingsToggleBtn: HTMLButtonElement | null = null;
 buildToolbar();
 applyPanelOpen();
+
+// If user previously had a non-default layout active, switch now —
+// non-default factories are lazy-loaded so this is async. The graph
+// renders with the default layout first, then re-renders under the
+// persisted layout once its chunk arrives.
+const wantedLayoutId = persisted.activeLayoutId ?? activeLayout.id;
+if (
+  wantedLayoutId !== activeLayout.id
+  && view.getLayouts().some((l) => l.id === wantedLayoutId)
+) {
+  void (async () => {
+    await view.setLayout(wantedLayoutId, (key) =>
+      readOption(wantedLayoutId, key),
+    );
+    activeLayout = view.getLayout();
+    persisted.activeLayoutId = activeLayout.id;
+    saveState();
+    if (panelTitleEl) panelTitleEl.textContent = activeLayout.label;
+    renderPanelBody();
+  })();
+} else {
+  persisted.activeLayoutId = activeLayout.id;
+}
 
 function buildToolbar(): void {
   toolbarHost.innerHTML = "";
@@ -261,14 +276,14 @@ function buildLayoutDropdown(): HTMLSelectElement {
     sel.appendChild(opt);
   }
   sel.addEventListener("change", () => {
-    switchLayout(sel.value);
+    void switchLayout(sel.value);
   });
   return sel;
 }
 
-function switchLayout(id: string): void {
+async function switchLayout(id: string): Promise<void> {
   if (id === activeLayout.id) return;
-  view.setLayout(id, (key) => readOption(id, key));
+  await view.setLayout(id, (key) => readOption(id, key));
   activeLayout = view.getLayout();
   persisted.activeLayoutId = id;
   saveState();
