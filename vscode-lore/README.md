@@ -81,9 +81,11 @@ Three force-directed simulations are available; pick whichever reads best for th
 
 #### Force (hierarchical) — default
 
-Nodes of the same type cluster together, and are attracted to other nodes they reference. Busy clusters tend towards the middle, while smaller clusters float to the outside. Leads to a hub-and-spoke style around busy nodes and clusters.
+Two coupled simulations: a small **cluster graph** (one node per entity type, edges weighted by cross-type reference count) settles first, then **members** anchor to their type's cluster centroid while charge spreads them within the cluster. Highly cross-referenced types pull toward each other; isolated types drift to the rim under charge. Result: hub-and-spoke at the cluster level, local fan-out within each cluster.
 
-- **Strengths**: colocates similar types of nodes; minimises distance between busy types
+Splitting the layers means cluster topology converges in tens of ticks regardless of how many entities exist — the member graph then resolves quickly against stable centroid targets.
+
+- **Strengths**: colocates similar types of nodes; minimises distance between busy types; settles quickly even on large graphs
 - **Weaknesses**: well-connected nodes may have long edges; small groups are out of sight
 
 #### Force (flat)
