@@ -18,6 +18,10 @@ export interface LayoutNode {
 export interface LayoutLink {
     source: string;
     target: string;
+    // Reference count between source and target. Layouts may use it as
+    // an edge weight (FA2's edgeWeightInfluence reads this); layouts
+    // that don't care can ignore it.
+    weight?: number;
 }
 
 export interface LayoutHandlers {

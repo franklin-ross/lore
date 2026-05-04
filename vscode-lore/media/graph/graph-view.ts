@@ -152,7 +152,11 @@ export function mountGraph(
         // fills positions before we return.
         engine.setData(
             rNodes.map((n) => ({ id: n.id, type: n.type })),
-            rLinks.map((l) => ({ source: l.source, target: l.target })),
+            rLinks.map((l) => ({
+                source: l.source,
+                target: l.target,
+                weight: l.count,
+            })),
             focus ?? undefined,
         );
         renderer.setFocus(focus);
@@ -161,7 +165,6 @@ export function mountGraph(
     function setFocus(label: string | null | undefined): void {
         focus = label ?? null;
         renderer.setFocus(focus);
-        engine.bumpEnergy(0.05);
     }
 
     function setHopLimit(limit: number | null): void {
@@ -214,7 +217,11 @@ export function mountGraph(
         }
         engine.setData(
             lastNodes.map((n) => ({ id: n.id, type: n.type })),
-            lastLinks.map((l) => ({ source: l.source, target: l.target })),
+            lastLinks.map((l) => ({
+                source: l.source,
+                target: l.target,
+                weight: l.count,
+            })),
             focus ?? undefined,
         );
         engine.start();

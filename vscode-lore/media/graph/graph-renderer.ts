@@ -696,6 +696,11 @@ export function mountRenderer(
         recomputeHops();
         paintNodes();
         paintLinks();
+        // Re-trim edge endpoints — the focused node's radius changed,
+        // so edges incident to the old/new focus need their x1/y1/x2/y2
+        // recomputed against the live radius. Without this we'd wait
+        // for the next sim tick.
+        applyPositions();
     }
 
     function setHopLimit(limit: number | null): void {
