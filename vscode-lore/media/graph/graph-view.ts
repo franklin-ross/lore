@@ -10,10 +10,11 @@ import {
     type RenderLink,
     type RenderNode,
 } from "./graph-renderer.ts";
-import { forceHierarchicalFactory } from "./layouts/force-hierarchical.ts";
+import { findLayout, layoutFactories } from "./layouts/registry.ts";
 import type {
     LayoutEngine,
     LayoutFactory,
+    LayoutHandlers,
     OptionSpec,
 } from "./layouts/types.ts";
 
@@ -48,6 +49,11 @@ export interface LayoutDescriptor {
     options: OptionSpec[];
 }
 
+export interface LayoutChoice {
+    id: string;
+    label: string;
+}
+
 export interface GraphView {
     update(payload: GraphPayload, focus: string | null | undefined): void;
     setFocus(label: string | null | undefined): void;
@@ -56,6 +62,11 @@ export interface GraphView {
     setTypeFilter(types: string[] | null): void;
     setOption(key: string, value: number | boolean): void;
     getLayout(): LayoutDescriptor;
+    getLayouts(): LayoutChoice[];
+    setLayout(
+        id: string,
+        getOption?: (key: string) => number | boolean | undefined,
+    ): void;
     dispose(): void;
 }
 
@@ -69,8 +80,8 @@ export function mountGraph(
     let lastLinks: RenderLink[] = [];
     let lastCentroids: RenderCentroid[] = [];
 
-    const factory: LayoutFactory = forceHierarchicalFactory;
-    const engine: LayoutEngine = factory.create();
+    let factory: LayoutFactory = layoutFactories[0]!;
+    let engine: LayoutEngine = factory.create();
 
     const renderer: GraphRenderer = mountRenderer(
         host,
@@ -98,7 +109,10 @@ export function mountGraph(
         getPalette,
     );
 
-    engine.setHandlers({
+    // Engine handlers extracted so setLayout can re-bind them on the
+    // freshly-created engine. Closures capture lastNodes/lastLinks/
+    // renderer from the outer scope; both stay valid across swaps.
+    const engineHandlers: LayoutHandlers = {
         onTick(positions) {
             renderer.setPositions(positions);
         },
@@ -106,7 +120,9 @@ export function mountGraph(
             lastCentroids = centroids;
             renderer.setData(lastNodes, lastLinks, lastCentroids);
         },
-    });
+    };
+
+    engine.setHandlers(engineHandlers);
     engine.start();
 
     function update(
@@ -172,6 +188,38 @@ export function mountGraph(
         };
     }
 
+    function getLayouts(): LayoutChoice[] {
+        return layoutFactories.map((f) => ({ id: f.id, label: f.label }));
+    }
+
+    // setLayout swaps the active engine. Positions reset (the new
+    // engine starts from scratch) but data, focus, and renderer state
+    // carry across. Per-option values come from getOption(key) when
+    // provided, otherwise the new engine's defaults apply.
+    function setLayout(
+        id: string,
+        getOption?: (key: string) => number | boolean | undefined,
+    ): void {
+        const next = findLayout(id);
+        if (!next || next === factory) return;
+        engine.stop();
+        engine.dispose();
+        factory = next;
+        engine = factory.create();
+        engine.setHandlers(engineHandlers);
+        for (const opt of factory.options) {
+            const stored = getOption?.(opt.key);
+            const value = stored !== undefined ? stored : opt.default;
+            engine.setOption(opt.key, value);
+        }
+        engine.setData(
+            lastNodes.map((n) => ({ id: n.id, type: n.type })),
+            lastLinks.map((l) => ({ source: l.source, target: l.target })),
+            focus ?? undefined,
+        );
+        engine.start();
+    }
+
     function dispose(): void {
         engine.dispose();
         renderer.dispose();
@@ -185,6 +233,8 @@ export function mountGraph(
         setTypeFilter,
         setOption,
         getLayout,
+        getLayouts,
+        setLayout,
         dispose,
     };
 }

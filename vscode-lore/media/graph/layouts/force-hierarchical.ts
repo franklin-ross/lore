@@ -47,7 +47,6 @@ const DEFAULTS = {
     clusterStrength: 1.0,
     chargeStrength: -250,
     centroidGravity: 0.2,
-    clustering: true,
     showCentroids: false,
 };
 
@@ -110,12 +109,6 @@ const OPTIONS: OptionSpec[] = [
         default: DEFAULTS.centroidGravity,
     },
     {
-        key: "clustering",
-        label: "clustering",
-        type: "toggle",
-        default: DEFAULTS.clustering,
-    },
-    {
         key: "showCentroids",
         label: "show centroids",
         type: "toggle",
@@ -127,7 +120,7 @@ export const forceHierarchicalFactory: LayoutFactory = {
     id: "force-hierarchical",
     label: "Force (hierarchical)",
     description:
-        "Charge + entity links with optional ghost-centroid clustering by entity type.",
+        "Charge + entity links with ghost-centroid clustering by entity type.",
     options: OPTIONS,
     create() {
         return createForceHierarchical();
@@ -147,7 +140,6 @@ function createForceHierarchical(): LayoutEngine {
     let clusterStrength = DEFAULTS.clusterStrength;
     let chargeStrength = DEFAULTS.chargeStrength;
     let centroidGravity = DEFAULTS.centroidGravity;
-    let clustering = DEFAULTS.clustering;
     // Debug ghost-centroid markers (dashed rings + type label). Sim runs
     // them either way; toggle just gates whether the engine surfaces
     // them through onCentroidsChanged for the renderer to paint.
@@ -227,11 +219,6 @@ function createForceHierarchical(): LayoutEngine {
         maxMemberCount = 1;
         for (const v of memberCountByType.values()) {
             if (v > maxMemberCount) maxMemberCount = v;
-        }
-        if (!clustering) {
-            centroids = [];
-            centroidLinks = [];
-            return;
         }
         const presentTypes = new Set<string>();
         for (const n of nodes) presentTypes.add(n.type ?? "(untyped)");
@@ -421,15 +408,6 @@ function createForceHierarchical(): LayoutEngine {
                     "centroidGravityY",
                 )?.strength(centroidGravityFor);
                 break;
-            }
-            case "clustering": {
-                if (typeof value !== "boolean" || value === clustering) return;
-                clustering = value;
-                rebuildCentroids();
-                applySimulationContents();
-                emitCentroids();
-                sim.alpha(Math.max(sim.alpha(), 0.2)).restart();
-                return;
             }
             case "showCentroids": {
                 if (typeof value !== "boolean" || value === showCentroids)

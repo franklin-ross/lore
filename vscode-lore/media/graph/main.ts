@@ -40,6 +40,7 @@ interface PersistedState {
   focus?: string;
   source?: string;
   hopLimit?: number | null;
+  activeLayoutId?: string;
   layouts?: LayoutOptionsMap;
   settingsPanelOpen?: boolean;
   // Legacy flat keys — read once on startup, then dropped.
@@ -83,6 +84,7 @@ function migrate(raw: PersistedState): PersistedState {
     focus: raw.focus,
     source: raw.source,
     hopLimit: raw.hopLimit,
+    activeLayoutId: raw.activeLayoutId,
     layouts: raw.layouts ? { ...raw.layouts } : {},
     settingsPanelOpen: raw.settingsPanelOpen,
   };
@@ -103,6 +105,7 @@ function saveState(): void {
     focus: focus ?? undefined,
     source: persisted.source,
     hopLimit,
+    activeLayoutId: persisted.activeLayoutId,
     layouts: persisted.layouts,
     settingsPanelOpen: panelOpen,
   });
@@ -146,9 +149,22 @@ const view = mountGraph(
   () => palette,
 );
 
+// Switch to persisted layout if it differs from the registry default.
+// setLayout applies persisted/default options on the new engine before
+// it kicks off, so the second loop below is idempotent in that case.
+let activeLayout = view.getLayout();
+const wantedLayoutId = persisted.activeLayoutId ?? activeLayout.id;
+if (
+  wantedLayoutId !== activeLayout.id
+  && view.getLayouts().some((l) => l.id === wantedLayoutId)
+) {
+  view.setLayout(wantedLayoutId, (key) => readOption(wantedLayoutId, key));
+  activeLayout = view.getLayout();
+}
+persisted.activeLayoutId = activeLayout.id;
+
 // Apply persisted (or default) option values for the active layout
 // before any UI renders, so initial paint reflects user preference.
-const activeLayout = view.getLayout();
 for (const opt of activeLayout.options) {
   const stored = readOption(activeLayout.id, opt.key);
   const value = stored !== undefined ? stored : opt.default;
@@ -158,6 +174,7 @@ for (const opt of activeLayout.options) {
 view.setHopLimit(hopLimit);
 
 let panelBody: HTMLElement | null = null;
+let panelTitleEl: HTMLSpanElement | null = null;
 const settingsPanel = buildSettingsPanel();
 let settingsToggleBtn: HTMLButtonElement | null = null;
 buildToolbar();
@@ -167,6 +184,7 @@ function buildToolbar(): void {
   toolbarHost.innerHTML = "";
   toolbarHost.appendChild(buildScopeGroup());
   toolbarHost.appendChild(buildTypesButton());
+  toolbarHost.appendChild(buildLayoutDropdown());
 
   const focusLabel = document.createElement("span");
   focusLabel.className = "focus-indicator";
@@ -230,6 +248,34 @@ function buildTypesButton(): HTMLButtonElement {
   return typesBtn;
 }
 
+function buildLayoutDropdown(): HTMLSelectElement {
+  const sel = document.createElement("select");
+  sel.className = "scope-btn layout-select";
+  sel.id = "layout-select";
+  sel.title = "Layout";
+  for (const choice of view.getLayouts()) {
+    const opt = document.createElement("option");
+    opt.value = choice.id;
+    opt.textContent = choice.label;
+    if (choice.id === activeLayout.id) opt.selected = true;
+    sel.appendChild(opt);
+  }
+  sel.addEventListener("change", () => {
+    switchLayout(sel.value);
+  });
+  return sel;
+}
+
+function switchLayout(id: string): void {
+  if (id === activeLayout.id) return;
+  view.setLayout(id, (key) => readOption(id, key));
+  activeLayout = view.getLayout();
+  persisted.activeLayoutId = id;
+  saveState();
+  if (panelTitleEl) panelTitleEl.textContent = activeLayout.label;
+  renderPanelBody();
+}
+
 function setFocusIndicator(label: string | null): void {
   const el = document.getElementById("focus-indicator");
   if (!el) return;
@@ -261,6 +307,7 @@ function buildSettingsPanel(): HTMLElement {
   const title = document.createElement("span");
   title.className = "settings-title";
   title.textContent = activeLayout.label;
+  panelTitleEl = title;
   header.appendChild(title);
   const close = document.createElement("button");
   close.type = "button";
