@@ -4,6 +4,8 @@ import { renderTypePage, type TypeDetails } from "./type-page.ts";
 import { renderHomePage } from "./home-page.ts";
 import { mountToolbar, type BreadcrumbPage } from "./toolbar.ts";
 import { createSearchController, type Catalog } from "./search.ts";
+import { mountEntityGraph, type EntityGraphController } from "./entity-graph.ts";
+import type { GraphPayload } from "../shared/graph-view.ts";
 import type { PageCtx } from "./ctx.ts";
 
 interface VsCodeApi {
@@ -28,6 +30,8 @@ interface PageMessage {
   cursor?: number;
   canBack?: boolean;
   canForward?: boolean;
+  graph?: GraphPayload | null;
+  scrollToGraph?: boolean;
 }
 interface ErrorMessage {
   type: "error";
@@ -50,6 +54,7 @@ interface PersistedState {
 const vscode = acquireVsCodeApi();
 const root = document.getElementById("root")!;
 const toolbarHost = document.getElementById("toolbar")!;
+const graphSection = document.getElementById("entity-graph")!;
 
 const persisted = (vscode.getState<PersistedState>() ?? {}) as PersistedState;
 const collapsed = new Set<string>(persisted.collapsed ?? []);
@@ -111,6 +116,17 @@ const toolbar = mountToolbar(toolbarHost, {
   openHistoryIndex: (index) => vscode.postMessage({ type: "goto", index }),
 }, search);
 
+// Persistent embedded graph at the bottom of the wiki view. Lives outside
+// the #root that re-renders on every navigation so the graph instance —
+// and its layout state — survives across page changes.
+const entityGraph: EntityGraphController = mountEntityGraph(graphSection, {
+  // Scroll-to-graph keeps the embedded graph in view across the navigation.
+  // The flag travels through the extension's openEntity handler back into
+  // the next page message as scrollToGraph: true.
+  openEntity: (entity) => vscode.postMessage({ type: "openEntity", entity, scrollToGraph: true }),
+  openGraphHere: () => vscode.postMessage({ type: "openGraphHere" }),
+});
+
 function pageKey(page: Page | null | undefined): string {
   if (!page) return "";
   return page.kind + ":" + page.value;
@@ -143,14 +159,34 @@ function render(msg: PageMessage): void {
   }
   search.pruneDetached();
 
+  // Embedded graph is entity-only — drives off the entity payload's
+  // canonical name+type so resolution works even when page.value is a
+  // disambiguated label. Update before scroll restoration so the graph
+  // host has its real height when we measure scroll targets.
+  if (page && page.kind === "entity") {
+    const details = msg.payload as EntityDetails | undefined;
+    entityGraph.show(msg.graph ?? null, {
+      pageValue: page.value,
+      name: details?.name,
+      type: details?.type,
+    }, palette);
+  } else {
+    entityGraph.hide();
+  }
+
   lastPageKey = key;
   saveState();
-  // Restore scroll for this page only when we're not landing on it for
-  // the first time. requestAnimationFrame so the new DOM has settled.
+  // Scroll behaviour: scrollToGraph (set when navigating from an embedded
+  // graph node click) wins over saved-position restore. Otherwise fall
+  // through to per-page scroll memory; first-time landings start at top.
   const targetScroll = sameAsLast ? (scrollByPage[key] ?? 0) : 0;
   if (!sameAsLast) scrollByPage[key] = 0;
   requestAnimationFrame(() => {
-    window.scrollTo(0, targetScroll);
+    if (msg.scrollToGraph) {
+      entityGraph.scrollIntoView();
+    } else {
+      window.scrollTo(0, targetScroll);
+    }
   });
 }
 

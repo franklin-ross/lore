@@ -3,7 +3,7 @@ import {
   type GraphPayload,
   type GraphView,
   type OptionSpec,
-} from "./graph-view.ts";
+} from "../shared/graph-view.ts";
 
 interface VsCodeApi {
   postMessage(msg: unknown): void;

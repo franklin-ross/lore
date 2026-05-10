@@ -42,6 +42,12 @@ export interface GraphRenderer {
     setHopLimit(limit: number | null): void;
     setArrowSize(size: number): void;
     setTypeFilter(types: string[] | null): void;
+    // When true, the viewport is translated on every tick so the focused
+    // node sits at the SVG origin (which the viewBox places at host centre).
+    // Pan input is ignored while anchored — zoom is allowed and re-pins the
+    // anchor on each step. Used by the embedded wiki graph; the standalone
+    // graph panel leaves it off so the user can compose freely.
+    setAnchorFocusToCentre(on: boolean): void;
     dispose(): void;
 }
 
@@ -135,6 +141,21 @@ export function mountRenderer(
     let gradientCounter = 0;
 
     const transform = { x: 0, y: 0, k: 1 };
+    let anchorFocusToCentre = false;
+
+    // recentreOnFocus translates the viewport so the focused node lands at
+    // SVG (0,0) — the viewBox places that point at the host's visual centre,
+    // so this is "pan to focus" without the work of measuring host bounds.
+    // Re-run on every position tick when anchorFocusToCentre is on so the
+    // focus stays centred while the layout settles.
+    function recentreOnFocus(): void {
+        if (!focus) return;
+        const p = positions.get(focus);
+        if (!p) return;
+        transform.x = -p.x * transform.k;
+        transform.y = -p.y * transform.k;
+        applyTransform();
+    }
 
     function applyTransform(): void {
         viewport.setAttribute(
@@ -617,10 +638,15 @@ export function mountRenderer(
         ) {
             panMoved = true;
         }
-        transform.x += ev.clientX - panLast.x;
-        transform.y += ev.clientY - panLast.y;
+        // Anchor mode keeps the focused node pinned to centre — pan input
+        // would fight that on every tick, so we just ignore translation
+        // here. Zoom (below) is still honoured and re-anchors after.
+        if (!anchorFocusToCentre) {
+            transform.x += ev.clientX - panLast.x;
+            transform.y += ev.clientY - panLast.y;
+            applyTransform();
+        }
         panLast = { x: ev.clientX, y: ev.clientY };
-        applyTransform();
     });
     svg.addEventListener("pointerup", (ev) => {
         if (!panActive) return;
@@ -634,6 +660,13 @@ export function mountRenderer(
         (ev) => {
             ev.preventDefault();
             const factor = Math.exp(-ev.deltaY * 0.001);
+            // Anchor mode: zoom around the focused node rather than the
+            // cursor so the focus stays pinned to centre across zoom steps.
+            if (anchorFocusToCentre) {
+                transform.k = Math.max(0.2, Math.min(4, transform.k * factor));
+                recentreOnFocus();
+                return;
+            }
             const rect = svg.getBoundingClientRect();
             const cx = ev.clientX - rect.left - rect.width / 2;
             const cy = ev.clientY - rect.top - rect.height / 2;
@@ -688,6 +721,7 @@ export function mountRenderer(
         next: Map<string, { x: number; y: number }>,
     ): void {
         positions = next;
+        if (anchorFocusToCentre) recentreOnFocus();
         applyPositions();
     }
 
@@ -701,6 +735,12 @@ export function mountRenderer(
         // recomputed against the live radius. Without this we'd wait
         // for the next sim tick.
         applyPositions();
+        if (anchorFocusToCentre) recentreOnFocus();
+    }
+
+    function setAnchorFocusToCentre(on: boolean): void {
+        anchorFocusToCentre = on;
+        if (on) recentreOnFocus();
     }
 
     function setHopLimit(limit: number | null): void {
@@ -741,6 +781,7 @@ export function mountRenderer(
         setHopLimit,
         setArrowSize,
         setTypeFilter,
+        setAnchorFocusToCentre,
         dispose,
     };
 }

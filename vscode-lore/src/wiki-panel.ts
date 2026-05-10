@@ -18,6 +18,10 @@ interface EntityListResponse {
   entities?: { name: string; type: string }[];
 }
 
+interface GraphNode { label: string; name: string; type?: string; colourIndex: number }
+interface GraphDefEdge { from: string; to: string; count: number }
+interface GraphResponse { nodes?: GraphNode[]; defEdges?: GraphDefEdge[] }
+
 interface LspRange {
   start: { line: number; character: number };
   end: { line: number; character: number };
@@ -31,6 +35,7 @@ interface IncomingMessage {
   entity?: string;
   value?: string;
   index?: number;
+  scrollToGraph?: boolean;
 }
 
 /**
@@ -48,6 +53,13 @@ export class LoreWikiPanel {
   private history: WikiPage[] = [];
   private cursor = -1;
   private busSub: vscode.Disposable | undefined;
+
+  // pendingScrollToGraph: when set, the next refresh tells the webview to
+  // scroll the embedded graph into view instead of restoring saved position.
+  // Set by the openEntity handler when the click came from a node in the
+  // wiki's own embedded graph (so the user keeps the graph in sight while
+  // browsing through it).
+  private pendingScrollToGraph = false;
 
   constructor(
     private readonly getClient: () => LanguageClient | undefined,
@@ -158,16 +170,23 @@ export class LoreWikiPanel {
 
     let payload: unknown = null;
     let catalog: Catalog | null = null;
+    let graph: GraphResponse | null = null;
     try {
-      [payload, catalog] = await Promise.all([
+      [payload, catalog, graph] = await Promise.all([
         this.fetchPayload(client, page),
         this.fetchCatalog(client, page.source),
+        // Embedded entity graph only renders on entity pages — skip the
+        // round-trip on home/type pages where the section is hidden.
+        page.kind === "entity" ? this.fetchGraph(client, page.source) : Promise.resolve(null),
       ]);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       this.panel.webview.postMessage({ type: "error", message });
       return;
     }
+
+    const scrollToGraph = this.pendingScrollToGraph;
+    this.pendingScrollToGraph = false;
 
     this.panel.webview.postMessage({
       type: "page",
@@ -179,6 +198,8 @@ export class LoreWikiPanel {
       cursor: this.cursor,
       canBack: this.cursor > 0,
       canForward: this.cursor < this.history.length - 1,
+      graph,
+      scrollToGraph,
     });
 
     // Broadcast focus so the graph panel (when open) can re-centre on the
@@ -203,6 +224,20 @@ export class LoreWikiPanel {
       });
     }
     return null; // home — no per-page payload
+  }
+
+  // fetchGraph pulls the full project graph for the current source. The
+  // webview filters it down to the focus entity's depth-1 neighbourhood
+  // (plus the next hop, faded) before rendering — keeping the filter
+  // client-side avoids a separate LSP request shape and lets graph
+  // updates flow through the same edit-debounce path.
+  private async fetchGraph(client: LanguageClient, source: string | undefined): Promise<GraphResponse | null> {
+    const td = source ? { uri: source } : undefined;
+    try {
+      return await client.sendRequest<GraphResponse>("lore/graph", { textDocument: td });
+    } catch {
+      return null;
+    }
   }
 
   // Fetches the entity catalog used by the search box. Same source scoping
@@ -320,8 +355,16 @@ export class LoreWikiPanel {
         if (msg.uri) await this.openInEditor(msg.uri, msg.line, msg.range);
         return;
       case "openEntity":
-        if (msg.entity) await this.show(msg.entity, this.current()?.source);
+        if (msg.entity) {
+          if (msg.scrollToGraph) this.pendingScrollToGraph = true;
+          await this.show(msg.entity, this.current()?.source);
+        }
         return;
+      case "openGraphHere": {
+        const entity = this.current()?.kind === "entity" ? this.current()?.value : undefined;
+        await vscode.commands.executeCommand("lore.openGraph", entity);
+        return;
+      }
       case "openType":
         if (msg.value) await this.showType(msg.value, this.current()?.source);
         return;
@@ -394,6 +437,7 @@ export class LoreWikiPanel {
 <body>
 <header id="toolbar"></header>
 <main id="root"><p class="empty">Loading…</p></main>
+<section id="entity-graph" class="entity-graph-section" hidden></section>
 <script type="module" nonce="${nonce}" src="${main}"></script>
 </body>
 </html>`;

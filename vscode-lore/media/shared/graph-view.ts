@@ -64,6 +64,10 @@ export interface GraphView {
     setHopLimit(limit: number | null): void;
     setArrowSize(size: number): void;
     setTypeFilter(types: string[] | null): void;
+    // Pin the focused node to the host's visual centre on every tick.
+    // Pan input is ignored while on; zoom stays anchored. Used by the
+    // embedded wiki graph; off in the standalone graph panel.
+    setAnchorFocusToCentre(on: boolean): void;
     setOption(key: string, value: number | boolean): void;
     getLayout(): LayoutDescriptor;
     getLayouts(): LayoutChoice[];
@@ -183,6 +187,10 @@ export function mountGraph(
         renderer.setArrowSize(size);
     }
 
+    function setAnchorFocusToCentre(on: boolean): void {
+        renderer.setAnchorFocusToCentre(on);
+    }
+
     function setOption(key: string, value: number | boolean): void {
         engine.setOption(key, value);
     }
@@ -245,6 +253,7 @@ export function mountGraph(
         setHopLimit,
         setArrowSize,
         setTypeFilter,
+        setAnchorFocusToCentre,
         setOption,
         getLayout,
         getLayouts,
