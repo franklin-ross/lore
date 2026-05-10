@@ -99,6 +99,8 @@ func (s *Server) newHandler() *protocol.Handler {
 	handler.TextDocumentHover = s.hover
 	handler.TextDocumentDefinition = s.definition
 	handler.TextDocumentReferences = s.references
+	handler.TextDocumentPrepareRename = s.prepareRename
+	handler.TextDocumentRename = s.rename
 	handler.TextDocumentCompletion = s.completion
 	handler.TextDocumentSemanticTokensFull = s.semanticTokensFull
 	handler.WorkspaceSymbol = s.workspaceSymbol
@@ -128,6 +130,9 @@ func (s *Server) initialize(ctx *glsp.Context, params *protocol.InitializeParams
 			HoverProvider:      true,
 			DefinitionProvider: true,
 			ReferencesProvider: true,
+			RenameProvider: &protocol.RenameOptions{
+				PrepareProvider: boolPtr(true),
+			},
 			CompletionProvider: &protocol.CompletionOptions{
 				// `+`/`-`/`=` open suggestions on the directive sigil itself
 				// (so `-l` isn't required to start a tag), `,` and ` ` keep

@@ -20,7 +20,7 @@ type Header struct {
 // `We saw her (Mad Mary (npc): old lady) wave.` reads as prose rather than a
 // header — the `:` inside the inline aside doesn't count.
 func ParseHeader(line string) (Header, bool) {
-	colon := indexHeaderColon(line)
+	colon := IndexHeaderColon(line)
 	if colon < 0 {
 		return Header{}, false
 	}
@@ -48,9 +48,9 @@ func ParseHeader(line string) (Header, bool) {
 	return Header{Name: name, DescStart: descStart}, true
 }
 
-// indexHeaderColon returns the byte offset of the first ':' in line that is
+// IndexHeaderColon returns the byte offset of the first ':' in line that is
 // outside any parenthesised group, or -1 if no such colon exists.
-func indexHeaderColon(line string) int {
+func IndexHeaderColon(line string) int {
 	depth := 0
 	for i := 0; i < len(line); i++ {
 		switch line[i] {
@@ -149,4 +149,85 @@ func extractEdgeType(segment string) (string, string, typeStatus) {
 		rest = trimmed[:open]
 	}
 	return typ, rest, typeFound
+}
+
+// LocateNameInHeader finds the byte range of the segment matching `target`
+// (case-insensitive) inside `headerPart` — the text of an entity header up
+// to the colon that separates it from the description body. Both the
+// canonical name and any alias are eligible matches; an edge `(type)`
+// annotation on the matching segment is skipped, so locating "Sildar" in
+// `"Sildar (character) | Sildar Hallwinter"` returns the first three-byte
+// range, not the whole segment. Returns ok=false when no segment matches.
+//
+// Used by the rename handler to update only the slot the cursor is on,
+// leaving the canonical name (or other aliases) and the type intact.
+func LocateNameInHeader(headerPart, target string) (start, end int, ok bool) {
+	target = strings.TrimSpace(target)
+	if target == "" {
+		return 0, 0, false
+	}
+	pos := 0
+	for {
+		var segEnd int
+		if i := strings.Index(headerPart[pos:], "|"); i < 0 {
+			segEnd = len(headerPart)
+		} else {
+			segEnd = pos + i
+		}
+		nameStart, nameEnd := nameRangeInSegment(headerPart, pos, segEnd)
+		if nameStart < nameEnd && strings.EqualFold(headerPart[nameStart:nameEnd], target) {
+			return nameStart, nameEnd, true
+		}
+		if segEnd == len(headerPart) {
+			return 0, 0, false
+		}
+		pos = segEnd + 1
+	}
+}
+
+// nameRangeInSegment returns the byte range of the bare name inside one
+// `|`-segment of a header part, with surrounding whitespace and any edge
+// `(type)` annotation excluded. Mirrors extractEdgeType but produces ranges
+// instead of strings so callers can build LSP TextEdits without rescanning.
+func nameRangeInSegment(headerPart string, segStart, segEnd int) (int, int) {
+	lo := segStart
+	for lo < segEnd && (headerPart[lo] == ' ' || headerPart[lo] == '\t') {
+		lo++
+	}
+	hi := segEnd
+	for hi > lo && (headerPart[hi-1] == ' ' || headerPart[hi-1] == '\t') {
+		hi--
+	}
+	if lo >= hi {
+		return lo, lo
+	}
+	// Skip an edge `(type)` annotation when it sits at the start or end of
+	// the trimmed segment. Mid-segment parens belong to the name.
+	open := strings.IndexByte(headerPart[lo:hi], '(')
+	if open < 0 {
+		return lo, hi
+	}
+	close := strings.IndexByte(headerPart[lo:hi], ')')
+	if close < 0 || close < open {
+		return lo, hi
+	}
+	openAbs := lo + open
+	closeAbs := lo + close
+	if openAbs == lo {
+		// Type at start: skip past `)` plus any whitespace.
+		nameStart := closeAbs + 1
+		for nameStart < hi && (headerPart[nameStart] == ' ' || headerPart[nameStart] == '\t') {
+			nameStart++
+		}
+		return nameStart, hi
+	}
+	if closeAbs == hi-1 {
+		// Type at end: stop before `(` and trim trailing whitespace.
+		nameEnd := openAbs
+		for nameEnd > lo && (headerPart[nameEnd-1] == ' ' || headerPart[nameEnd-1] == '\t') {
+			nameEnd--
+		}
+		return lo, nameEnd
+	}
+	return lo, hi
 }

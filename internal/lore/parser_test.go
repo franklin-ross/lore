@@ -91,6 +91,35 @@ func TestParseHeaderNoColon(t *testing.T) {
 	}
 }
 
+func TestLocateNameInHeader(t *testing.T) {
+	cases := []struct {
+		header, target  string
+		wantStart, want int
+		ok              bool
+	}{
+		{"Sildar Hallwinter (character) | Sildar", "Sildar Hallwinter", 0, 17, true},
+		{"Sildar Hallwinter (character) | Sildar", "Sildar", 32, 38, true},
+		{"(location) Cragmaw Hideout", "Cragmaw Hideout", 11, 26, true},
+		{"Cragmaw Hideout", "Cragmaw Hideout", 0, 15, true},
+		{"Sildar Hallwinter (character) | Sildar", "Mary", 0, 0, false},
+		{"  Padded  (type)  |  Alias  ", "Padded", 2, 8, true},
+		{"  Padded  (type)  |  Alias  ", "Alias", 21, 26, true},
+	}
+	for _, tc := range cases {
+		gotStart, gotEnd, ok := LocateNameInHeader(tc.header, tc.target)
+		if ok != tc.ok {
+			t.Errorf("LocateNameInHeader(%q,%q) ok=%v want %v", tc.header, tc.target, ok, tc.ok)
+			continue
+		}
+		if !ok {
+			continue
+		}
+		if gotStart != tc.wantStart || gotEnd != tc.want {
+			t.Errorf("LocateNameInHeader(%q,%q) = [%d,%d) want [%d,%d)", tc.header, tc.target, gotStart, gotEnd, tc.wantStart, tc.want)
+		}
+	}
+}
+
 func TestParseSingleFileWithEntities(t *testing.T) {
 	project := setupTestProject(t, map[string]string{
 		"session.md": "Gundren (character) | Gundren Rockseeker: A dwarf merchant.\n  Hired us to deliver supplies.\n\nPhandalin (location): A small frontier town.\n",

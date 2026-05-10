@@ -9,10 +9,15 @@ import (
 )
 
 // entityMatch holds a matched entity and the column span where it was found.
+// MatchedName is the specific canonical name or alias the cursor landed on,
+// preserving its case from the entity definition (not the source line). Used
+// by the rename handler to update only that slot rather than every spelling
+// of the entity.
 type entityMatch struct {
-	Entity *lore.Entity
-	Start  int
-	End    int
+	Entity      *lore.Entity
+	Start       int
+	End         int
+	MatchedName string
 }
 
 // findEntityAtPosition identifies which entity the cursor is on within the
@@ -57,7 +62,7 @@ func (s *Server) findEntityAtPosition(ps *projectState, uri string, pos protocol
 
 				span := matchEnd - start
 				if best == nil || span > (best.End-best.Start) {
-					best = &entityMatch{Entity: matchEnt, Start: start, End: matchEnd}
+					best = &entityMatch{Entity: matchEnt, Start: start, End: matchEnd, MatchedName: name}
 				}
 			}
 		}

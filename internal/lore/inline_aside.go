@@ -182,7 +182,7 @@ func extractInlineAsides(content string) []inlineAsideHit {
 		if !ok {
 			continue
 		}
-		colon := indexHeaderColon(raw)
+		colon := IndexHeaderColon(raw)
 		if colon < 0 {
 			continue
 		}
