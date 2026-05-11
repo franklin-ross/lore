@@ -16,8 +16,9 @@ import (
 // workers should fan out and merge on a single owner rather than mutating
 // this structure concurrently.
 type Index struct {
-	files map[string]*lore.FileParse
-	world *lore.World // cached merged world; nil when stale
+	files   map[string]*lore.FileParse
+	matcher lore.Matcher // captured at LoadProject; drives merge order
+	world   *lore.World  // cached merged world; nil when stale
 }
 
 // NewIndex returns an empty Index.
@@ -30,6 +31,7 @@ func NewIndex() *Index {
 // have been registered.
 func (idx *Index) LoadProject(project *lore.Project) error {
 	idx.files = make(map[string]*lore.FileParse, len(project.FilePaths))
+	idx.matcher = project.Matcher
 	for _, rel := range project.FilePaths {
 		data, err := fs.ReadFile(project.FS, rel)
 		if err != nil {
@@ -67,6 +69,7 @@ func (idx *Index) World() *lore.World {
 	for _, fp := range idx.files {
 		files = append(files, fp)
 	}
+	idx.matcher.SortFileParses(files)
 	idx.world = lore.Merge(files)
 	return idx.world
 }

@@ -272,6 +272,45 @@ func TestParseFilesSortedAlphabetically(t *testing.T) {
 	}
 }
 
+func TestParseFilesOrderedByPatternThenAlpha(t *testing.T) {
+	// `files` order beats alphabetical: world-building/** should sort before
+	// story/** even though "s" < "w" alphabetically. Within each pattern,
+	// files still sort alphabetically.
+	fsys := testFS(map[string]string{
+		"story/01-intro.md":         "Frodo (character): Hobbit.\n",
+		"story/02-bag-end.md":       "Bag End (location): Frodo's home.\n",
+		"world-building/places.md":  "The Shire (location): Hobbit homeland.\n",
+		"world-building/people.md":  "Hobbits (race): Small folk.\n",
+	})
+	cfg := Config{Files: []string{"world-building/**/*.md", "story/**/*.md"}}
+	matcher := Matcher{Patterns: cfg.Files}
+	paths, err := matcher.Find(fsys)
+	if err != nil {
+		t.Fatal(err)
+	}
+	project := &Project{FS: fsys, Config: cfg, Matcher: matcher, FilePaths: paths}
+
+	world, err := Parse(project)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	wantOrder := []string{
+		"world-building/people.md",
+		"world-building/places.md",
+		"story/01-intro.md",
+		"story/02-bag-end.md",
+	}
+	if len(world.Files) != len(wantOrder) {
+		t.Fatalf("file count = %d, want %d (%+v)", len(world.Files), len(wantOrder), world.Files)
+	}
+	for i, want := range wantOrder {
+		if world.Files[i].Path != want {
+			t.Fatalf("world.Files[%d] = %q, want %q", i, world.Files[i].Path, want)
+		}
+	}
+}
+
 func TestParseMarkdownHeadersIgnored(t *testing.T) {
 	project := setupTestProject(t, map[string]string{
 		"test.md": "# Session 1\n\nGundren (character): A dwarf.\n",

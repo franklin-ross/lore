@@ -165,18 +165,18 @@ func ParseFile(path, content string) *FileParse {
 	return fp
 }
 
-// Merge folds a set of per-file parses into a single World. Files are sorted
-// by path to keep output order deterministic and chronologically meaningful
-// (numeric prefixes win). Merge runs in three phases:
+// Merge folds a set of per-file parses into a single World. Files are
+// processed in the order the caller supplies — callers are expected to
+// pre-sort them (Matcher.SortFileParses produces pattern-then-alpha order,
+// which is what lore.toml's `files` field implies). Merge runs in three
+// phases:
 //
 //  1. Establish entities from every typed header across every file.
 //  2. Attach descriptions in file-then-scan order, resolving untyped headers
 //     against the entity set built in phase 1.
 //  3. Scan every line of every file for cross-references to known entities.
 func Merge(files []*FileParse) *World {
-	sorted := make([]*FileParse, len(files))
-	copy(sorted, files)
-	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Path < sorted[j].Path })
+	sorted := files
 
 	world := NewWorld()
 	world.Files = make([]FileSource, len(sorted))

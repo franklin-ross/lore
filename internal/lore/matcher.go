@@ -91,6 +91,19 @@ func (m Matcher) sortByPatternThenAlpha(paths []string) {
 	})
 }
 
+// SortFileParses orders files by the first matching pattern, then by path
+// alphabetically — matching the order Find produces for raw paths.
+func (m Matcher) SortFileParses(files []*FileParse) {
+	sort.SliceStable(files, func(i, j int) bool {
+		ai := m.patternIndex(files[i].Path)
+		bi := m.patternIndex(files[j].Path)
+		if ai != bi {
+			return ai < bi
+		}
+		return files[i].Path < files[j].Path
+	})
+}
+
 func (m Matcher) isIgnored(path string) bool {
 	for _, pattern := range m.Ignore {
 		if matched, _ := doublestar.Match(pattern, path); matched {
