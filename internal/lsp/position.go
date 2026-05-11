@@ -26,7 +26,6 @@ type entityMatch struct {
 func (s *Server) findEntityAtPosition(ps *projectState, uri string, pos protocol.Position) *entityMatch {
 	world := ps.world()
 	line := s.getLine(uri, pos.Line)
-	lowerLine := strings.ToLower(line)
 	// pos.Character arrives as a UTF-16 code unit count; lore matches
 	// against byte offsets, so translate up front.
 	col := bytesForUTF16Units(line, pos.Character)
@@ -37,8 +36,7 @@ func (s *Server) findEntityAtPosition(ps *projectState, uri string, pos protocol
 		ent := &world.Entities[i]
 		names := allNames(ent)
 		for _, name := range names {
-			lowerName := strings.ToLower(name)
-			for _, start := range lore.FindWordMatches(lowerLine, lowerName) {
+			for _, start := range lore.FindWordMatches(line, name) {
 				end := start + len(name)
 				if col < start || col > end {
 					continue

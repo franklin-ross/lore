@@ -339,21 +339,23 @@ func SkipSpaces(s string, pos int) int {
 	return pos
 }
 
-// MatchesTypeSuffix checks whether lowerText at position pos is followed by
-// any number of spaces and "(lowerType)", where spaces are also allowed
-// directly after the opening paren and before the closing paren. Returns
-// the index after the closing paren, or -1 if the pattern doesn't match.
-func MatchesTypeSuffix(lowerText string, pos int, lowerType string) int {
-	i := SkipSpaces(lowerText, pos)
-	if i >= len(lowerText) || lowerText[i] != '(' {
+// MatchesTypeSuffix checks whether text at position pos is followed by any
+// number of spaces and "(typ)", where spaces are also allowed directly after
+// the opening paren and before the closing paren. The comparison is
+// byte-exact (case-sensitive) — references must spell the type the same way
+// the entity was defined. Returns the index after the closing paren, or -1
+// if the pattern doesn't match.
+func MatchesTypeSuffix(text string, pos int, typ string) int {
+	i := SkipSpaces(text, pos)
+	if i >= len(text) || text[i] != '(' {
 		return -1
 	}
-	i = SkipSpaces(lowerText, i+1)
-	if i+len(lowerType) > len(lowerText) || lowerText[i:i+len(lowerType)] != lowerType {
+	i = SkipSpaces(text, i+1)
+	if i+len(typ) > len(text) || text[i:i+len(typ)] != typ {
 		return -1
 	}
-	i = SkipSpaces(lowerText, i+len(lowerType))
-	if i >= len(lowerText) || lowerText[i] != ')' {
+	i = SkipSpaces(text, i+len(typ))
+	if i >= len(text) || text[i] != ')' {
 		return -1
 	}
 	return i + 1
@@ -361,22 +363,23 @@ func MatchesTypeSuffix(lowerText string, pos int, lowerType string) int {
 
 // MatchesAnyTypeSuffix is like MatchesTypeSuffix but accepts any known
 // entity type inside the parentheses. Spaces are allowed between the name
-// and the paren, just inside the parens, and just before the close.
-func MatchesAnyTypeSuffix(lowerText string, pos int, lowerTypes map[string]struct{}) int {
-	i := SkipSpaces(lowerText, pos)
-	if i >= len(lowerText) || lowerText[i] != '(' {
+// and the paren, just inside the parens, and just before the close. Type
+// lookup is byte-exact against the entries in `types`.
+func MatchesAnyTypeSuffix(text string, pos int, types map[string]struct{}) int {
+	i := SkipSpaces(text, pos)
+	if i >= len(text) || text[i] != '(' {
 		return -1
 	}
-	typeStart := SkipSpaces(lowerText, i+1)
-	closeOffset := strings.Index(lowerText[typeStart:], ")")
+	typeStart := SkipSpaces(text, i+1)
+	closeOffset := strings.Index(text[typeStart:], ")")
 	if closeOffset < 0 {
 		return -1
 	}
 	typeEnd := typeStart + closeOffset
-	for typeEnd > typeStart && lowerText[typeEnd-1] == ' ' {
+	for typeEnd > typeStart && text[typeEnd-1] == ' ' {
 		typeEnd--
 	}
-	if _, ok := lowerTypes[lowerText[typeStart:typeEnd]]; !ok {
+	if _, ok := types[text[typeStart:typeEnd]]; !ok {
 		return -1
 	}
 	return typeStart + closeOffset + 1

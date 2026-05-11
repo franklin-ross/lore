@@ -80,20 +80,19 @@ func (s *Server) semanticTokensFull(_ *glsp.Context, params *protocol.SemanticTo
 
 	var tokens []rawToken
 	for lineIdx, line := range lines {
-		lowerLine := strings.ToLower(line)
 		before := len(tokens)
 		for i := range world.Match.Entities {
 			em := &world.Match.Entities[i]
-			appendNameMatches(&tokens, lineIdx, lowerLine, em, world.Match.Types, modBits[i])
-			for _, la := range em.LowerAliases {
-				appendMatches(&tokens, lineIdx, lowerLine, la, modBits[i])
+			appendNameMatches(&tokens, lineIdx, line, em, world.Match.Types, modBits[i])
+			for _, alias := range em.Aliases {
+				appendMatches(&tokens, lineIdx, line, alias, modBits[i])
 			}
 		}
-		// Match positions are computed in byte offsets against the lowered
-		// line; LSP semantic tokens are encoded in UTF-16 code units. Any
-		// multi-byte rune earlier in the line shifts later byte offsets
-		// past the UTF-16 position the editor expects, so convert per line
-		// once the line's tokens are known.
+		// Match positions are byte offsets into the line; LSP semantic
+		// tokens are encoded in UTF-16 code units. Any multi-byte rune
+		// earlier in the line shifts later byte offsets past the UTF-16
+		// position the editor expects, so convert per line once the
+		// line's tokens are known.
 		for j := before; j < len(tokens); j++ {
 			startByte := int(tokens[j].startChar)
 			endByte := startByte + int(tokens[j].length)
@@ -166,50 +165,47 @@ func resolveOverlaps(tokens []rawToken) []rawToken {
 // occurrence that carries a suffix for some *other* known type is skipped.
 // Bare-name occurrences (no disambiguator) still emit for every entity
 // sharing the name, so the resulting overlap reflects the genuine ambiguity.
-func appendNameMatches(out *[]rawToken, lineIdx int, lowerLine string, em *lore.EntityMatch, allTypes map[string]struct{}, modBits uint32) {
-	if em.LowerName == "" {
+func appendNameMatches(out *[]rawToken, lineIdx int, line string, em *lore.EntityMatch, allTypes map[string]struct{}, modBits uint32) {
+	if em.Name == "" {
 		return
 	}
-	for _, col := range lore.FindWordMatches(lowerLine, em.LowerName) {
-		end := col + len(em.LowerName)
-		if em.LowerType != "" && lore.MatchesTypeSuffix(lowerLine, end, em.LowerType) >= 0 {
+	for _, col := range lore.FindWordMatches(line, em.Name) {
+		end := col + len(em.Name)
+		if em.Type != "" && lore.MatchesTypeSuffix(line, end, em.Type) >= 0 {
 			*out = append(*out, rawToken{
 				line:      uint32(lineIdx),
 				startChar: uint32(col),
-				length:    uint32(len(em.LowerName)),
+				length:    uint32(len(em.Name)),
 				tokenType: 0,
 				modifiers: modBits,
 			})
 			continue
 		}
-		if lore.MatchesAnyTypeSuffix(lowerLine, end, allTypes) >= 0 {
+		if lore.MatchesAnyTypeSuffix(line, end, allTypes) >= 0 {
 			// Disambiguator points at a different entity — skip.
 			continue
 		}
 		*out = append(*out, rawToken{
 			line:      uint32(lineIdx),
 			startChar: uint32(col),
-			length:    uint32(len(em.LowerName)),
+			length:    uint32(len(em.Name)),
 			tokenType: 0,
 			modifiers: modBits,
 		})
 	}
 }
 
-// appendMatches scans one already-lowered line for a single needle and emits
-// a rawToken per hit. Needle length is also the token length because byte
-// offsets line up between the original and the lowered line for ASCII, and
-// upper-case multi-byte characters have the same byte length under
-// Go's strings.ToLower for every rune we care about here.
-func appendMatches(out *[]rawToken, lineIdx int, lowerLine, lowerNeedle string, modBits uint32) {
-	if lowerNeedle == "" {
+// appendMatches scans one line for a single needle and emits a rawToken per
+// byte-exact word hit.
+func appendMatches(out *[]rawToken, lineIdx int, line, needle string, modBits uint32) {
+	if needle == "" {
 		return
 	}
-	for _, col := range lore.FindWordMatches(lowerLine, lowerNeedle) {
+	for _, col := range lore.FindWordMatches(line, needle) {
 		*out = append(*out, rawToken{
 			line:      uint32(lineIdx),
 			startChar: uint32(col),
-			length:    uint32(len(lowerNeedle)),
+			length:    uint32(len(needle)),
 			tokenType: 0,
 			modifiers: modBits,
 		})

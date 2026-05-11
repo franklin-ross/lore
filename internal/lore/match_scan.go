@@ -2,7 +2,6 @@ package lore
 
 import (
 	"sort"
-	"strings"
 )
 
 // EntitySpan is one matched mention of an entity within a single text
@@ -41,7 +40,6 @@ func ScanEntities(world *World, text string, includeDisambig bool) []EntitySpan 
 		return nil
 	}
 	mi := world.Match
-	lower := strings.ToLower(text)
 
 	type cand struct {
 		start, end, entityIdx int
@@ -51,12 +49,12 @@ func ScanEntities(world *World, text string, includeDisambig bool) []EntitySpan 
 	for i := range mi.Entities {
 		em := &mi.Entities[i]
 
-		for _, pos := range FindWordMatches(lower, em.LowerName) {
-			end := pos + len(em.LowerName)
-			suffixPresent := MatchesAnyTypeSuffix(lower, end, mi.Types) >= 0
+		for _, pos := range FindWordMatches(text, em.Name) {
+			end := pos + len(em.Name)
+			suffixPresent := MatchesAnyTypeSuffix(text, end, mi.Types) >= 0
 			ownSuffixEnd := -1
-			if em.LowerType != "" {
-				ownSuffixEnd = MatchesTypeSuffix(lower, end, em.LowerType)
+			if em.Type != "" {
+				ownSuffixEnd = MatchesTypeSuffix(text, end, em.Type)
 			}
 			if suffixPresent && ownSuffixEnd < 0 {
 				// `(type)` follows but it's a different entity's type.
@@ -70,9 +68,9 @@ func ScanEntities(world *World, text string, includeDisambig bool) []EntitySpan 
 			all = append(all, cand{pos, end, i})
 		}
 
-		for _, la := range em.LowerAliases {
-			for _, pos := range FindWordMatches(lower, la) {
-				all = append(all, cand{pos, pos + len(la), i})
+		for _, alias := range em.Aliases {
+			for _, pos := range FindWordMatches(text, alias) {
+				all = append(all, cand{pos, pos + len(alias), i})
 			}
 		}
 	}

@@ -124,38 +124,35 @@ func ContainsIgnoreCase(haystack, needle string) bool {
 }
 
 // FindWordMatches returns the byte offsets at which needle appears in
-// haystack as a standalone word. BOTH arguments must already be lowercased;
-// callers that scan many needles against the same haystack (or vice versa)
-// should ToLower each value once and reuse the result instead of paying for
-// repeated allocations inside this function.
+// haystack as a standalone, byte-exact (case-sensitive) word.
 //
 // Word boundaries are the string edges or any character that isn't a letter,
 // digit, or underscore — so "pip" won't match inside "piping", but will
 // match in "a pip-sized dog".
-func FindWordMatches(lowerHaystack, lowerNeedle string) []int {
-	if lowerNeedle == "" {
+func FindWordMatches(haystack, needle string) []int {
+	if needle == "" {
 		return nil
 	}
 	var out []int
 	start := 0
 	for {
-		idx := strings.Index(lowerHaystack[start:], lowerNeedle)
+		idx := strings.Index(haystack[start:], needle)
 		if idx < 0 {
 			return out
 		}
 		pos := start + idx
-		end := pos + len(lowerNeedle)
-		if isWordBoundaryBefore(lowerHaystack, pos) && isWordBoundaryAfter(lowerHaystack, end) {
+		end := pos + len(needle)
+		if isWordBoundaryBefore(haystack, pos) && isWordBoundaryAfter(haystack, end) {
 			out = append(out, pos)
 		}
 		start = pos + 1
 	}
 }
 
-// HasWordMatch reports whether needle appears in haystack as a standalone
-// word. Like FindWordMatches, both arguments must already be lowercased.
-func HasWordMatch(lowerHaystack, lowerNeedle string) bool {
-	return len(FindWordMatches(lowerHaystack, lowerNeedle)) > 0
+// HasWordMatch reports whether needle appears in haystack as a standalone,
+// byte-exact word.
+func HasWordMatch(haystack, needle string) bool {
+	return len(FindWordMatches(haystack, needle)) > 0
 }
 
 func isWordBoundaryBefore(s string, pos int) bool {

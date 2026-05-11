@@ -766,7 +766,7 @@ func linkColouriser() *colouriser {
 	world := lore.NewWorld()
 	world.Entities = []lore.Entity{{Name: "Link", Type: "character"}}
 	world.Match = &lore.MatchIndex{
-		Entities: []lore.EntityMatch{{LowerName: "link"}},
+		Entities: []lore.EntityMatch{{Name: "Link"}},
 		Types:    map[string]struct{}{"character": {}},
 	}
 	return &colouriser{world: world, palette: []string{"#FF0000"}}
@@ -783,11 +783,13 @@ func TestColouriseProtectsAutolinks(t *testing.T) {
 
 func TestColouriseProtectsMarkdownLinkURL(t *testing.T) {
 	col := linkColouriser()
-	got := col.Wrap("see [link](www.link.com) for more")
-	// Label "link" inside `[...]` may still be coloured (markdown-it
+	got := col.Wrap("see [Link](www.link.com) for more")
+	// Label "Link" inside `[...]` may still be coloured (markdown-it
 	// allows HTML inside link labels); the URL inside `(...)` must be
-	// untouched. Wrap keeps the source text's casing.
-	want := `see [<span style="color:#FF0000;">link</span>](www.link.com) for more`
+	// untouched even though it contains "link" — case-sensitive matching
+	// already filters that out, and URL protection covers the case where
+	// the URL happens to spell the entity's exact name.
+	want := `see [<span style="color:#FF0000;">Link</span>](www.link.com) for more`
 	if got != want {
 		t.Fatalf("markdown link URL mangled:\n got: %q\nwant: %q", got, want)
 	}
@@ -804,8 +806,8 @@ func TestColouriseProtectsBareURL(t *testing.T) {
 
 func TestColouriseStillWrapsOutsideURLs(t *testing.T) {
 	col := linkColouriser()
-	got := col.Wrap("link is here, also www.link.com tail")
-	want := `<span style="color:#FF0000;">link</span> is here, also www.link.com tail`
+	got := col.Wrap("Link is here, also www.link.com tail")
+	want := `<span style="color:#FF0000;">Link</span> is here, also www.link.com tail`
 	if got != want {
 		t.Fatalf("non-URL link not wrapped:\n got: %q\nwant: %q", got, want)
 	}

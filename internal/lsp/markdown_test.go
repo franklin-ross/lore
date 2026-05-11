@@ -154,7 +154,7 @@ func TestBuildDescriptionContentEntityColouringInsideMarkdown(t *testing.T) {
 	world := lore.NewWorld()
 	world.Entities = []lore.Entity{{Name: "Aragorn", Type: "character"}}
 	world.Match = &lore.MatchIndex{
-		Entities: []lore.EntityMatch{{LowerName: "aragorn"}},
+		Entities: []lore.EntityMatch{{Name: "Aragorn"}},
 		Types:    map[string]struct{}{"character": {}},
 	}
 	got := buildDescriptionContent(world, "> Met Aragorn at dusk.")
