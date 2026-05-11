@@ -1446,3 +1446,60 @@ func completionLabels(list *protocol.CompletionList) []string {
 func labelSetContains(labels []string, want string) bool {
 	return slices.Contains(labels, want)
 }
+
+func TestPaletteFromOptionsValidatesHex(t *testing.T) {
+	cases := []struct {
+		name string
+		in   any
+		want []string
+	}{
+		{
+			name: "valid 6-digit hex",
+			in:   map[string]any{"palette": []any{"#FF0000", "#00ff00", "#abcDEF"}},
+			want: []string{"#FF0000", "#00ff00", "#abcDEF"},
+		},
+		{
+			name: "valid 3, 4, 6, 8 digit forms",
+			in:   map[string]any{"palette": []any{"#fff", "#abcd", "#aabbcc", "#aabbccdd"}},
+			want: []string{"#fff", "#abcd", "#aabbcc", "#aabbccdd"},
+		},
+		{
+			name: "missing leading hash",
+			in:   map[string]any{"palette": []any{"FF0000"}},
+			want: nil,
+		},
+		{
+			name: "non-hex digit",
+			in:   map[string]any{"palette": []any{"#FF00ZZ"}},
+			want: nil,
+		},
+		{
+			name: "injection attempt with quote/semicolon",
+			in:   map[string]any{"palette": []any{`#fff;"></span><script>alert(1)</script>`}},
+			want: nil,
+		},
+		{
+			name: "css colour name",
+			in:   map[string]any{"palette": []any{"red"}},
+			want: nil,
+		},
+		{
+			name: "non-string entry",
+			in:   map[string]any{"palette": []any{"#FF0000", 42}},
+			want: nil,
+		},
+		{
+			name: "single bad entry poisons whole palette",
+			in:   map[string]any{"palette": []any{"#FF0000", "#nope"}},
+			want: nil,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := paletteFromOptions(tc.in)
+			if !slices.Equal(got, tc.want) {
+				t.Fatalf("paletteFromOptions = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

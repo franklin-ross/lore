@@ -3,6 +3,7 @@ package lsp
 import (
 	"fmt"
 	"net/url"
+	"regexp"
 	"strings"
 
 	"lore/internal/lore"
@@ -282,11 +283,18 @@ func hoverShowStateDirectivesFromOptions(opts any) bool {
 	return false
 }
 
+// paletteHexRe matches a CSS hex colour: `#` followed by 3, 4, 6, or 8 hex
+// digits. Hover output writes palette entries verbatim into a `<span
+// style="color:…">` attribute, so anything past the hex bytes is an
+// injection vector — gate input here rather than trusting the client.
+var paletteHexRe = regexp.MustCompile(`^#([0-9a-fA-F]{3,8})$`)
+
 // paletteFromOptions reads lore.palette out of LSP initializationOptions, an
 // array of hex colour strings. The array is indexed in parallel with the
 // loreColour{A..Z} semantic-token modifier bits, so the client and server
-// agree on which colour belongs to which entity. Returns nil if absent or
-// malformed, in which case hover output is rendered without colour spans.
+// agree on which colour belongs to which entity. Returns nil if absent,
+// malformed, or any entry fails hex validation, in which case hover output
+// is rendered without colour spans.
 func paletteFromOptions(opts any) []string {
 	m, ok := opts.(map[string]any)
 	if !ok {
@@ -300,6 +308,9 @@ func paletteFromOptions(opts any) []string {
 	for _, v := range raw {
 		s, ok := v.(string)
 		if !ok {
+			return nil
+		}
+		if !paletteHexRe.MatchString(s) {
 			return nil
 		}
 		out = append(out, s)
