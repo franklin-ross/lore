@@ -3,16 +3,41 @@ package lore
 import "fmt"
 
 // ResolveStateAt folds events in file order up to and including the cursor
-// position (cursorFile, cursorLine). Events are compared using lexicographic
-// file order — matching the sort used by Merge — then by 1-based line number.
+// position (cursorFile, cursorLine). File order comes from fileOrder — pass
+// World.FileOrder so cutoff matches the lore.toml `files` pattern order. If
+// fileOrder is nil, paths are compared lexicographically (legacy behaviour).
 // Pass an empty cursorFile to fold every event (equivalent to ResolveState).
-func ResolveStateAt(events []StateEvent, cursorFile string, cursorLine int) (map[string]bool, map[string]FieldValue, []StateIssue) {
+func ResolveStateAt(events []StateEvent, fileOrder func(string) int, cursorFile string, cursorLine int) (map[string]bool, map[string]FieldValue, []StateIssue) {
 	if cursorFile == "" {
 		return ResolveState(events)
 	}
+	cursorIdx := -1
+	if fileOrder != nil {
+		cursorIdx = fileOrder(cursorFile)
+	}
 	filtered := make([]StateEvent, 0, len(events))
 	for _, ev := range events {
-		if ev.Span.File < cursorFile {
+		var before bool
+		switch {
+		case fileOrder == nil:
+			before = ev.Span.File < cursorFile
+		case cursorIdx < 0:
+			// Cursor file isn't in the world's file set (e.g. an unsaved
+			// scratch buffer). Fall back to lexicographic compare so the
+			// cutoff is still deterministic.
+			before = ev.Span.File < cursorFile
+		default:
+			evIdx := fileOrder(ev.Span.File)
+			if evIdx < 0 {
+				// Event from a file not in the world's set — treat as
+				// "before" so it still contributes; matches the spirit
+				// of folding every known event up to the cursor.
+				before = true
+			} else {
+				before = evIdx < cursorIdx
+			}
+		}
+		if before {
 			filtered = append(filtered, ev)
 			continue
 		}

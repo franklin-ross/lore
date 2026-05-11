@@ -30,7 +30,7 @@ func (s *Server) completion(_ *glsp.Context, params *protocol.CompletionParams) 
 		}
 		switch op {
 		case lore.StateOpRemove:
-			return listFieldActiveCompletions(ent, rel, cursorLine, field), nil
+			return listFieldActiveCompletions(ps.world(), ent, rel, cursorLine, field), nil
 		case lore.StateOpIncrement:
 			return listFieldKnownCompletions(ent, field), nil
 		}
@@ -49,7 +49,7 @@ func (s *Server) completion(_ *glsp.Context, params *protocol.CompletionParams) 
 		if ent == nil {
 			return &protocol.CompletionList{}, nil
 		}
-		return entityActiveTagCompletions(ent, rel, cursorLine), nil
+		return entityActiveTagCompletions(ps.world(), ent, rel, cursorLine), nil
 	}
 
 	// The trigger characters exist to open directive popups; if none of the
@@ -228,8 +228,8 @@ func tagCompletionsAllKnown(world *lore.World) *protocol.CompletionList {
 // entityActiveTagCompletions returns the tags currently set on ent at the
 // cursor's position. Used for `-tag` directives so the suggestion list
 // matches what the author can actually remove right now.
-func entityActiveTagCompletions(ent *lore.Entity, file string, cursorLine int) *protocol.CompletionList {
-	tags, _, _ := lore.ResolveStateAt(ent.StateHistory, file, cursorLine)
+func entityActiveTagCompletions(world *lore.World, ent *lore.Entity, file string, cursorLine int) *protocol.CompletionList {
+	tags, _, _ := lore.ResolveStateAt(ent.StateHistory, world.FileOrder, file, cursorLine)
 	seen := make(map[string]struct{}, len(tags))
 	for t := range tags {
 		seen[t] = struct{}{}
@@ -260,8 +260,8 @@ func makeTagCompletionList(seen map[string]struct{}) *protocol.CompletionList {
 // listFieldActiveCompletions returns the items currently in the named field
 // of ent, resolved to the cursor's position in (file, line). Used for
 // `field -=` removals so the list shows what can actually be removed.
-func listFieldActiveCompletions(ent *lore.Entity, file string, cursorLine int, field string) *protocol.CompletionList {
-	_, fields, _ := lore.ResolveStateAt(ent.StateHistory, file, cursorLine)
+func listFieldActiveCompletions(world *lore.World, ent *lore.Entity, file string, cursorLine int, field string) *protocol.CompletionList {
+	_, fields, _ := lore.ResolveStateAt(ent.StateHistory, world.FileOrder, file, cursorLine)
 	fv, ok := fields[field]
 	if !ok || fv.Kind != lore.FieldText {
 		return &protocol.CompletionList{}

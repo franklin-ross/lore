@@ -171,9 +171,9 @@ func TestWatchedIgnoresUntrackedPaths(t *testing.T) {
 
 func TestWatchedLoreTomlChangeTriggersReload(t *testing.T) {
 	s, uriFor := setupLifecycleServer(t, map[string]string{
-		"lore.toml":          `files = ["glossary/**/*.md"]` + "\n",
-		"glossary/chars.md":  "Sildar (character): Fighter.\n",
-		"sessions/01.md":     "Klarg (character): Goblin chief.\n",
+		"lore.toml":         `files = ["glossary/**/*.md"]` + "\n",
+		"glossary/chars.md": "Sildar (character): Fighter.\n",
+		"sessions/01.md":    "Klarg (character): Goblin chief.\n",
 	})
 
 	// Only glossary is tracked initially.

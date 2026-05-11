@@ -187,7 +187,7 @@ func TestResolveStateAtSameFileCutoff(t *testing.T) {
 		{Op: StateOpAdd, Target: "injured", Span: StateSpan{File: "a.md", Line: 5}},
 		{Op: StateOpAdd, Target: "cursed", Span: StateSpan{File: "a.md", Line: 10}},
 	}
-	tags, _, _ := ResolveStateAt(events, "a.md", 7)
+	tags, _, _ := ResolveStateAt(events, nil, "a.md", 7)
 	if !tags["injured"] || tags["cursed"] {
 		t.Fatalf("tags: %+v", tags)
 	}
@@ -197,7 +197,7 @@ func TestResolveStateAtInclusive(t *testing.T) {
 	events := []StateEvent{
 		{Op: StateOpAdd, Target: "x", Span: StateSpan{File: "a.md", Line: 5}},
 	}
-	tags, _, _ := ResolveStateAt(events, "a.md", 5)
+	tags, _, _ := ResolveStateAt(events, nil, "a.md", 5)
 	if !tags["x"] {
 		t.Fatalf("cursor on directive line should include event; tags: %+v", tags)
 	}
@@ -208,9 +208,41 @@ func TestResolveStateAtEarlierFileIncluded(t *testing.T) {
 		{Op: StateOpAdd, Target: "early", Span: StateSpan{File: "a.md", Line: 100}},
 		{Op: StateOpAdd, Target: "later", Span: StateSpan{File: "b.md", Line: 10}},
 	}
-	tags, _, _ := ResolveStateAt(events, "b.md", 5)
+	tags, _, _ := ResolveStateAt(events, nil, "b.md", 5)
 	if !tags["early"] || tags["later"] {
 		t.Fatalf("tags: %+v", tags)
+	}
+}
+
+func TestResolveStateAtRespectsFileOrderOverLex(t *testing.T) {
+	// world-building/x.md is pattern-ordered before story/y.md even though
+	// "world-building" > "story" lexicographically. A cursor in story/y.md
+	// must see the earlier world-building event as "before", so the field
+	// is set at the cursor.
+	events := []StateEvent{
+		{
+			Op: StateOpSet, Target: "age",
+			Value: &FieldValue{Kind: FieldText, Text: []string{"mid-twenties"}},
+			Span:  StateSpan{File: "world-building/people.md", Line: 1},
+		},
+	}
+	order := map[string]int{
+		"world-building/people.md": 0,
+		"story/01.md":              1,
+	}
+	fileOrder := func(p string) int {
+		if i, ok := order[p]; ok {
+			return i
+		}
+		return -1
+	}
+	_, fields, _ := ResolveStateAt(events, fileOrder, "story/01.md", 5)
+	v, ok := fields["age"]
+	if !ok {
+		t.Fatalf("age missing from at-cursor fields: %+v", fields)
+	}
+	if v.Kind != FieldText || len(v.Text) != 1 || v.Text[0] != "mid-twenties" {
+		t.Fatalf("age field: %+v", v)
 	}
 }
 
@@ -219,7 +251,7 @@ func TestResolveStateAtEmptyCursorFileFoldsAll(t *testing.T) {
 		{Op: StateOpAdd, Target: "a", Span: StateSpan{File: "a.md", Line: 1}},
 		{Op: StateOpAdd, Target: "b", Span: StateSpan{File: "b.md", Line: 1}},
 	}
-	tags, _, _ := ResolveStateAt(events, "", 0)
+	tags, _, _ := ResolveStateAt(events, nil, "", 0)
 	if !tags["a"] || !tags["b"] {
 		t.Fatalf("tags: %+v", tags)
 	}

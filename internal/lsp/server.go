@@ -459,9 +459,14 @@ func truncate(s string, maxLen int) string {
 // hover. In "both" mode with a cursor, cursor state is rendered with
 // "(latest: …)" annotations inline for any fields/tags that diverge. In
 // single-view modes it just shows the selected view as one block.
-func renderHoverStateBlocks(ent *lore.Entity, cursorFile string, cursorLine int, mode HoverStateMode) string {
+func renderHoverStateBlocks(world *lore.World, ent *lore.Entity, cursorFile string, cursorLine int, mode HoverStateMode) string {
 	showLatest := mode == HoverStateModeLatest || mode == HoverStateModeBoth
 	showAt := (mode == HoverStateModeAtCursor || mode == HoverStateModeBoth) && cursorFile != ""
+
+	var fileOrder func(string) int
+	if world != nil {
+		fileOrder = world.FileOrder
+	}
 
 	var body string
 	switch {
@@ -471,10 +476,10 @@ func renderHoverStateBlocks(ent *lore.Entity, cursorFile string, cursorLine int,
 		}
 		body = lore.FormatStateBlock(ent.Tags, ent.Fields)
 	case mode == HoverStateModeAtCursor:
-		atTags, atFields, _ := lore.ResolveStateAt(ent.StateHistory, cursorFile, cursorLine)
+		atTags, atFields, _ := lore.ResolveStateAt(ent.StateHistory, fileOrder, cursorFile, cursorLine)
 		body = lore.FormatStateBlock(atTags, atFields)
 	default:
-		atTags, atFields, _ := lore.ResolveStateAt(ent.StateHistory, cursorFile, cursorLine)
+		atTags, atFields, _ := lore.ResolveStateAt(ent.StateHistory, fileOrder, cursorFile, cursorLine)
 		body = lore.FormatStateBlockMerged(atTags, ent.Tags, atFields, ent.Fields)
 	}
 
@@ -493,7 +498,7 @@ func renderHoverStateBlocks(ent *lore.Entity, cursorFile string, cursorLine int,
 // The colouriser wraps entity names with palette-coloured `<span>` tags so
 // the hover matches the buffer; pass nil or one with an empty palette to
 // disable colouring (e.g. tests, or older clients without supportHtml).
-func formatEntityHover(ent *lore.Entity, cursorFile string, cursorLine int, mode HoverStateMode, showStateDirectives bool, col *colouriser) string {
+func formatEntityHover(world *lore.World, ent *lore.Entity, cursorFile string, cursorLine int, mode HoverStateMode, showStateDirectives bool, col *colouriser) string {
 	var b strings.Builder
 	var header strings.Builder
 	header.WriteString(wrapEntityName(ent, col))
@@ -507,7 +512,7 @@ func formatEntityHover(ent *lore.Entity, cursorFile string, cursorLine int, mode
 	} else {
 		fmt.Fprintf(&b, "<strong>%s</strong>", header.String())
 	}
-	b.WriteString(renderHoverStateBlocks(ent, cursorFile, cursorLine, mode))
+	b.WriteString(renderHoverStateBlocks(world, ent, cursorFile, cursorLine, mode))
 
 	texts := make([]string, 0, len(ent.Descriptions))
 	for _, d := range ent.Descriptions {

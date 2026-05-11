@@ -48,6 +48,18 @@ func (w *World) AddReference(entityName string, ref Reference) {
 	w.References[entityName] = append(w.References[entityName], ref)
 }
 
+// FileOrder returns the index of path in w.Files (lore.toml pattern-then-alpha
+// order) or -1 if the path isn't tracked. Hover/completion use it to compare
+// event positions against the cursor in the same order Merge used.
+func (w *World) FileOrder(path string) int {
+	for i := range w.Files {
+		if w.Files[i].Path == path {
+			return i
+		}
+	}
+	return -1
+}
+
 var ErrNotFound = errors.New("entity not found")
 
 // AmbiguousError is returned when a bare name matches multiple entities.

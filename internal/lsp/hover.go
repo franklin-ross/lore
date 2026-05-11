@@ -17,7 +17,7 @@ func (s *Server) hover(_ *glsp.Context, params *protocol.HoverParams) (*protocol
 
 	cursorLine := int(params.Position.Line) + 1 // LSP 0-based → lore 1-based
 	col := &colouriser{world: ps.world(), palette: s.palette}
-	content := formatEntityHover(match.Entity, rel, cursorLine, s.hoverStateMode, s.hoverShowStateDirectives, col)
+	content := formatEntityHover(ps.world(), match.Entity, rel, cursorLine, s.hoverStateMode, s.hoverShowStateDirectives, col)
 	line := params.Position.Line
 	lineText := s.getLine(params.TextDocument.URI, line)
 	return &protocol.Hover{
