@@ -266,7 +266,7 @@ func Merge(files []*FileParse) *World {
 	// Build the lookup cache now that all entities (and their descriptions)
 	// are established. Phase 3 relies on it, and external callers — semantic
 	// token rendering, cursor lookup — read it directly off the world.
-	world.Match = buildMatchIndex(world)
+	world.Match = BuildMatchIndex(world)
 
 	// Phase 3: cross-reference scan over raw content.
 	for _, fp := range sorted {

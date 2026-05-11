@@ -46,33 +46,27 @@ func ScanEntities(world *World, text string, includeDisambig bool) []EntitySpan 
 	}
 	var all []cand
 
-	for i := range mi.Entities {
-		em := &mi.Entities[i]
-
-		for _, pos := range FindWordMatches(text, em.Name) {
-			end := pos + len(em.Name)
-			suffixPresent := MatchesAnyTypeSuffix(text, end, mi.Types) >= 0
-			ownSuffixEnd := -1
-			if em.Type != "" {
-				ownSuffixEnd = MatchesTypeSuffix(text, end, em.Type)
-			}
-			if suffixPresent && ownSuffixEnd < 0 {
-				// `(type)` follows but it's a different entity's type.
-				// The user has disambiguated away from this entity.
-				continue
-			}
-			if includeDisambig && ownSuffixEnd >= 0 {
-				all = append(all, cand{pos, ownSuffixEnd, i})
-				continue
-			}
-			all = append(all, cand{pos, end, i})
+	for _, h := range mi.scanCandidates(text) {
+		if !h.isName {
+			all = append(all, cand{h.start, h.end, h.entityIdx})
+			continue
 		}
-
-		for _, alias := range em.Aliases {
-			for _, pos := range FindWordMatches(text, alias) {
-				all = append(all, cand{pos, pos + len(alias), i})
-			}
+		em := &mi.Entities[h.entityIdx]
+		suffixPresent := MatchesAnyTypeSuffix(text, h.end, mi.Types) >= 0
+		ownSuffixEnd := -1
+		if em.Type != "" {
+			ownSuffixEnd = MatchesTypeSuffix(text, h.end, em.Type)
 		}
+		if suffixPresent && ownSuffixEnd < 0 {
+			// `(type)` follows but it's a different entity's type.
+			// The user has disambiguated away from this entity.
+			continue
+		}
+		if includeDisambig && ownSuffixEnd >= 0 {
+			all = append(all, cand{h.start, ownSuffixEnd, h.entityIdx})
+			continue
+		}
+		all = append(all, cand{h.start, h.end, h.entityIdx})
 	}
 	if len(all) == 0 {
 		return nil

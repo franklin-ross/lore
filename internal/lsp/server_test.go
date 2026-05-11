@@ -765,10 +765,7 @@ func TestFormatEntityHoverPreservesBlockquoteAndRule(t *testing.T) {
 func linkColouriser() *colouriser {
 	world := lore.NewWorld()
 	world.Entities = []lore.Entity{{Name: "Link", Type: "character"}}
-	world.Match = &lore.MatchIndex{
-		Entities: []lore.EntityMatch{{Name: "Link"}},
-		Types:    map[string]struct{}{"character": {}},
-	}
+	world.Match = lore.BuildMatchIndex(world)
 	return &colouriser{world: world, palette: []string{"#FF0000"}}
 }
 

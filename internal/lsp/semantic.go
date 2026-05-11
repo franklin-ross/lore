@@ -93,12 +93,20 @@ func (s *Server) semanticTokensFull(_ *glsp.Context, params *protocol.SemanticTo
 	var tokens []rawToken
 	for lineIdx, line := range lines {
 		before := len(tokens)
-		for i := range world.Match.Entities {
-			em := &world.Match.Entities[i]
-			appendNameMatches(&tokens, lineIdx, line, em, world.Match.Types, modBits[i])
-			for _, alias := range em.Aliases {
-				appendMatches(&tokens, lineIdx, line, alias, modBits[i])
-			}
+		// One scan per line via the shared scanner: same word-boundary
+		// rules, disambiguator handling, and span dedup the colouriser /
+		// reference index use, so highlights stay consistent with hover
+		// and wiki output. The scanner uses first-byte bucketing so the
+		// per-line cost is roughly proportional to text length rather
+		// than (text × entities).
+		for _, sp := range lore.ScanEntities(world, line, false) {
+			tokens = append(tokens, rawToken{
+				line:      uint32(lineIdx),
+				startChar: uint32(sp.Start),
+				length:    uint32(sp.End - sp.Start),
+				tokenType: 0,
+				modifiers: modBits[sp.EntityIdx],
+			})
 		}
 		// Match positions are byte offsets into the line; LSP semantic
 		// tokens are encoded in UTF-16 code units. On pure-ASCII lines
@@ -174,60 +182,6 @@ func resolveOverlaps(tokens []rawToken) []rawToken {
 		}
 	}
 	return kept
-}
-
-// appendNameMatches scans for occurrences of an entity's primary name and
-// emits tokens, honouring `(type)` disambiguators the same way the reference
-// scanner does. When a name occurrence is immediately followed by a matching
-// `(type)` suffix, only the entity with that type emits a token there; an
-// occurrence that carries a suffix for some *other* known type is skipped.
-// Bare-name occurrences (no disambiguator) still emit for every entity
-// sharing the name, so the resulting overlap reflects the genuine ambiguity.
-func appendNameMatches(out *[]rawToken, lineIdx int, line string, em *lore.EntityMatch, allTypes map[string]struct{}, modBits uint32) {
-	if em.Name == "" {
-		return
-	}
-	for _, col := range lore.FindWordMatches(line, em.Name) {
-		end := col + len(em.Name)
-		if em.Type != "" && lore.MatchesTypeSuffix(line, end, em.Type) >= 0 {
-			*out = append(*out, rawToken{
-				line:      uint32(lineIdx),
-				startChar: uint32(col),
-				length:    uint32(len(em.Name)),
-				tokenType: 0,
-				modifiers: modBits,
-			})
-			continue
-		}
-		if lore.MatchesAnyTypeSuffix(line, end, allTypes) >= 0 {
-			// Disambiguator points at a different entity — skip.
-			continue
-		}
-		*out = append(*out, rawToken{
-			line:      uint32(lineIdx),
-			startChar: uint32(col),
-			length:    uint32(len(em.Name)),
-			tokenType: 0,
-			modifiers: modBits,
-		})
-	}
-}
-
-// appendMatches scans one line for a single needle and emits a rawToken per
-// byte-exact word hit.
-func appendMatches(out *[]rawToken, lineIdx int, line, needle string, modBits uint32) {
-	if needle == "" {
-		return
-	}
-	for _, col := range lore.FindWordMatches(line, needle) {
-		*out = append(*out, rawToken{
-			line:      uint32(lineIdx),
-			startChar: uint32(col),
-			length:    uint32(len(needle)),
-			tokenType: 0,
-			modifiers: modBits,
-		})
-	}
 }
 
 // encodeTokens converts absolute token positions to the delta-encoded format

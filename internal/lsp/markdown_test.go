@@ -153,10 +153,7 @@ func TestBuildDescriptionContentEntityColouringInsideMarkdown(t *testing.T) {
 	// text. Same expectation as the legacy flat-segments path.
 	world := lore.NewWorld()
 	world.Entities = []lore.Entity{{Name: "Aragorn", Type: "character"}}
-	world.Match = &lore.MatchIndex{
-		Entities: []lore.EntityMatch{{Name: "Aragorn"}},
-		Types:    map[string]struct{}{"character": {}},
-	}
+	world.Match = lore.BuildMatchIndex(world)
 	got := buildDescriptionContent(world, "> Met Aragorn at dusk.")
 	var sawColoured bool
 	var visit func(nodes []MarkdownNode)
