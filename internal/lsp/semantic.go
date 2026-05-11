@@ -59,7 +59,8 @@ type rawToken struct {
 }
 
 func (s *Server) semanticTokensFull(_ *glsp.Context, params *protocol.SemanticTokensParams) (*protocol.SemanticTokens, error) {
-	ps, _ := s.projectForURI(params.TextDocument.URI)
+	uri := params.TextDocument.URI
+	ps, _ := s.projectForURI(uri)
 	if ps == nil {
 		return &protocol.SemanticTokens{Data: []uint32{}}, nil
 	}
@@ -68,7 +69,18 @@ func (s *Server) semanticTokensFull(_ *glsp.Context, params *protocol.SemanticTo
 		return &protocol.SemanticTokens{Data: []uint32{}}, nil
 	}
 
-	content := s.getDocumentContent(params.TextDocument.URI)
+	if ps.semanticCacheWorld != world {
+		// World pointer changed (any Index mutation forces a rebuild via
+		// Index.World), so every cached entry is stale. Drop them all
+		// rather than tracking per-URI generations.
+		ps.semanticCacheWorld = world
+		ps.semanticCache = nil
+	}
+	if cached, ok := ps.semanticCache[uri]; ok {
+		return &protocol.SemanticTokens{Data: cached}, nil
+	}
+
+	content := s.getDocumentContent(uri)
 	lines := strings.Split(content, "\n")
 
 	// Rendered colour bits stay stable for the life of the world; compute
@@ -113,6 +125,10 @@ func (s *Server) semanticTokensFull(_ *glsp.Context, params *protocol.SemanticTo
 	})
 
 	data := encodeTokens(tokens)
+	if ps.semanticCache == nil {
+		ps.semanticCache = make(map[string][]uint32)
+	}
+	ps.semanticCache[uri] = data
 	return &protocol.SemanticTokens{Data: data}, nil
 }
 

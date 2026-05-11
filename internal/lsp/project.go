@@ -19,6 +19,14 @@ type projectState struct {
 	root    string // absolute path to the directory containing lore.toml
 	project *lore.Project
 	index   *Index
+
+	// semanticCache memoises semanticTokensFull results per URI. Validity
+	// is keyed by *lore.World identity: Index.SetFile and Index.RemoveFile
+	// null the cached world, so the next World() returns a fresh pointer
+	// and every entry becomes stale at once. We compare pointers, not
+	// contents — no hashing, no per-entry generation counter.
+	semanticCacheWorld *lore.World
+	semanticCache      map[string][]uint32
 }
 
 // fileToURI returns a file:// URI for a project-root-relative path.
