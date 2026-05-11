@@ -101,17 +101,19 @@ func (s *Server) semanticTokensFull(_ *glsp.Context, params *protocol.SemanticTo
 			}
 		}
 		// Match positions are byte offsets into the line; LSP semantic
-		// tokens are encoded in UTF-16 code units. Any multi-byte rune
-		// earlier in the line shifts later byte offsets past the UTF-16
-		// position the editor expects, so convert per line once the
-		// line's tokens are known.
-		for j := before; j < len(tokens); j++ {
-			startByte := int(tokens[j].startChar)
-			endByte := startByte + int(tokens[j].length)
-			startU16 := utf16UnitsForBytes(line, startByte)
-			endU16 := utf16UnitsForBytes(line, endByte)
-			tokens[j].startChar = startU16
-			tokens[j].length = endU16 - startU16
+		// tokens are encoded in UTF-16 code units. On pure-ASCII lines
+		// (the common case for English prose) the two agree, so skip
+		// the per-token rune walk. Only lines containing non-ASCII
+		// pay the conversion cost.
+		if before < len(tokens) && !isASCII(line) {
+			for j := before; j < len(tokens); j++ {
+				startByte := int(tokens[j].startChar)
+				endByte := startByte + int(tokens[j].length)
+				startU16 := utf16UnitsForBytes(line, startByte)
+				endU16 := utf16UnitsForBytes(line, endByte)
+				tokens[j].startChar = startU16
+				tokens[j].length = endU16 - startU16
+			}
 		}
 	}
 
