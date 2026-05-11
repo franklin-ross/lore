@@ -697,3 +697,323 @@ func TestMergeInlineAsideNestedParensRoutes(t *testing.T) {
 		t.Fatalf("tavern clean: %q", clean)
 	}
 }
+
+func TestMergeBlockAsideSpansParagraphs(t *testing.T) {
+	// A `(Name:` opener with a blank-line-separated body and a closing `)`
+	// on its own line registers as a single aside whose body covers all
+	// the paragraphs between opener and closer. The body keeps its
+	// internal blank lines verbatim.
+	content := "(Aragorn (character):\n" +
+		"\n" +
+		"Ranger of the North.\n" +
+		"\n" +
+		"Heir of Isildur.\n" +
+		")\n"
+	world := setupTestWorld(t, content)
+	a, err := world.FindEntity("Aragorn")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.Type != "character" {
+		t.Fatalf("type = %q", a.Type)
+	}
+	if len(a.Descriptions) != 1 {
+		t.Fatalf("descs: %+v", a.Descriptions)
+	}
+	body := a.Descriptions[0].Text
+	want := "Ranger of the North.\n\nHeir of Isildur."
+	if body != want {
+		t.Fatalf("body = %q, want %q", body, want)
+	}
+}
+
+func TestMergeBlockAsideWithTableAndList(t *testing.T) {
+	// Tables and lists — both of which embed blank lines around them in
+	// readable markdown — survive inside a block aside body without
+	// being cut off.
+	content := "(Aragorn (character):\n" +
+		"\n" +
+		"| stat | val |\n" +
+		"|------|-----|\n" +
+		"| hp   | 100 |\n" +
+		"\n" +
+		"- carries Andúril\n" +
+		"- heir of Isildur\n" +
+		")\n"
+	world := setupTestWorld(t, content)
+	a, _ := world.FindEntity("Aragorn")
+	body := a.Descriptions[0].Text
+	if !strings.Contains(body, "| stat | val |") {
+		t.Fatalf("body missing table: %q", body)
+	}
+	if !strings.Contains(body, "- heir of Isildur") {
+		t.Fatalf("body missing list item: %q", body)
+	}
+}
+
+func TestMergeBlockAsideWithHorizontalRule(t *testing.T) {
+	// A `---` separator inside the body is preserved as content rather
+	// than terminating the aside.
+	content := "(Aragorn (character):\n" +
+		"\n" +
+		"Ranger.\n" +
+		"\n" +
+		"---\n" +
+		"\n" +
+		"Heir of Isildur.\n" +
+		")\n"
+	world := setupTestWorld(t, content)
+	a, _ := world.FindEntity("Aragorn")
+	body := a.Descriptions[0].Text
+	if !strings.Contains(body, "---") {
+		t.Fatalf("body missing rule: %q", body)
+	}
+	if !strings.Contains(body, "Heir of Isildur.") {
+		t.Fatalf("body missing tail: %q", body)
+	}
+}
+
+func TestMergeBlockAsideRoutesDirectives(t *testing.T) {
+	// Directives written in a block aside's body still route to the named
+	// subject. Multi-line bodies don't break directive scanning.
+	content := "Aragorn (character): hp = 100\n" +
+		"\n" +
+		"(Aragorn:\n" +
+		"\n" +
+		"hp -= 7\n" +
+		"\n" +
+		"+wounded\n" +
+		")\n"
+	world := setupTestWorld(t, content)
+	a, _ := world.FindEntity("Aragorn")
+	hp := a.Fields["hp"]
+	if hp.Number != 93 {
+		t.Fatalf("hp = %v, want 93", hp.Number)
+	}
+	if !a.Tags["wounded"] {
+		t.Fatalf("tags: %+v", a.Tags)
+	}
+}
+
+func TestMergeBlockAsideStrayParenInFencedCodeIgnored(t *testing.T) {
+	// A `)` inside a fenced code block doesn't close the aside — the
+	// fence is skipped by paren depth tracking.
+	content := "(Aragorn (character):\n" +
+		"\n" +
+		"```go\n" +
+		"func f() { return }\n" +
+		"```\n" +
+		"\n" +
+		"Heir of Isildur.\n" +
+		")\n"
+	world := setupTestWorld(t, content)
+	a, err := world.FindEntity("Aragorn")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := a.Descriptions[0].Text
+	if !strings.Contains(body, "Heir of Isildur.") {
+		t.Fatalf("body missing tail (aside closed prematurely?): %q", body)
+	}
+	if !strings.Contains(body, "func f() { return }") {
+		t.Fatalf("body missing fenced code: %q", body)
+	}
+}
+
+func TestMergeBlockAsideUnclosedDropped(t *testing.T) {
+	// A `(Name:` opener with no matching `)` produces no aside — the
+	// parser scans to EOF, finds no close, and moves on.
+	content := "(Aragorn (character):\n" +
+		"\n" +
+		"Ranger of the North.\n"
+	world := setupTestWorld(t, content)
+	if _, err := world.FindEntity("Aragorn"); err == nil {
+		t.Fatal("unclosed block aside should not register an entity")
+	}
+}
+
+func TestMergeBlockAsideRefAttributionUsesBodySpan(t *testing.T) {
+	// Inside a block aside's body, references attribute to the aside's
+	// own entity, not the surrounding prose. Outside the body — on the
+	// `(Name:` opener line — the name reads as prose, so the entity
+	// isn't its own source.
+	content := "Strahd (character): Vampire lord.\n" +
+		"\n" +
+		"(Aragorn (character):\n" +
+		"\n" +
+		"Fought Strahd at the gate.\n" +
+		")\n"
+	world := setupTestWorld(t, content)
+
+	// One ref to Strahd inside the aside body, attributed to Aragorn.
+	refs := world.GetReferences("Strahd")
+	var inBodyRefs int
+	for _, ref := range refs {
+		if ref.SourceEntity == "Aragorn" {
+			inBodyRefs++
+		}
+	}
+	if inBodyRefs != 1 {
+		t.Fatalf("expected 1 ref from Aragorn aside body, got %d (refs=%+v)", inBodyRefs, refs)
+	}
+}
+
+func TestMergeInlineAsideNestedInlineAsideRegistersBoth(t *testing.T) {
+	// Two inline asides on a single line, the inner sitting inside the
+	// outer. Both subjects register, and the outer's body retains the
+	// inner aside verbatim while its clean text reads the inner as a
+	// bare name.
+	content := "Tavern (location): The bard winced (Strahd (npc): plotted with (Rahadin (npc): silent dusk elf)) and left.\n"
+	world := setupTestWorld(t, content)
+	strahd, err := world.FindEntity("Strahd")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rahadin, err := world.FindEntity("Rahadin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rahadin.Type != "npc" {
+		t.Fatalf("rahadin type = %q", rahadin.Type)
+	}
+	if !strings.Contains(strahd.Descriptions[0].Text, "plotted with (Rahadin (npc): silent dusk elf)") {
+		t.Fatalf("strahd outer body: %q", strahd.Descriptions[0].Text)
+	}
+	if !strings.Contains(rahadin.Descriptions[0].Text, "silent dusk elf") {
+		t.Fatalf("rahadin body: %q", rahadin.Descriptions[0].Text)
+	}
+	clean := strahd.Descriptions[0].CleanText
+	if !strings.Contains(clean, "plotted with Rahadin") {
+		t.Fatalf("strahd clean: %q", clean)
+	}
+}
+
+func TestMergeBlockAsideNestedBlockAside(t *testing.T) {
+	// A block aside whose body itself contains another block aside —
+	// both register as their own entities. Inner body lives between
+	// inner's parens; outer body covers everything from outer's `:`
+	// through outer's closing `)`, including the inner's parenthesised
+	// span.
+	content := "(Aragorn (character):\n" +
+		"\n" +
+		"Ranger.\n" +
+		"\n" +
+		"(Andúril (weapon):\n" +
+		"\n" +
+		"Reforged from Narsil.\n" +
+		"\n" +
+		"Glows blue near orcs.\n" +
+		")\n" +
+		"\n" +
+		"Crowned king.\n" +
+		")\n"
+	world := setupTestWorld(t, content)
+	a, err := world.FindEntity("Aragorn")
+	if err != nil {
+		t.Fatal(err)
+	}
+	andu, err := world.FindEntity("Andúril")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if andu.Type != "weapon" {
+		t.Fatalf("Andúril type = %q", andu.Type)
+	}
+	if !strings.Contains(andu.Descriptions[0].Text, "Reforged from Narsil.") {
+		t.Fatalf("Andúril body: %q", andu.Descriptions[0].Text)
+	}
+	if !strings.Contains(andu.Descriptions[0].Text, "Glows blue near orcs.") {
+		t.Fatalf("Andúril body missing second para: %q", andu.Descriptions[0].Text)
+	}
+	if !strings.Contains(a.Descriptions[0].Text, "Crowned king.") {
+		t.Fatalf("Aragorn body missing tail: %q", a.Descriptions[0].Text)
+	}
+}
+
+func TestMergeNestedAsideDirectivesRouteToInner(t *testing.T) {
+	// Directives written inside a nested aside attach to the inner
+	// subject, not the outer. The outer's events list stays clean of
+	// the inner's directives — same invariant as for top-level asides
+	// nested inside header-line definitions.
+	content := "Aragorn (character): hp = 100\n" +
+		"\n" +
+		"Andúril (weapon): durability = 10\n" +
+		"\n" +
+		"(Aragorn:\n" +
+		"\n" +
+		"hp -= 5\n" +
+		"\n" +
+		"(Andúril:\n" +
+		"\n" +
+		"durability -= 1\n" +
+		"+nicked\n" +
+		")\n" +
+		"\n" +
+		"+wounded\n" +
+		")\n"
+	world := setupTestWorld(t, content)
+	a, _ := world.FindEntity("Aragorn")
+	andu, _ := world.FindEntity("Andúril")
+	if hp := a.Fields["hp"]; hp.Number != 95 {
+		t.Fatalf("aragorn hp = %v, want 95", hp.Number)
+	}
+	if !a.Tags["wounded"] {
+		t.Fatalf("aragorn tags: %+v", a.Tags)
+	}
+	if a.Tags["nicked"] {
+		t.Fatalf("inner tag leaked to aragorn: %+v", a.Tags)
+	}
+	if d := andu.Fields["durability"]; d.Number != 9 {
+		t.Fatalf("andúril durability = %v, want 9", d.Number)
+	}
+	if !andu.Tags["nicked"] {
+		t.Fatalf("andúril tags: %+v", andu.Tags)
+	}
+	for _, ev := range a.StateHistory {
+		if ev.Target == "durability" || ev.Target == "nicked" {
+			t.Fatalf("inner event leaked to aragorn: %+v", ev)
+		}
+	}
+}
+
+func TestMergeDoubleNestedInlineAside(t *testing.T) {
+	// Three asides deep on one line — outer → middle → inner. All
+	// three should register, with each body containing its inner
+	// aside text verbatim.
+	content := "Castle (location): note (Strahd (npc): mentioned (Ireena (character): pretty (Rahadin (npc): silent))).\n"
+	world := setupTestWorld(t, content)
+	for _, name := range []string{"Strahd", "Ireena", "Rahadin"} {
+		if _, err := world.FindEntity(name); err != nil {
+			t.Fatalf("%s not found: %v", name, err)
+		}
+	}
+}
+
+func TestMergeBlockAsideNestedInlineAside(t *testing.T) {
+	// A block aside body may itself contain an inline aside, which
+	// resolves as its own definition (Andúril) while the block aside
+	// itself owns the remaining body.
+	content := "Aragorn (character): Ranger.\n" +
+		"\n" +
+		"(Aragorn:\n" +
+		"\n" +
+		"Heir of Isildur. Wields (Andúril (weapon): reforged from Narsil).\n" +
+		"\n" +
+		"Crowned king.\n" +
+		")\n"
+	world := setupTestWorld(t, content)
+	a, _ := world.FindEntity("Aragorn")
+	if len(a.Descriptions) < 2 {
+		t.Fatalf("aragorn descs: %+v", a.Descriptions)
+	}
+	andu, err := world.FindEntity("Andúril")
+	if err != nil {
+		t.Fatalf("Andúril not found: %v", err)
+	}
+	if andu.Type != "weapon" {
+		t.Fatalf("Andúril type = %q", andu.Type)
+	}
+	if !strings.Contains(andu.Descriptions[0].Text, "Narsil") {
+		t.Fatalf("Andúril body: %q", andu.Descriptions[0].Text)
+	}
+}

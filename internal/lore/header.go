@@ -25,6 +25,13 @@ func ParseHeader(line string) (Header, bool) {
 		return Header{}, false
 	}
 	headerPart := line[:colon]
+	// Names, types, and aliases are always single-line constructs. Reject
+	// any header whose pre-colon portion spans a newline so a multi-line
+	// paren group like `(stray\n... text: body)` doesn't wrap its newline
+	// content into a synthetic entity name.
+	if strings.ContainsAny(headerPart, "\n\r") {
+		return Header{}, false
+	}
 	descStart := strings.TrimSpace(line[colon+1:])
 
 	// Typed header: a `(type)` annotation must sit adjacent to a name or alias

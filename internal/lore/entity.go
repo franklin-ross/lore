@@ -49,13 +49,17 @@ type Description struct {
 	// should attribute to free text rather than the aside's own entity.
 	IsAside bool
 
-	// BodyColumn is the byte column on Line where the description body
-	// begins (after `Name [(type)] [| Alias]: ` for header definitions,
-	// or after the same in an aside header). For asides, attribution
-	// only treats [BodyColumn, EndColumn) as the entity's territory —
-	// positions in [StartColumn, BodyColumn) belong to the surrounding
-	// prose. For header definitions BodyColumn is informational; the
-	// whole line still attributes to the entity.
+	// BodyLine and BodyColumn are the file line/byte-column where the
+	// description body begins (after `Name [(type)] [| Alias]: ` for
+	// header definitions, or after the same in an aside header). They
+	// usually match Line/StartColumn, but for block-form asides — whose
+	// body starts on a paragraph after the opening `(Name:` line —
+	// BodyLine is later than Line. For asides, attribution only treats
+	// the body span (from BodyLine,BodyColumn through EndLine,EndColumn)
+	// as the entity's territory; positions before the body belong to
+	// the surrounding prose. For header definitions these fields are
+	// informational; the whole span still attributes to the entity.
+	BodyLine   int
 	BodyColumn int
 }
 

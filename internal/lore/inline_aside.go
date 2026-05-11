@@ -97,9 +97,39 @@ type parenGroup struct {
 	end   int
 }
 
-// scanParenGroups returns the outer paren-balanced groups in text, ignoring
-// any `(` that doesn't match a `)` on the same line. Nested groups are
-// consumed as part of their outer.
+// scanAllParenGroups walks text and yields every paren-balanced group,
+// including ones nested inside an outer group. Result is in source order
+// (outer before inner). Used by aside extraction so a `(Andúril ...)`
+// written inside a block `(Aragorn: ...)` body can still surface as its
+// own entity definition.
+func scanAllParenGroups(text string) []parenGroup {
+	var groups []parenGroup
+	var walk func(s, e int)
+	walk = func(s, e int) {
+		i := s
+		for i < e {
+			if text[i] != '(' {
+				i++
+				continue
+			}
+			end := matchCloseParen(text, i)
+			if end < 0 || end >= e {
+				i++
+				continue
+			}
+			groups = append(groups, parenGroup{start: i, end: end + 1})
+			walk(i+1, end)
+			i = end + 1
+		}
+	}
+	walk(0, len(text))
+	return groups
+}
+
+// scanParenGroups returns the outer paren-balanced groups in text. Nested
+// groups are consumed as part of their outer. Groups may span multiple
+// lines — a `(Name:` opened on one line and closed by `)` on a later line
+// is a single group, which is what enables block-form asides.
 func scanParenGroups(text string) []parenGroup {
 	var groups []parenGroup
 	i := 0
@@ -120,17 +150,31 @@ func scanParenGroups(text string) []parenGroup {
 }
 
 // matchCloseParen returns the byte offset of the `)` that balances the `(`
-// at openPos. It tracks depth and bails out on any newline or end-of-text
-// before depth reaches zero.
+// at openPos. Tracks depth across newlines so block-form asides like
+// `(Aragorn:\n\nbody\n)` resolve as a single group. Fenced code blocks are
+// skipped so a stray `)` inside ```...``` doesn't close prematurely.
+// Returns -1 if EOF is reached before depth hits zero.
 func matchCloseParen(text string, openPos int) int {
 	depth := 1
-	for i := openPos + 1; i < len(text); i++ {
+	i := openPos + 1
+	for i < len(text) {
 		c := text[i]
-		if c == '\n' || c == '\r' {
-			return -1
+		if c == '`' && i+2 < len(text) && text[i+1] == '`' && text[i+2] == '`' {
+			// Treat ``` as a code fence only at line start. Inline
+			// triple-backticks mid-line don't open a multi-line fence.
+			atLineStart := i == 0 || text[i-1] == '\n'
+			if atLineStart {
+				end := skipFencedCodeBlock(text, i+3)
+				if end < 0 {
+					return -1
+				}
+				i = end
+				continue
+			}
 		}
 		if c == '(' {
 			depth++
+			i++
 			continue
 		}
 		if c == ')' {
@@ -138,7 +182,32 @@ func matchCloseParen(text string, openPos int) int {
 			if depth == 0 {
 				return i
 			}
+			i++
+			continue
 		}
+		i++
+	}
+	return -1
+}
+
+// skipFencedCodeBlock advances past a fenced code block whose opening ```
+// just ended at startAfterOpen. Returns the byte offset immediately after
+// the closing fence, or -1 if no closing fence is found.
+func skipFencedCodeBlock(text string, startAfterOpen int) int {
+	nl := strings.IndexByte(text[startAfterOpen:], '\n')
+	if nl < 0 {
+		return -1
+	}
+	pos := startAfterOpen + nl + 1
+	for pos < len(text) {
+		if pos+3 <= len(text) && text[pos] == '`' && text[pos+1] == '`' && text[pos+2] == '`' {
+			return pos + 3
+		}
+		nl := strings.IndexByte(text[pos:], '\n')
+		if nl < 0 {
+			return -1
+		}
+		pos = pos + nl + 1
 	}
 	return -1
 }
@@ -151,24 +220,29 @@ func looksLikeHeader(contents string) bool {
 	return ok
 }
 
-// inlineAsideHit is a concrete inline aside found in raw file content,
-// already resolved through ParseHeader. ParseFile uses these to synthesise
-// Definitions for asides written inline in prose, so they participate in
+// inlineAsideHit is a concrete aside found in raw file content, already
+// resolved through ParseHeader. ParseFile uses these to synthesise
+// Definitions for asides written in prose (inline `(Name: body)`) or
+// across paragraphs (block `(Name:\n\nbody\n)`), so they participate in
 // merge/resolve like any other definition.
 type inlineAsideHit struct {
-	Line        int    // 1-based file line of the opening '('
-	Header      Header // parsed from the aside's contents
-	Body        string // header.DescStart, kept on the struct for clarity
-	BodyLine    int    // 1-based file line where the body starts
-	BodyColumn  int    // 0-based byte column on BodyLine
-	OpenColumn  int    // 0-based byte column of '(' on Line
-	CloseColumn int    // 0-based byte column one past the matching ')' on Line
+	Line        int           // 1-based file line of the opening '('
+	Header      Header        // parsed from the aside's contents
+	Body        string        // header.DescStart, kept on the struct for clarity
+	BodyLine    int           // 1-based file line where the body starts
+	BodyColumn  int           // 0-based byte column on BodyLine
+	OpenColumn  int           // 0-based byte column of '(' on Line
+	CloseLine   int           // 1-based file line of the matching ')'
+	CloseColumn int           // 0-based byte column one past the matching ')' on CloseLine
+	Segments    []descSegment // body byte-range → file line/column, one entry per body line
 }
 
 // extractInlineAsides walks file content and returns every aside whose
-// contents pass ParseHeader. The body's line/column are computed so a
-// synthesised Definition can map directive spans back to real file
-// locations.
+// contents pass ParseHeader. Both single-line `(Name: body)` and
+// multi-line `(Name:\n\nbody\n)` forms are accepted — the only difference
+// is whether the body fits on one line. Segment mappings let the merge
+// phase translate directive spans back to file coordinates regardless of
+// how many lines the body covers.
 func extractInlineAsides(content string) []inlineAsideHit {
 	if !strings.ContainsRune(content, '(') {
 		return nil
@@ -176,7 +250,7 @@ func extractInlineAsides(content string) []inlineAsideHit {
 	lineStarts := buildLineStarts(content)
 
 	var hits []inlineAsideHit
-	for _, g := range scanParenGroups(content) {
+	for _, g := range scanAllParenGroups(content) {
 		raw := content[g.start+1 : g.end-1]
 		header, ok := ParseHeader(strings.TrimSpace(raw))
 		if !ok {
@@ -186,16 +260,19 @@ func extractInlineAsides(content string) []inlineAsideHit {
 		if colon < 0 {
 			continue
 		}
-		// Body starts at the colon inside the aside, plus one for the colon
-		// itself, plus the leading whitespace ParseHeader stripped from
-		// DescStart.
+		// Body starts after the colon and any leading whitespace —
+		// including newlines, so a block aside whose body starts on the
+		// next paragraph maps to the first body byte rather than the
+		// blank line that separates header from body.
 		bodyStart := g.start + 1 + colon + 1
-		for bodyStart < g.end-1 && (content[bodyStart] == ' ' || content[bodyStart] == '\t') {
+		bodyEnd := g.end - 1
+		for bodyStart < bodyEnd && isSpaceOrNewline(content[bodyStart]) {
 			bodyStart++
 		}
 		openLine, openCol := lineColAt(lineStarts, g.start)
-		_, closeCol := lineColAt(lineStarts, g.end)
+		closeLine, closeCol := lineColAt(lineStarts, g.end)
 		bodyLine, bodyCol := lineColAt(lineStarts, bodyStart)
+		segments := buildBodySegments(header.DescStart, bodyStart, bodyLine, bodyCol, lineStarts)
 		hits = append(hits, inlineAsideHit{
 			Line:        openLine,
 			Header:      header,
@@ -203,10 +280,43 @@ func extractInlineAsides(content string) []inlineAsideHit {
 			BodyLine:    bodyLine,
 			BodyColumn:  bodyCol,
 			OpenColumn:  openCol,
+			CloseLine:   closeLine,
 			CloseColumn: closeCol,
+			Segments:    segments,
 		})
 	}
 	return hits
+}
+
+// isSpaceOrNewline matches the bytes that ParseHeader's strings.TrimSpace
+// strips from the leading edge of DescStart. Keeping the predicate in sync
+// with TrimSpace is what lets bodyStart line up with DescStart's first byte.
+func isSpaceOrNewline(c byte) bool {
+	return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\v' || c == '\f'
+}
+
+// buildBodySegments produces a descSegment for each line of body so the
+// directive scanner's joined-coordinate spans can be translated back to
+// real file lines and columns. For single-line bodies it returns a single
+// segment, matching the previous behaviour.
+func buildBodySegments(body string, bodyStartByte, bodyLine, bodyColumn int, lineStarts []int) []descSegment {
+	segments := []descSegment{{joinedStart: 0, line: bodyLine, column: bodyColumn}}
+	for off := 0; off < len(body); off++ {
+		if body[off] != '\n' {
+			continue
+		}
+		nextJoined := off + 1
+		if nextJoined > len(body) {
+			break
+		}
+		line, col := lineColAt(lineStarts, bodyStartByte+nextJoined)
+		segments = append(segments, descSegment{
+			joinedStart: nextJoined,
+			line:        line,
+			column:      col,
+		})
+	}
+	return segments
 }
 
 // buildLineStarts returns the byte offset of the start of each line in s.

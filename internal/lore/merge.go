@@ -35,9 +35,13 @@ type Definition struct {
 	// definitions stay false.
 	IsAside bool
 
-	// BodyColumn is the byte column on Line where the description body
-	// begins (after `: ` on the header line). Sourced from segments[0]
-	// when present; otherwise falls back to StartColumn.
+	// BodyLine and BodyColumn are the file line/byte-column where the
+	// description body begins (after `: ` on the header line). For
+	// header definitions BodyLine equals Line; for block-form asides it
+	// can be a later line when the body sits on a paragraph below the
+	// opener. Sourced from segments[0] when present; otherwise falls
+	// back to Line/StartColumn.
+	BodyLine   int
 	BodyColumn int
 }
 
@@ -131,6 +135,7 @@ func ParseFile(path, content string) *FileParse {
 			StartColumn: 0,
 			EndLine:     endLine,
 			EndColumn:   endCol,
+			BodyLine:    headerLine,
 			BodyColumn:  headerCol,
 		})
 	}
@@ -144,15 +149,12 @@ func ParseFile(path, content string) *FileParse {
 			Line:        hit.Line,
 			Header:      hit.Header,
 			Description: hit.Body,
-			Segments: []descSegment{{
-				joinedStart: 0,
-				line:        hit.BodyLine,
-				column:      hit.BodyColumn,
-			}},
+			Segments:    hit.Segments,
 			StartColumn: hit.OpenColumn,
-			EndLine:     hit.Line,
+			EndLine:     hit.CloseLine,
 			EndColumn:   hit.CloseColumn,
 			IsAside:     true,
+			BodyLine:    hit.BodyLine,
 			BodyColumn:  hit.BodyColumn,
 		})
 	}
@@ -236,6 +238,7 @@ func Merge(files []*FileParse) *World {
 				EndLine:     def.EndLine,
 				EndColumn:   def.EndColumn,
 				IsAside:     def.IsAside,
+				BodyLine:    def.BodyLine,
 				BodyColumn:  def.BodyColumn,
 			})
 		}
@@ -400,14 +403,21 @@ func findEntityAtMention(world *World, file string, line, byteCol int) (string, 
 			if desc.File != file {
 				continue
 			}
-			if line < desc.Line || line > desc.EndLine {
-				continue
-			}
+			startLine := desc.Line
 			startCol := desc.StartColumn
 			if desc.IsAside {
+				// Asides treat only the body span as their territory —
+				// the `(Name (type):` header reads as part of the
+				// surrounding prose. For block-form asides the body
+				// starts on a later line than the opener, so use
+				// BodyLine rather than Line as the start anchor.
+				startLine = desc.BodyLine
 				startCol = desc.BodyColumn
 			}
-			startOK := line > desc.Line || byteCol >= startCol
+			if line < startLine || line > desc.EndLine {
+				continue
+			}
+			startOK := line > startLine || byteCol >= startCol
 			endOK := line < desc.EndLine || byteCol < desc.EndColumn
 			if !startOK || !endOK {
 				continue
