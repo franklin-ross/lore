@@ -221,6 +221,36 @@ func TestLifecycleHoverSeesBufferedChanges(t *testing.T) {
 	}
 }
 
+func TestPublishDiagnosticsForUntypedHeaderTypo(t *testing.T) {
+	s, uriFor := setupLifecycleServer(t, map[string]string{
+		"sildar.md": "Sildar Hallwinter (character): Fighter.\n",
+	})
+
+	var got []protocol.Diagnostic
+	s.notify = func(method string, params any) {
+		if method != "textDocument/publishDiagnostics" {
+			return
+		}
+		p := params.(*protocol.PublishDiagnosticsParams)
+		got = p.Diagnostics
+	}
+
+	openDoc(t, s, uriFor("session.md"), "Sildar Hallwinder: Patched up.\n")
+
+	if len(got) != 1 {
+		t.Fatalf("diagnostics: %+v", got)
+	}
+	if !strings.Contains(got[0].Message, "Sildar Hallwinter") {
+		t.Fatalf("message: %q", got[0].Message)
+	}
+	if got[0].Range.Start.Line != 0 || got[0].Range.Start.Character != 0 {
+		t.Fatalf("start: %+v", got[0].Range.Start)
+	}
+	if got[0].Range.End.Character != uint32(len("Sildar Hallwinder")) {
+		t.Fatalf("end: %+v", got[0].Range.End)
+	}
+}
+
 func TestPublishDiagnosticsForStateIssues(t *testing.T) {
 	s, uriFor := setupLifecycleServer(t, nil)
 

@@ -213,7 +213,15 @@ func Merge(files []*FileParse) *World {
 				match, err := world.FindEntity(def.Header.Name)
 				if err != nil {
 					// Untyped header that matches no entity is just a colon
-					// line in free text — skip it.
+					// line in free text — skip it. Before dropping, check
+					// whether it's close enough to a known entity to look
+					// like a typo, so authors don't lose redefinitions to
+					// silent attachment failure (issues.md item 4).
+					if err == ErrNotFound {
+						if issue, ok := typoSuspect(world, fp, def); ok {
+							world.FileIssues = append(world.FileIssues, issue)
+						}
+					}
 					continue
 				}
 				ent = match

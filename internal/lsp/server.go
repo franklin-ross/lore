@@ -338,6 +338,12 @@ func (s *Server) publishDiagnostics(ps *projectState, relPath, uri string) {
 			items = append(items, toProtocolDiagnostic(si))
 		}
 	}
+	for _, fi := range world.FileIssues {
+		if fi.Span.File != relPath {
+			continue
+		}
+		items = append(items, toProtocolDiagnostic(fi))
+	}
 	if content, ok := ps.index.Content(relPath); ok {
 		items = append(items, ambiguityDiagnostics(world, content)...)
 	}

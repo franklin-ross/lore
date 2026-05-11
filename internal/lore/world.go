@@ -21,6 +21,12 @@ type World struct {
 	// free text alongside entity descriptions — narrative prose between
 	// definitions is part of the searchable surface per docs/design.md.
 	Files []FileSource
+	// FileIssues holds diagnostics not tied to a specific entity — most
+	// notably untyped colon-line typos: a `Sildar Hallwinder:` block that
+	// matches no known entity but is close to one. Phase 2 of Merge would
+	// silently drop these (they look like prose); FileIssues lets the LSP
+	// and `check` surface them so authors notice the gap.
+	FileIssues []StateIssue
 }
 
 // FileSource is one parsed file's path and raw content, kept on the World so
@@ -182,6 +188,13 @@ func (w *World) Check() []Issue {
 				Message: si.Message,
 			})
 		}
+	}
+	for _, fi := range w.FileIssues {
+		issues = append(issues, Issue{
+			File:    fi.Span.File,
+			Line:    fi.Span.Line,
+			Message: fi.Message,
+		})
 	}
 	return issues
 }
