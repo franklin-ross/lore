@@ -1,7 +1,8 @@
 import * as vscode from "vscode";
 import * as path from "node:path";
 import * as fs from "node:fs";
-import { execFileSync } from "node:child_process";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import {
   LanguageClient,
   TransportKind,
@@ -22,11 +23,13 @@ interface DefinitionRangesResponse {
   ranges?: DefinitionRangeItem[];
 }
 
+const execFileAsync = promisify(execFile);
+
 // resolveServerPath picks the lore binary in this order:
 //   1. lore.serverPath setting (explicit user override)
 //   2. bundled binary at <extensionPath>/bin/lore[.exe]
 //   3. "lore" on PATH (fallback for source installs and dev)
-function resolveServerPath(): string {
+async function resolveServerPath(): Promise<string> {
   const override = vscode.workspace.getConfiguration("lore").get<string>("serverPath");
   if (override) return override;
 
@@ -42,10 +45,13 @@ function resolveServerPath(): string {
     }
   }
   if (process.platform === "darwin") {
-    // Defensive — Node downloads usually don't tag quarantine, but strip if present.
+    // Defensive — Node downloads usually don't tag quarantine, but strip if
+    // present. Async so the extension host isn't blocked on `xattr` during
+    // activation; awaited before the LSP binary is spawned so a quarantined
+    // binary still gets cleared before launch.
     try {
-      execFileSync("xattr", ["-d", "com.apple.quarantine", bundled], {
-        stdio: "ignore",
+      await execFileAsync("xattr", ["-d", "com.apple.quarantine", bundled], {
+        windowsHide: true,
       });
     } catch {
       // No quarantine attr to strip — expected.
@@ -225,8 +231,8 @@ function buildInitializationOptions(): Record<string, unknown> {
   };
 }
 
-function buildClient(): LanguageClient {
-  const serverPath = resolveServerPath();
+async function buildClient(): Promise<LanguageClient> {
+  const serverPath = await resolveServerPath();
 
   const serverOptions: ServerOptions = {
     command: serverPath,
@@ -284,12 +290,12 @@ async function restartClient(): Promise<void> {
   if (client) {
     await client.stop();
   }
-  client = buildClient();
+  client = await buildClient();
   await client.start();
   refreshAllVisible();
 }
 
-export function activate(context: vscode.ExtensionContext): void {
+export async function activate(context: vscode.ExtensionContext): Promise<void> {
   extensionPath = context.extensionPath;
   palette = loadPaletteFromManifest(context.extension);
   buildDecorations();
@@ -356,7 +362,7 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
   );
 
-  client = buildClient();
+  client = await buildClient();
   client.start().then(() => {
     refreshAllVisible();
     // Server fires this after `discoverAllProjects` whenever a lore.toml
