@@ -433,17 +433,36 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   );
 
   // Debounced reapply on edits — the server reparses after a short delay so
-  // we follow with our decorations.
+  // we follow with our decorations. Skip non-lore-project edits entirely; a
+  // single in-flight refresh is allowed at a time, with a trailing rerun if
+  // another edit lands mid-flight, so fast typing can't pile concurrent
+  // duplicates of the five request streams (definitionRanges × N editors,
+  // entityDetails, entityList, graph × 2 panels) on top of each other.
   let debounce: ReturnType<typeof setTimeout> | undefined;
+  let refreshInflight = false;
+  let refreshPending = false;
+  const runRefresh = async (): Promise<void> => {
+    if (refreshInflight) { refreshPending = true; return; }
+    refreshInflight = true;
+    try {
+      do {
+        refreshPending = false;
+        await Promise.all([
+          ...vscode.window.visibleTextEditors.map(refreshEditor),
+          wikiPanel.refresh(),
+          graphPanel.refresh(),
+        ]);
+      } while (refreshPending);
+    } finally {
+      refreshInflight = false;
+    }
+  };
   context.subscriptions.push(
     vscode.workspace.onDidChangeTextDocument((e) => {
       if (e.document.languageId !== "markdown") return;
+      if (!isInLoreProject(e.document.uri)) return;
       if (debounce) clearTimeout(debounce);
-      debounce = setTimeout(() => {
-        refreshAllVisible();
-        wikiPanel.refresh();
-        graphPanel.refresh();
-      }, 250);
+      debounce = setTimeout(runRefresh, 250);
     }),
   );
 
