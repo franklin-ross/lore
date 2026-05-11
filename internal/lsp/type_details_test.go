@@ -31,7 +31,7 @@ func TestTypeDetailsListsEntities(t *testing.T) {
 	if len(ent.Definitions) == 0 {
 		t.Errorf("expected at least one definition for %s", ent.Name)
 	}
-	if len(ent.Definitions) > 0 && len(ent.Definitions[0].Segments) == 0 {
+	if len(ent.Definitions) > 0 && len(flattenContentSegments(ent.Definitions[0].Content)) == 0 {
 		t.Errorf("first definition has no segments for %s", ent.Name)
 	}
 }

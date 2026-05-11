@@ -1,9 +1,10 @@
 import { el, basename, locLine, aliasSpans, tagPills, type LspLocation } from "./dom.ts";
-import { colour, renderSegments, type ContextSegment } from "./segments.ts";
+import { colour, renderSegments } from "./segments.ts";
+import { flattenSegments, type MarkdownNode } from "./markdown.ts";
 import type { PageCtx } from "./ctx.ts";
 
 export interface TypeEntityDefinition {
-  segments: ContextSegment[];
+  content: MarkdownNode[];
   location: LspLocation;
   startLine: number;
   endLine: number;
@@ -77,7 +78,10 @@ function renderTypeEntityEntry(ent: TypeEntityEntry, ctx: PageCtx): HTMLElement 
 function definitionRow(def: TypeEntityDefinition, ctx: PageCtx): HTMLElement {
   const line = locLine(def.location);
   const ctxSpan = el("span", { class: "ctx" });
-  renderSegments(def.segments, ctxSpan, ctx.palette, ctx.openEntity, false);
+  // Type-page rows are compact one-line previews, not full markdown
+  // blocks — flatten the content tree to its text segments so the row
+  // renders the description body inline like a reference preview.
+  renderSegments(flattenSegments(def.content), ctxSpan, ctx.palette, ctx.openEntity, false);
   return el(
     "div",
     {

@@ -648,14 +648,99 @@ func TestFileToURIEncodesSpecialChars(t *testing.T) {
 	}
 }
 
-func TestColouriseEscapesHTMLOutsideSpans(t *testing.T) {
+func TestColouriseEscapesHTMLActiveCharsInProse(t *testing.T) {
+	// User prose passes through Wrap with `<` and `&` HTML-escaped, so
+	// dangerous tags from a user's notes never enter VSCode's markdown/
+	// HTML pipeline — we don't depend on its sanitiser being correct.
+	// `>` is left alone so markdown blockquotes survive.
 	world := lore.NewWorld()
 	world.Match = nil
 	col := &colouriser{world: world, palette: []string{"#FF0000"}}
 	got := col.Wrap("a < b & c > d")
-	want := "a &lt; b &amp; c &gt; d"
+	want := "a &lt; b &amp; c > d"
 	if got != want {
 		t.Fatalf("escape mismatch:\n got: %q\nwant: %q", got, want)
+	}
+}
+
+func TestEscapeForHover(t *testing.T) {
+	// `<` and `&` get HTML-escaped; `>` passes through. Applied to both
+	// user prose and entity-name span content in hover, so user `<` can
+	// never start an HTML tag and user `&` can never start an entity.
+	cases := []struct{ in, want string }{
+		{"plain", "plain"},
+		{"Tom & Jerry", "Tom &amp; Jerry"},
+		{"a < b", "a &lt; b"},
+		{"a > b", "a > b"},
+		{"X<Y&Z", "X&lt;Y&amp;Z"},
+		{"<script>alert(1)</script>", "&lt;script>alert(1)&lt;/script>"},
+	}
+	for _, c := range cases {
+		if got := escapeForHover(c.in); got != c.want {
+			t.Errorf("escapeForHover(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+func TestColouriseEscapesDangerousTagsInProse(t *testing.T) {
+	// A `<script>` smuggled into user prose can't reach VSCode's HTML
+	// renderer — the leading `<` gets HTML-escaped at the server.
+	world := lore.NewWorld()
+	world.Match = nil
+	col := &colouriser{world: world, palette: []string{"#FF0000"}}
+	got := col.Wrap("before <script>alert(1)</script> after")
+	if strings.Contains(got, "<script") {
+		t.Fatalf("dangerous tag leaked unescaped: %q", got)
+	}
+}
+
+func TestColourisePreservesBlockquoteMarker(t *testing.T) {
+	// Markdown blockquotes — `>` at line start — must survive Wrap so
+	// VSCode's markdown renderer can format them as <blockquote>.
+	world := lore.NewWorld()
+	world.Match = nil
+	col := &colouriser{world: world, palette: []string{"#FF0000"}}
+	got := col.Wrap("> Lots of prose.\n>\n> Spread over many lines.")
+	want := "> Lots of prose.\n>\n> Spread over many lines."
+	if got != want {
+		t.Fatalf("blockquote mangled:\n got: %q\nwant: %q", got, want)
+	}
+}
+
+func TestColourisePreservesHorizontalRule(t *testing.T) {
+	world := lore.NewWorld()
+	world.Match = nil
+	col := &colouriser{world: world, palette: []string{"#FF0000"}}
+	got := col.Wrap("before\n\n---\n\nafter")
+	want := "before\n\n---\n\nafter"
+	if got != want {
+		t.Fatalf("horizontal rule mangled:\n got: %q\nwant: %q", got, want)
+	}
+}
+
+func TestFormatEntityHoverPreservesBlockquoteAndRule(t *testing.T) {
+	// End-to-end: a block-form aside body containing blockquote and HR
+	// markdown reaches the hover output without `>` being entity-escaped,
+	// so VSCode's markdown renderer can format both.
+	ent := &lore.Entity{
+		Name: "Rictavio's Journal",
+		Type: "item",
+		Descriptions: []lore.Description{
+			{
+				Text: "> Lots of prose.\n>\n> Spread over many lines.\n\n---\n\nFound in the attic.",
+				File: "t.md", Line: 1,
+			},
+		},
+	}
+	out := formatEntityHover(ent, "", 0, HoverStateModeLatest, true, nil)
+	if strings.Contains(out, "&gt;") {
+		t.Fatalf("blockquote marker entity-escaped in hover: %q", out)
+	}
+	if !strings.Contains(out, "> Lots of prose.") {
+		t.Fatalf("blockquote missing from hover: %q", out)
+	}
+	if !strings.Contains(out, "\n---\n") {
+		t.Fatalf("horizontal rule missing from hover: %q", out)
 	}
 }
 

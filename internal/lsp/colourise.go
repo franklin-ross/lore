@@ -18,10 +18,15 @@ type colouriser struct {
 
 // Wrap returns markdown text with every entity name occurrence in `text`
 // wrapped in a `<span style="color:#hex">` tag, where the hex comes from
-// `palette[entityColourIndex(ent)]`. `<` and `&` outside spans are escaped
-// so user prose containing those characters renders as written. Other
-// markdown markers (`*`, `_`, etc.) are left intact so bold/italic/etc.
-// continue to work in the hover.
+// `palette[entityColourIndex(ent)]`. User prose between spans gets `<`
+// and `&` HTML-escaped — `>` is left alone so markdown blockquotes
+// (`> text`) keep working. Escaping at the server gives defense-in-depth:
+// dangerous tags from user notes never enter VSCode's HTML pipeline, so
+// we don't depend on its sanitiser being correct, and `<foo>` in prose
+// renders predictably as literal `<foo>` instead of "maybe a tag, maybe
+// stripped". URL-bearing constructs (`<autolink>`, `[label](url)`, bare
+// `https://…`) are passed through verbatim so markdown link parsing
+// still resolves them.
 //
 // URL-bearing constructs (`<autolink>`, `[label](url)`, bare `https://…`
 // and `www.…`) are passed through verbatim: entity-name matches inside
@@ -29,7 +34,7 @@ type colouriser struct {
 // renderer can still parse them as links.
 func (c *colouriser) Wrap(text string) string {
 	if c == nil || len(c.palette) == 0 || c.world == nil {
-		return escapeForHTML(text)
+		return escapeForHover(text)
 	}
 
 	protected := protectedURLRanges(text)
@@ -46,14 +51,15 @@ func (c *colouriser) Wrap(text string) string {
 	}
 
 	if len(matches) == 0 && len(protected) == 0 {
-		return escapeForHTML(text)
+		return escapeForHover(text)
 	}
 
 	var b strings.Builder
 	emitGap := func(start, end int) {
 		// Emit `text[start:end)`, splitting around any protected URL
-		// ranges so they pass through unescaped while the rest is
-		// HTML-escaped.
+		// ranges so they pass through unescaped (markdown link parsing
+		// needs the raw `<…>`, `](…)`, and `https://…` byte sequences)
+		// while the rest is HTML-escaped for defense in depth.
 		cursor := start
 		for _, p := range protected {
 			if p[1] <= cursor {
@@ -70,13 +76,13 @@ func (c *colouriser) Wrap(text string) string {
 				pe = end
 			}
 			if ps > cursor {
-				b.WriteString(escapeForHTML(text[cursor:ps]))
+				b.WriteString(escapeForHover(text[cursor:ps]))
 			}
 			b.WriteString(text[ps:pe])
 			cursor = pe
 		}
 		if cursor < end {
-			b.WriteString(escapeForHTML(text[cursor:end]))
+			b.WriteString(escapeForHover(text[cursor:end]))
 		}
 	}
 
@@ -95,12 +101,12 @@ func (c *colouriser) Wrap(text string) string {
 		emitGap(prev, m.Start)
 		idx := int(entityColourIndex(&c.world.Entities[m.EntityIdx]))
 		if idx < 0 || idx >= len(c.palette) {
-			b.WriteString(escapeForHTML(text[m.Start:m.End]))
+			b.WriteString(escapeForHover(text[m.Start:m.End]))
 		} else {
 			b.WriteString(`<span style="color:`)
 			b.WriteString(c.palette[idx])
 			b.WriteString(`;">`)
-			b.WriteString(escapeForHTML(text[m.Start:m.End]))
+			b.WriteString(escapeForHover(text[m.Start:m.End]))
 			b.WriteString(`</span>`)
 		}
 		prev = m.End
@@ -110,12 +116,17 @@ func (c *colouriser) Wrap(text string) string {
 	return b.String()
 }
 
-// escapeForHTML escapes only the characters that would break HTML rendering
-// when supportHtml is on. Markdown markers (`*`, `_`, `` ` ``) pass through
-// so the markdown processor still picks them up before the HTML sanitiser
-// runs.
-func escapeForHTML(s string) string {
-	if !strings.ContainsAny(s, "<>&") {
+// escapeForHover escapes the HTML-active characters in hover output:
+// `<` (would open an HTML tag) and `&` (would start an HTML entity).
+// `>` is intentionally left alone — it has no tag-opening meaning on
+// its own and would otherwise kill markdown blockquotes (`> text` at
+// line start). Applied to both user prose and entity-name span content
+// in hover, so dangerous tags from user notes never reach VSCode's
+// markdown/HTML pipeline and we don't depend on its sanitiser. The
+// wiki path does its own DOM construction via text nodes and doesn't
+// need this; running it there would surface literal `&lt;` characters.
+func escapeForHover(s string) string {
+	if !strings.ContainsAny(s, "<&") {
 		return s
 	}
 	var b strings.Builder
@@ -124,8 +135,6 @@ func escapeForHTML(s string) string {
 		switch s[i] {
 		case '<':
 			b.WriteString("&lt;")
-		case '>':
-			b.WriteString("&gt;")
 		case '&':
 			b.WriteString("&amp;")
 		default:

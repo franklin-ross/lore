@@ -1,5 +1,6 @@
 import { el, basename, section, aliasSpans, type LspLocation } from "./dom.ts";
-import { colour, renderSegments, type ContextSegment } from "./segments.ts";
+import { colour } from "./segments.ts";
+import { renderMarkdownTree, type MarkdownNode } from "./markdown.ts";
 import { renderRefGroups, type RefGroup } from "./refs.ts";
 import type { PageCtx } from "./ctx.ts";
 
@@ -8,7 +9,7 @@ export interface EntityField {
   value: string;
 }
 export interface DescriptionBlock {
-  segments: ContextSegment[];
+  content: MarkdownNode[];
   location: LspLocation;
   startLine: number;
   endLine: number;
@@ -159,7 +160,7 @@ function renderDescriptions(d: EntityDetails, ctx: PageCtx): HTMLElement[] {
       onclick: () => ctx.navigate(block.location.uri, block.startLine),
     });
     const text = el("div", { class: "desc-text" });
-    renderSegments(block.segments, text, ctx.palette, ctx.openEntity, true);
+    renderMarkdownTree(block.content, text, ctx.palette, ctx.openEntity, true);
     blocks.push(el("div", { class: "desc-block" }, jump, text));
   }
   return [section("Descriptions", ctx.collapsed, ctx.onToggle, ...blocks)];

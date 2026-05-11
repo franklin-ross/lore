@@ -530,27 +530,29 @@ func formatEntityHover(ent *lore.Entity, cursorFile string, cursorLine int, mode
 
 // wrapEntityName returns the entity's display name wrapped in a colour span
 // for the entity's own palette colour, or the plain name when colouring is
-// disabled.
+// disabled. The name always gets HTML-escaped — whether bare or inside a
+// `<span>` wrapper — because in both cases it lands in a hover MarkdownString
+// where unescaped `<` or `&` could form an HTML tag or entity.
 func wrapEntityName(ent *lore.Entity, col *colouriser) string {
 	if col == nil || len(col.palette) == 0 {
-		return escapeForHTML(ent.Name)
+		return escapeForHover(ent.Name)
 	}
 	idx := int(entityColourIndex(ent))
 	if idx < 0 || idx >= len(col.palette) {
-		return escapeForHTML(ent.Name)
+		return escapeForHover(ent.Name)
 	}
-	return `<span style="color:` + col.palette[idx] + `;">` + escapeForHTML(ent.Name) + `</span>`
+	return `<span style="color:` + col.palette[idx] + `;">` + escapeForHover(ent.Name) + `</span>`
 }
 
 // wrapEntityAlias is like wrapEntityName but for a specific alias string,
 // which may not equal ent.Name. The colour comes from the parent entity.
 func wrapEntityAlias(ent *lore.Entity, alias string, col *colouriser) string {
 	if col == nil || len(col.palette) == 0 {
-		return escapeForHTML(alias)
+		return escapeForHover(alias)
 	}
 	idx := int(entityColourIndex(ent))
 	if idx < 0 || idx >= len(col.palette) {
-		return escapeForHTML(alias)
+		return escapeForHover(alias)
 	}
-	return `<span style="color:` + col.palette[idx] + `;">` + escapeForHTML(alias) + `</span>`
+	return `<span style="color:` + col.palette[idx] + `;">` + escapeForHover(alias) + `</span>`
 }

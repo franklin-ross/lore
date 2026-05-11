@@ -34,11 +34,12 @@ func TestEntityDetailsBasic(t *testing.T) {
 		t.Fatal("expected at least one description block")
 	}
 	desc := got.Descriptions[0]
-	if len(desc.Segments) == 0 {
+	segs := flattenContentSegments(desc.Content)
+	if len(segs) == 0 {
 		t.Fatal("description has no segments")
 	}
 	var joined strings.Builder
-	for _, seg := range desc.Segments {
+	for _, seg := range segs {
 		joined.WriteString(seg.Text)
 	}
 	if !strings.Contains(joined.String(), "Fighter") {
@@ -47,6 +48,23 @@ func TestEntityDetailsBasic(t *testing.T) {
 	if desc.Location.URI == "" {
 		t.Error("description location URI empty")
 	}
+}
+
+// flattenContentSegments walks a MarkdownNode tree and returns every
+// ContextSegment attached to a "text" leaf, in source order. Tests
+// that used the old flat Segments field use this to assert on text
+// content without caring which block wraps it.
+func flattenContentSegments(nodes []MarkdownNode) []ContextSegment {
+	var out []ContextSegment
+	for _, n := range nodes {
+		if n.Kind == "text" {
+			out = append(out, n.Segments...)
+		}
+		if len(n.Children) > 0 {
+			out = append(out, flattenContentSegments(n.Children)...)
+		}
+	}
+	return out
 }
 
 func TestEntityDetailsBodyHighlightsEntities(t *testing.T) {
@@ -65,13 +83,14 @@ func TestEntityDetailsBodyHighlightsEntities(t *testing.T) {
 	// arrive with a non-default colour index so the webview can paint
 	// it in Sildar's palette colour.
 	var sawColouredSildar bool
-	for _, seg := range got.Descriptions[0].Segments {
+	segs := flattenContentSegments(got.Descriptions[0].Content)
+	for _, seg := range segs {
 		if strings.Contains(seg.Text, "Sildar") && seg.ColourIndex >= 0 {
 			sawColouredSildar = true
 		}
 	}
 	if !sawColouredSildar {
-		t.Errorf("expected coloured Sildar segment in description; got %+v", got.Descriptions[0].Segments)
+		t.Errorf("expected coloured Sildar segment in description; got %+v", segs)
 	}
 }
 

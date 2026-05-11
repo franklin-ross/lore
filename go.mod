@@ -11,6 +11,7 @@ require (
 require (
 	github.com/segmentio/ksuid v1.0.4 // indirect
 	github.com/tliron/go-kutil v0.4.0 // indirect
+	github.com/yuin/goldmark v1.8.2 // indirect
 )
 
 require (

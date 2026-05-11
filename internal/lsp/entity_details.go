@@ -66,12 +66,15 @@ func (s ContextSegment) MarshalJSON() ([]byte, error) {
 }
 
 // EntityDescriptionBlock is one authored definition of the entity. The
-// description prose is shipped as colourised segments so the wiki can
-// highlight entity-name mentions inside the body using the same palette
-// as the surrounding editor. Location points at the description's first
-// line so the client can render a "jump to source" link.
+// description body is shipped as a markdown tree (Content) so the wiki
+// can render block-level constructs — blockquotes, lists, headings,
+// code, tables, emphasis — without parsing markdown itself. Entity
+// colouring is woven into "text" leaves of the tree, so name mentions
+// inside the body still pick up the palette colour. Location points at
+// the description's first line so the client can render a "jump to
+// source" link.
 type EntityDescriptionBlock struct {
-	Segments  []ContextSegment  `json:"segments"`
+	Content   []MarkdownNode    `json:"content"`
 	Location  protocol.Location `json:"location"`
 	StartLine uint32            `json:"startLine"`
 	EndLine   uint32            `json:"endLine"`
@@ -255,7 +258,7 @@ func buildDescriptionBlocks(ps *projectState, world *lore.World, ent *lore.Entit
 			}
 		}
 		out = append(out, EntityDescriptionBlock{
-			Segments:  buildContextSegments(world, text),
+			Content:   buildDescriptionContent(world, text),
 			Location:  ps.locAtMatch(d.File, d.Line, nameStart, nameEnd),
 			StartLine: uint32(d.Line),
 			EndLine:   uint32(d.EndLine),

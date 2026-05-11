@@ -78,7 +78,9 @@ describe("renderEntityPage", () => {
       type: "location",
       descriptions: [
         {
-          segments: [{ text: "North of Triboar Trail." }],
+          content: [
+            { kind: "paragraph", children: [{ kind: "text", segments: [{ text: "North of Triboar Trail." }] }] },
+          ],
           location: {
             uri: "file:///camp/notes.md",
             range: {
@@ -117,7 +119,9 @@ describe("renderTypePage", () => {
           },
           definitions: [
             {
-              segments: [{ text: "Fighter. Member of Lords Alliance." }],
+              content: [
+                { kind: "paragraph", children: [{ kind: "text", segments: [{ text: "Fighter. Member of Lords Alliance." }] }] },
+              ],
               location: {
                 uri: "file:///camp/sildar.md",
                 range: { start: { line: 0, character: 0 }, end: { line: 0, character: 30 } },
