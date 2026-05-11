@@ -179,6 +179,10 @@ func Merge(files []*FileParse) *World {
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Path < sorted[j].Path })
 
 	world := NewWorld()
+	world.Files = make([]FileSource, len(sorted))
+	for i, fp := range sorted {
+		world.Files[i] = FileSource{Path: fp.Path, Content: fp.Content}
+	}
 
 	// Phase 1: create entities from typed definitions.
 	for _, fp := range sorted {

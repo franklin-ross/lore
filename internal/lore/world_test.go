@@ -263,6 +263,29 @@ Casimir (npc): Met Vallaki guards near the gate.
 	}
 }
 
+// Free text outside any entity definition is searchable per
+// docs/design.md and docs/format.md.
+func TestSearchScansFreeText(t *testing.T) {
+	world := setupTestWorld(t, `Gundren (character): A dwarf.
+
+We met a stranger on the road to Neverwinter.
+`)
+
+	results := world.Search("stranger")
+	if len(results) != 1 {
+		t.Fatalf("expected 1 free-text hit, got %d: %+v", len(results), results)
+	}
+	if results[0].Line != 3 {
+		t.Errorf("free-text hit line = %d, want 3", results[0].Line)
+	}
+
+	// "Neverwinter" sits in free text only — must be found, not just when
+	// embedded in a description.
+	if got := world.Search("Neverwinter"); len(got) != 1 || got[0].Line != 3 {
+		t.Fatalf("Neverwinter free-text hit: %+v", got)
+	}
+}
+
 func TestFindEntityAmbiguous(t *testing.T) {
 	world := setupTestWorld(t, "Barovia (town): The main town.\n\nBarovia (nation): The country.\n")
 

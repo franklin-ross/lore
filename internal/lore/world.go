@@ -17,6 +17,17 @@ type World struct {
 	// scan text for entity mentions don't need to re-lowercase on every
 	// iteration of their hot loop.
 	Match *MatchIndex
+	// Files retains the raw content of every parsed file so Search can scan
+	// free text alongside entity descriptions — narrative prose between
+	// definitions is part of the searchable surface per docs/design.md.
+	Files []FileSource
+}
+
+// FileSource is one parsed file's path and raw content, kept on the World so
+// full-text search can scan prose outside any entity definition.
+type FileSource struct {
+	Path    string
+	Content string
 }
 
 // NewWorld creates an empty World.
@@ -134,18 +145,27 @@ func isSameEntity(ent *Entity, sourceName, sourceType string) bool {
 	return strings.EqualFold(ent.Type, sourceType)
 }
 
-// Search finds entity descriptions containing the query text (case-insensitive).
+// Search finds lines containing the query text (case-insensitive) across
+// every parsed file. Both entity descriptions and free text prose are
+// scanned, since narrative outside any definition is part of the
+// searchable surface (docs/design.md, docs/format.md). Returns one result
+// per matching line, sorted by file then line.
 func (w *World) Search(query string) []SearchResult {
+	if query == "" {
+		return nil
+	}
 	var results []SearchResult
-	for _, ent := range w.Entities {
-		for _, desc := range ent.Descriptions {
-			if ContainsIgnoreCase(desc.Text, query) {
-				results = append(results, SearchResult{
-					File:    desc.File,
-					Line:    desc.Line,
-					Context: desc.Text,
-				})
+	for _, f := range w.Files {
+		lines := strings.Split(f.Content, "\n")
+		for i, line := range lines {
+			if !ContainsIgnoreCase(line, query) {
+				continue
 			}
+			results = append(results, SearchResult{
+				File:    f.Path,
+				Line:    i + 1,
+				Context: strings.TrimSpace(line),
+			})
 		}
 	}
 	return results

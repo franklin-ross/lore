@@ -76,7 +76,8 @@ type Reference struct {
 	MatchEnd     int    // byte offset just past the matched name in the original line
 }
 
-// SearchResult is a match from a full-text search across entity descriptions.
+// SearchResult is a match from a full-text search across every parsed file —
+// entity descriptions and free text prose alike.
 type SearchResult struct {
 	File    string
 	Line    int
