@@ -35,10 +35,18 @@ type EntityListItem struct {
 
 type EntityListResult struct {
 	Entities []EntityListItem `json:"entities"`
+	// Message, when set, signals the workspace has no scope to list from
+	// (no lore.toml found). Clients should display it in place of an
+	// empty list rather than render a functional-looking empty view.
+	Message string `json:"message,omitempty"`
 }
 
 func (s *Server) entityList(params *EntityListParams) (*EntityListResult, error) {
 	out := EntityListResult{Entities: []EntityListItem{}}
+	if len(s.projects) == 0 {
+		out.Message = "No lore.toml found in this workspace."
+		return &out, nil
+	}
 
 	scope := s.entityListScope(params)
 	for _, ps := range scope {

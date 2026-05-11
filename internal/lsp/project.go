@@ -93,9 +93,10 @@ func (p *projectState) locAtMatch(rel string, line, byteStart, byteEnd int) prot
 // are excluded from the ancestor's index so each file belongs to its nearest
 // ancestor lore.toml only.
 //
-// If no lore.toml exists anywhere in the tree, the workspace root is treated
-// as a single virtual project so users without a config still get default
-// indexing.
+// Returns an empty map if no lore.toml exists in the tree — without an
+// explicit project root we have no scope, and silently indexing every
+// markdown file in the workspace produces a chimera (notably after the
+// user renames or deletes a lore.toml expecting the project to disappear).
 func discoverProjects(workspaceRoot string) (map[string]*projectState, error) {
 	if workspaceRoot == "" {
 		return nil, nil
@@ -104,9 +105,6 @@ func discoverProjects(workspaceRoot string) (map[string]*projectState, error) {
 	roots, err := findConfigDirs(workspaceRoot)
 	if err != nil {
 		return nil, err
-	}
-	if len(roots) == 0 {
-		roots = []string{workspaceRoot}
 	}
 
 	// Sort shallow-first so we can compute descendant relationships in one pass.

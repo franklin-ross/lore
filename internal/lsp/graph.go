@@ -48,20 +48,46 @@ type GraphDefEdge struct {
 type GraphResult struct {
 	Nodes    []GraphNode    `json:"nodes"`
 	DefEdges []GraphDefEdge `json:"defEdges"`
+	// Message, when set, is a human-readable explanation for an empty
+	// result that the client should surface in place of a blank canvas
+	// (e.g. multiple projects with no active editor to disambiguate).
+	Message string `json:"message,omitempty"`
 }
 
-// graph builds the project (or merged) graph response.
+// graph builds the project graph response.
 func (s *Server) graph(params *GraphParams) (*GraphResult, error) {
 	world := s.graphWorld(params)
 	if world == nil {
-		return &GraphResult{Nodes: []GraphNode{}, DefEdges: []GraphDefEdge{}}, nil
+		return &GraphResult{
+			Nodes:    []GraphNode{},
+			DefEdges: []GraphDefEdge{},
+			Message:  noScopeMessage(s, params),
+		}, nil
 	}
 	return buildGraphResult(world), nil
 }
 
+// noScopeMessage explains why graphWorld returned nil so the webview can
+// show a useful hint instead of an empty canvas.
+func noScopeMessage(s *Server, params *GraphParams) string {
+	if len(s.projects) == 0 {
+		return "No lore.toml found in this workspace."
+	}
+	if params != nil && params.TextDocument != nil && params.TextDocument.URI != "" {
+		return "This file isn't in any lore project."
+	}
+	if len(s.projects) > 1 {
+		return "Open a lore file to see its project's graph."
+	}
+	return ""
+}
+
 // graphWorld picks the world to graph: the URI's owning project when
-// scoped, otherwise the merged workspace world. Returns nil when a URI
-// was supplied but no project owns it, mirroring entityListScope.
+// scoped. With no URI, the only sensible default is "the sole project" —
+// merging unrelated projects produces a chimera (duplicate-named entities
+// collide, refs cross campaigns) so we refuse and let the caller render
+// "open a lore file to see its graph". Returns nil when no scope can be
+// resolved.
 func (s *Server) graphWorld(params *GraphParams) *lore.World {
 	if params != nil && params.TextDocument != nil && params.TextDocument.URI != "" {
 		ps, _ := s.projectForURI(params.TextDocument.URI)
@@ -70,7 +96,12 @@ func (s *Server) graphWorld(params *GraphParams) *lore.World {
 		}
 		return ps.world()
 	}
-	return s.world()
+	if len(s.projects) == 1 {
+		for _, ps := range s.projects {
+			return ps.world()
+		}
+	}
+	return nil
 }
 
 func buildGraphResult(world *lore.World) *GraphResult {

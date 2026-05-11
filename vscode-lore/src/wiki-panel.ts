@@ -16,6 +16,9 @@ interface Catalog { entities: CatalogEntity[]; types: CatalogType[] }
 
 interface EntityListResponse {
   entities?: { name: string; type: string }[];
+  // Server signals "no scope" (e.g. workspace has no lore.toml). When set,
+  // the wiki should render the message in place of an empty home page.
+  message?: string;
 }
 
 interface GraphNode { label: string; name: string; type?: string; colourIndex: number }
@@ -169,10 +172,10 @@ export class LoreWikiPanel {
     }
 
     let payload: unknown = null;
-    let catalog: Catalog | null = null;
+    let catalogResult: { catalog: Catalog; message?: string } = { catalog: { entities: [], types: [] } };
     let graph: GraphResponse | null = null;
     try {
-      [payload, catalog, graph] = await Promise.all([
+      [payload, catalogResult, graph] = await Promise.all([
         this.fetchPayload(client, page),
         this.fetchCatalog(client, page.source),
         // Embedded entity graph only renders on entity pages — skip the
@@ -182,6 +185,18 @@ export class LoreWikiPanel {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       this.panel.webview.postMessage({ type: "error", message });
+      return;
+    }
+    const catalog = catalogResult.catalog;
+
+    // No project to scope to — render the server-supplied placeholder in
+    // place of an empty search box. Skip the rest of the page so toolbar,
+    // graph, and history don't appear functional.
+    if (catalogResult.message) {
+      this.panel.webview.postMessage({
+        type: "info",
+        message: catalogResult.message,
+      });
       return;
     }
 
@@ -241,8 +256,13 @@ export class LoreWikiPanel {
   }
 
   // Fetches the entity catalog used by the search box. Same source scoping
-  // as page lookups so suggestions match the active project.
-  private async fetchCatalog(client: LanguageClient, source: string | undefined): Promise<Catalog> {
+  // as page lookups so suggestions match the active project. Returns the
+  // server-supplied "no scope" message alongside the catalog so callers
+  // can short-circuit rendering when there's no project.
+  private async fetchCatalog(
+    client: LanguageClient,
+    source: string | undefined,
+  ): Promise<{ catalog: Catalog; message?: string }> {
     const td = source ? { uri: source } : undefined;
     const list = await client.sendRequest<EntityListResponse>("lore/entityList", { textDocument: td });
     const entities: CatalogEntity[] = (list?.entities ?? []).map((e) => ({
@@ -258,7 +278,7 @@ export class LoreWikiPanel {
     // Most populous type first; alphabetical tie-break so identical counts
     // render in a stable order.
     types.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
-    return { entities, types };
+    return { catalog: { entities, types }, message: list?.message };
   }
 
   // Snapshot of the history stack for breadcrumb rendering. Includes

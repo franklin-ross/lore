@@ -409,6 +409,17 @@ table.fields td.k { color: var(--vscode-descriptionForeground); }
 }
 .err { color: var(--vscode-errorForeground); }
 
+.no-project {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 80vh;
+  padding: 2rem;
+  color: var(--vscode-descriptionForeground);
+  font-size: 1.25rem;
+  text-align: center;
+}
+
 .history-row {
   display: grid;
   grid-template-columns: 1fr minmax(120px, max-content);

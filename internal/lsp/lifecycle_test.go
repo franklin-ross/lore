@@ -83,7 +83,7 @@ func closeDoc(t *testing.T, s *Server, uri string) {
 // server's current merged world.
 func mustFindEntity(t *testing.T, s *Server, name string) *lore.Entity {
 	t.Helper()
-	ent, err := s.world().FindEntity(name)
+	ent, err := soleWorld(t, s).FindEntity(name)
 	if err != nil {
 		t.Fatalf("expected entity %q, got error: %v", name, err)
 	}
@@ -92,7 +92,7 @@ func mustFindEntity(t *testing.T, s *Server, name string) *lore.Entity {
 
 func assertNoEntity(t *testing.T, s *Server, name string) {
 	t.Helper()
-	if _, err := s.world().FindEntity(name); err == nil {
+	if _, err := soleWorld(t, s).FindEntity(name); err == nil {
 		t.Fatalf("did not expect entity %q to resolve", name)
 	}
 }
@@ -164,7 +164,7 @@ func TestLifecycleCrossFileReferencesUpdateOnChange(t *testing.T) {
 	})
 
 	// Initially Sildar has no references (its own definition is filtered).
-	if refs := s.world().GetReferences("Sildar"); len(refs) != 0 {
+	if refs := soleWorld(t, s).GetReferences("Sildar"); len(refs) != 0 {
 		t.Fatalf("expected 0 initial refs to Sildar, got %d", len(refs))
 	}
 
@@ -174,7 +174,7 @@ func TestLifecycleCrossFileReferencesUpdateOnChange(t *testing.T) {
 	// Mention Sildar in the session buffer.
 	changeDoc(t, s, sessionURI, "We rescued Sildar from the goblins.\n")
 
-	refs := s.world().GetReferences("Sildar")
+	refs := soleWorld(t, s).GetReferences("Sildar")
 	if len(refs) == 0 {
 		t.Fatal("expected a reference to Sildar after editing sessions/01.md")
 	}

@@ -32,7 +32,16 @@ interface ErrorMessage {
   type: "error";
   message?: string;
 }
-type WebviewMessage = GraphMessage | FocusMessage | FilteredTypesMessage | ErrorMessage;
+interface InfoMessage {
+  type: "info";
+  message?: string;
+}
+type WebviewMessage =
+  | GraphMessage
+  | FocusMessage
+  | FilteredTypesMessage
+  | ErrorMessage
+  | InfoMessage;
 
 type LayoutOptionsMap = Record<string, Record<string, number | boolean>>;
 
@@ -483,6 +492,12 @@ window.addEventListener("message", (e: MessageEvent<WebviewMessage>) => {
     p.className = "err";
     p.textContent = msg.message ?? "Unknown error";
     root.appendChild(p);
+  } else if (msg.type === "info") {
+    root.innerHTML = "";
+    const div = document.createElement("div");
+    div.className = "no-project";
+    div.textContent = msg.message ?? "";
+    root.appendChild(div);
   }
 });
 

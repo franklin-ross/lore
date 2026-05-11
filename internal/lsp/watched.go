@@ -20,7 +20,7 @@ import (
 // immediately. The goroutine only reads fields that are frozen after
 // `initialize` and never mutates server state.
 func (s *Server) registerFileWatchers() {
-	if s.call == nil || len(s.projects) == 0 {
+	if s.call == nil {
 		return
 	}
 
@@ -34,6 +34,8 @@ func (s *Server) registerFileWatchers() {
 			})
 		}
 	}
+	// Watch lore.toml unconditionally — including when no project exists
+	// yet — so creating one triggers a reload.
 	watchers = append(watchers, protocol.FileSystemWatcher{GlobPattern: "**/lore.toml"})
 
 	params := protocol.RegistrationParams{

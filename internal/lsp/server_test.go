@@ -23,6 +23,20 @@ Cragmaw Hideout (location): North of Triboar Trail. Sildar was
 We followed the goblin trail and found Sildar inside.
 `
 
+// soleWorld returns the world of a server's single project. Fails the test
+// if the server has zero or many projects — call sites assume single-project
+// shape, which the production graphWorld also relies on.
+func soleWorld(t *testing.T, s *Server) *lore.World {
+	t.Helper()
+	if len(s.projects) != 1 {
+		t.Fatalf("soleWorld: expected 1 project, got %d", len(s.projects))
+	}
+	for _, ps := range s.projects {
+		return ps.world()
+	}
+	return nil
+}
+
 func setupTestServer(t *testing.T, content string) *Server {
 	t.Helper()
 
@@ -585,9 +599,9 @@ func TestFormatEntityHoverColourisesNamesAndDescriptions(t *testing.T) {
 		"#000015", "#000016", "#000017", "#000018", "#000019",
 		"#00001A",
 	}
-	col := &colouriser{world: s.world(), palette: s.palette}
+	col := &colouriser{world: soleWorld(t, s), palette: s.palette}
 
-	world := s.world()
+	world := soleWorld(t, s)
 	var tatyana *lore.Entity
 	for i := range world.Entities {
 		if world.Entities[i].Name == "Tatyana" {
@@ -922,7 +936,7 @@ func TestSemanticTokensDisambiguatedNameSingleEmission(t *testing.T) {
 		t.Fatalf("malformed semantic token stream: %d values", len(result.Data))
 	}
 
-	world := s.world()
+	world := soleWorld(t, s)
 	var townMods, countryMods uint32
 	for i := range world.Entities {
 		ent := &world.Entities[i]
@@ -1047,7 +1061,7 @@ func TestSemanticTokensLongestMatchWinsOverlap(t *testing.T) {
 		t.Fatalf("malformed semantic token stream: %d values", len(result.Data))
 	}
 
-	world := s.world()
+	world := soleWorld(t, s)
 	var cathedralMods uint32
 	for i := range world.Entities {
 		ent := &world.Entities[i]
@@ -1114,7 +1128,7 @@ func TestDefinitionRangesCoversHeadersAndAsides(t *testing.T) {
 		t.Fatalf("expected 2 definition ranges, got %d: %+v", len(result.Ranges), result.Ranges)
 	}
 
-	world := s.world()
+	world := soleWorld(t, s)
 	colourFor := func(name string) uint32 {
 		for i := range world.Entities {
 			if world.Entities[i].Name == name {

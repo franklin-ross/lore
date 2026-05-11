@@ -203,24 +203,6 @@ func (s *Server) discoverAllProjects() {
 	s.logInfo("indexed %d entities from %d files across %d projects", totalEntities, totalFiles, len(s.projects))
 }
 
-// world returns a merged world across every project. Used as a back-compat
-// shim by tests that don't care about scoping; production handlers should
-// resolve the owning projectState and use ps.world() instead.
-func (s *Server) world() *lore.World {
-	if len(s.projects) == 1 {
-		for _, ps := range s.projects {
-			return ps.world()
-		}
-	}
-	files := make([]*lore.FileParse, 0)
-	for _, ps := range s.projects {
-		for _, fp := range ps.index.files {
-			files = append(files, fp)
-		}
-	}
-	return lore.Merge(files)
-}
-
 // logInfo sends an informational message to the client's output channel.
 func (s *Server) logInfo(format string, args ...any) {
 	s.sendLog(protocol.MessageTypeInfo, format, args...)

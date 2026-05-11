@@ -28,6 +28,11 @@ interface GraphDefEdge {
 interface GraphResponse {
     nodes?: GraphNode[];
     defEdges?: GraphDefEdge[];
+    // Server-supplied placeholder text, shown when the request couldn't
+    // resolve a project to scope to (e.g. multiple projects open and no
+    // active editor to disambiguate). Empty/absent means render the graph
+    // normally.
+    message?: string;
 }
 
 interface IncomingMessage {
@@ -64,7 +69,11 @@ export class LoreGraphPanel {
     ) {}
 
     async show(source: string | undefined, focus?: string): Promise<void> {
-        this.currentSource = source;
+        // Preserve the last source when none is provided — reopening the
+        // panel with no active editor (or an editor outside any lore
+        // project) should keep showing the graph it was already on, not
+        // blank out.
+        if (source) this.currentSource = source;
         if (focus) this.currentFocus = focus;
         this.ensurePanel();
         await this.refresh();
@@ -94,6 +103,13 @@ export class LoreGraphPanel {
             return;
         }
         this.lastGraph = payload;
+        if (payload?.message) {
+            this.panel.webview.postMessage({
+                type: "info",
+                message: payload.message,
+            });
+            return;
+        }
         this.panel.webview.postMessage({
             type: "graph",
             payload,

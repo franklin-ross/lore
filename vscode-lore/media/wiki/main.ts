@@ -37,7 +37,11 @@ interface ErrorMessage {
   type: "error";
   message?: string;
 }
-type WebviewMessage = PageMessage | ErrorMessage;
+interface InfoMessage {
+  type: "info";
+  message?: string;
+}
+type WebviewMessage = PageMessage | ErrorMessage | InfoMessage;
 
 interface PersistedState {
   collapsed?: string[];
@@ -197,6 +201,13 @@ window.addEventListener("message", (e: MessageEvent<WebviewMessage>) => {
   } else if (msg.type === "error") {
     root.innerHTML = "";
     root.appendChild(el("p", { class: "err" }, msg.message ?? "Unknown error"));
+  } else if (msg.type === "info") {
+    // No project to scope to — clear toolbar and embedded graph so the
+    // page doesn't look functional.
+    toolbarHost.innerHTML = "";
+    entityGraph.hide();
+    root.innerHTML = "";
+    root.appendChild(el("div", { class: "no-project" }, msg.message ?? ""));
   }
 });
 
