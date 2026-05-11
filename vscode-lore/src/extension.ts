@@ -132,9 +132,10 @@ function clearDecorations(editor: vscode.TextEditor): void {
 }
 
 // Cache of resolved fsPath → bool so the F12 context-key update doesn't
-// stat the filesystem on every cursor move. Project membership only
-// changes when the user adds or removes a lore.toml, both of which would
-// also trigger an extension reload.
+// stat the filesystem on every cursor move. Flushed by the `**/lore.toml`
+// watcher in activate() whenever a config file appears, disappears, or is
+// renamed — otherwise stale entries would mis-classify files until the
+// window reloaded.
 const projectCache = new Map<string, boolean>();
 
 function isInLoreProject(uri: vscode.Uri | undefined): boolean {
@@ -358,6 +359,15 @@ export function activate(context: vscode.ExtensionContext): void {
   client = buildClient();
   client.start().then(() => {
     refreshAllVisible();
+    // Server fires this after `discoverAllProjects` whenever a lore.toml
+    // event reshapes the world. Pull everything that depends on the
+    // project layout — see notifyProjectsChanged() in watched.go for why
+    // the server is the one driving this rather than the client watcher.
+    client?.onNotification("lore/projectsChanged", () => {
+      refreshAllVisible();
+      wikiPanel.refresh();
+      graphPanel.refresh();
+    });
   });
 
   context.subscriptions.push(
@@ -390,6 +400,30 @@ export function activate(context: vscode.ExtensionContext): void {
       if (e.affectsConfiguration("lore.definitionStyle")) refreshAllVisible();
       if (e.affectsConfiguration("lore.graph.arrowSize")) graphPanel.refresh();
     }),
+    vscode.workspace.onDidChangeWorkspaceFolders(() => {
+      projectCache.clear();
+      updateInProjectContext(vscode.window.activeTextEditor);
+    }),
+  );
+
+  // Server also watches `**/lore.toml` to rebuild its project list. The
+  // client mirror exists because `isInLoreProject` gates the `lore.inProject`
+  // context key (which drives keybindings) and is hot on cursor move — we
+  // don't want to round-trip to the server for it. Refresh of the actual
+  // server-derived views (decorations, wiki, graph) is driven by the
+  // `lore/projectsChanged` notification below, not by this watcher: both
+  // fire on the same FS event but the server's project rebuild and this
+  // callback race, and refreshing from the client side first would just
+  // re-cache the stale world.
+  const configWatcher = vscode.workspace.createFileSystemWatcher("**/lore.toml");
+  const onConfigChanged = (): void => {
+    projectCache.clear();
+    updateInProjectContext(vscode.window.activeTextEditor);
+  };
+  context.subscriptions.push(
+    configWatcher,
+    configWatcher.onDidCreate(onConfigChanged),
+    configWatcher.onDidDelete(onConfigChanged),
   );
 
   // Debounced reapply on edits — the server reparses after a short delay so

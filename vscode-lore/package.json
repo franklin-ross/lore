@@ -29,7 +29,9 @@
     ],
     "activationEvents": [
         "workspaceContains:lore.toml",
-        "workspaceContains:**/lore.toml"
+        "workspaceContains:**/lore.toml",
+        "onWebviewPanel:loreWiki",
+        "onWebviewPanel:loreGraph"
     ],
     "main": "./out/extension.js",
     "scripts": {

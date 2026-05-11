@@ -347,6 +347,13 @@ export class LoreWikiPanel {
       this.history = history;
       const c = typeof state.cursor === "number" ? state.cursor : history.length - 1;
       this.cursor = c >= 0 && c < history.length ? c : history.length - 1;
+    } else {
+      // No persisted history — happens when the panel was open in a
+      // no-project workspace last session (webview never received a
+      // `page` to record). Seed a home page so refresh() has a current
+      // entry to fetch, otherwise the placeholder "Loading…" sticks.
+      this.history = [{ kind: "home", value: "", source: undefined }];
+      this.cursor = 0;
     }
     this.attach(panel);
     this.updateTitle();

@@ -304,7 +304,7 @@ export class LoreGraphPanel {
 </head>
 <body>
 <header id="toolbar"></header>
-<main id="root"><p class="empty">Loading…</p></main>
+<main><div id="root"></div><div id="message-overlay" class="empty">Loading…</div></main>
 <script type="module" nonce="${nonce}" src="${main}"></script>
 </body>
 </html>`;

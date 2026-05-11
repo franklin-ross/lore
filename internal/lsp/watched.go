@@ -108,6 +108,38 @@ func (s *Server) didChangeWatchedFiles(_ *glsp.Context, params *protocol.DidChan
 
 	if reloadProjects {
 		s.discoverAllProjects()
+		s.refreshSemanticTokens()
+		s.notifyProjectsChanged()
 	}
 	return nil
+}
+
+// refreshSemanticTokens asks the client to re-request semantic tokens for
+// every open document. We send this after a project layout change because
+// VSCode caches tokens until the document next changes — without a nudge,
+// files that just transitioned in or out of a project would keep their
+// stale entity-name colouring until the user edited them. The call is a
+// request (response is null); we fire it on its own goroutine because
+// handler dispatch is serial and blocking on a round-trip here would
+// deadlock the reader.
+func (s *Server) refreshSemanticTokens() {
+	if s.call == nil {
+		return
+	}
+	call := s.call
+	go call(string(protocol.MethodWorkspaceSemanticTokensRefresh), nil, nil)
+}
+
+// notifyProjectsChanged tells the client to re-pull anything derived from
+// the project layout (definition-range decorations, wiki, graph). The
+// client watches lore.toml independently for its own context-key cache,
+// but its watcher and our didChangeWatchedFiles handler race — if the
+// client refreshes off its own event, those round-trips can complete
+// before discoverAllProjects has run. Driving refresh from the server
+// side guarantees the new world is in place first.
+func (s *Server) notifyProjectsChanged() {
+	if s.notify == nil {
+		return
+	}
+	s.notify("lore/projectsChanged", nil)
 }

@@ -476,6 +476,7 @@ window.addEventListener("message", (e: MessageEvent<WebviewMessage>) => {
       view.setTypeFilter(filteredTypes);
       refreshTypesButton();
     }
+    setOverlay(null);
     view.update(msg.payload ?? {}, focus);
   } else if (msg.type === "filteredTypes") {
     filteredTypes = msg.filteredTypes ?? null;
@@ -487,18 +488,31 @@ window.addEventListener("message", (e: MessageEvent<WebviewMessage>) => {
     setFocusIndicator(focus);
     view.setFocus(focus);
   } else if (msg.type === "error") {
-    root.innerHTML = "";
-    const p = document.createElement("p");
-    p.className = "err";
-    p.textContent = msg.message ?? "Unknown error";
-    root.appendChild(p);
+    setOverlay({ className: "err", text: msg.message ?? "Unknown error" });
   } else if (msg.type === "info") {
-    root.innerHTML = "";
-    const div = document.createElement("div");
-    div.className = "no-project";
-    div.textContent = msg.message ?? "";
-    root.appendChild(div);
+    setOverlay({ className: "no-project", text: msg.message ?? "" });
   }
 });
+
+// setOverlay drives the message layer that sits over the graph canvas.
+// Info/error states used to wipe `root.innerHTML`, which also tore out
+// the mounted graph view's DOM — so the next `graph` message had nothing
+// to update and the stale message stuck. Keep view mounted; toggle an
+// overlay sibling instead.
+function setOverlay(
+  state: { className: string; text: string } | null,
+): void {
+  const overlay = document.getElementById("message-overlay");
+  if (!overlay) return;
+  if (!state) {
+    overlay.hidden = true;
+    overlay.textContent = "";
+    overlay.className = "";
+    return;
+  }
+  overlay.hidden = false;
+  overlay.className = state.className;
+  overlay.textContent = state.text;
+}
 
 vscode.postMessage({ type: "ready" });
