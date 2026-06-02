@@ -45,7 +45,6 @@ type WebviewMessage = PageMessage | ErrorMessage | InfoMessage;
 
 interface PersistedState {
   collapsed?: string[];
-  activeTab?: "state" | "history";
   scrollByPage?: Record<string, number>;
   lastPageKey?: string | null;
   // Mirrors the extension's navigation history so the panel serializer can
@@ -62,7 +61,6 @@ const graphSection = document.getElementById("entity-graph")!;
 
 const persisted = (vscode.getState<PersistedState>() ?? {}) as PersistedState;
 const collapsed = new Set<string>(persisted.collapsed ?? []);
-let activeTab: "state" | "history" = persisted.activeTab ?? "state";
 const scrollByPage: Record<string, number> = persisted.scrollByPage ?? {};
 let lastPageKey: string | null = persisted.lastPageKey ?? null;
 let palette: string[] = [];
@@ -72,7 +70,6 @@ let lastCursor: number = persisted.cursor ?? -1;
 function saveState(): void {
   vscode.setState<PersistedState>({
     collapsed: [...collapsed],
-    activeTab,
     scrollByPage,
     lastPageKey,
     history: lastHistory,
@@ -108,8 +105,6 @@ const ctx: PageCtx = {
   },
   collapsed,
   onToggle: () => saveState(),
-  get activeTab() { return activeTab; },
-  setActiveTab(t) { activeTab = t; saveState(); },
   search,
 };
 

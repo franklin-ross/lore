@@ -32,8 +32,6 @@ function makeCtx(): TestCtx {
     openHome: () => {},
     collapsed: new Set<string>(),
     onToggle: () => {},
-    activeTab: "state",
-    setActiveTab: () => {},
     search,
     navigated,
     openedEntities,

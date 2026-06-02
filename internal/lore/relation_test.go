@@ -96,6 +96,41 @@ func TestRelationAuntUncleConvergeToOneEdge(t *testing.T) {
 	}
 }
 
+func TestPluraliseRules(t *testing.T) {
+	cases := map[string]string{
+		"parent": "parents",  // default + s
+		"spouse": "spouses",  // ends in e, not a sibilant
+		"ally":   "allies",   // consonant + y → ies
+		"enemy":  "enemies",  // consonant + y → ies
+		"day":    "days",     // vowel + y → just s
+		"witch":  "witches",  // ch → es
+		"dish":   "dishes",   // sh → es
+		"box":    "boxes",    // x → es
+		"boss":   "bosses",   // s → es
+		"child":  "childs",   // naive — irregulars rely on configured Plural
+	}
+	for in, want := range cases {
+		if got := pluralise(in); got != want {
+			t.Errorf("pluralise(%q) = %q; want %q", in, got, want)
+		}
+	}
+}
+
+func TestVocabPluralUsesRulesAndConfigWins(t *testing.T) {
+	v := NewRelationVocab(BuiltinRelations())
+	// Rule-derived plurals (no explicit config any more).
+	if got := v.Plural("ally"); got != "allies" {
+		t.Fatalf("Plural(ally) = %q; want allies", got)
+	}
+	if got := v.Plural("enemy"); got != "enemies" {
+		t.Fatalf("Plural(enemy) = %q; want enemies", got)
+	}
+	// Configured plural still wins for irregulars.
+	if got := v.Plural("child"); got != "children" {
+		t.Fatalf("Plural(child) = %q; want children", got)
+	}
+}
+
 func TestVocabConfigOverlaysBuiltins(t *testing.T) {
 	cfg := Config{Relations: map[string]RelationConfig{
 		"mentor": {Reciprocal: "student", Aliases: []string{"teacher"}},

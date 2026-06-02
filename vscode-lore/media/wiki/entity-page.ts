@@ -2,6 +2,7 @@ import { el, basename, section, aliasSpans, type LspLocation } from "./dom.ts";
 import { colour } from "./segments.ts";
 import { renderMarkdownTree, type MarkdownNode } from "./markdown.ts";
 import { renderRefGroups, type RefGroup } from "./refs.ts";
+import { renderRelationsBody, type RelationGroup } from "./relations.ts";
 import type { PageCtx } from "./ctx.ts";
 
 export interface EntityField {
@@ -15,7 +16,7 @@ export interface DescriptionBlock {
   endLine: number;
 }
 export interface StateEvent {
-  op: "add" | "remove" | "set" | "increment" | "unknown";
+  op: "add" | "remove" | "set" | "increment" | "edgeAdd" | "edgeRemove" | "unknown";
   target: string;
   value?: string;
   location: LspLocation;
@@ -31,7 +32,8 @@ export interface EntityDetails {
   descriptions?: DescriptionBlock[];
   inboundRefs?: RefGroup[];
   outboundRefs?: RefGroup[];
-  stateHistory?: StateEvent[];
+  history?: StateEvent[];
+  relations?: RelationGroup[];
 }
 
 // renderEntityPage builds the full DOM for one entity's wiki page. ctx
@@ -43,7 +45,7 @@ export function renderEntityPage(d: EntityDetails | undefined, ctx: PageCtx): HT
   }
   return [
     ...renderHeader(d, ctx),
-    ...renderStateSection(d, ctx),
+    ...renderDetailsTabs(d, ctx),
     ...renderDescriptions(d, ctx),
     ...renderRefGroups("Mentioned by", d.inboundRefs, "Free text", ctx),
     ...renderRefGroups("Mentions", d.outboundRefs, "", ctx),
@@ -93,16 +95,18 @@ function directiveText(ev: StateEvent): string {
       return ev.value ? ev.target + " -= " + ev.value : "-" + ev.target;
     case "set": return ev.target + " = " + (ev.value ?? "");
     case "increment": return ev.target + " += " + (ev.value ?? "");
+    case "edgeAdd": return ev.target + " → " + (ev.value ?? "");
+    case "edgeRemove": return ev.target + " -/> " + (ev.value ?? "");
   }
   return ev.target;
 }
 
 function renderHistoryBody(d: EntityDetails, ctx: PageCtx): HTMLElement[] {
-  if (!d.stateHistory || !d.stateHistory.length) {
-    return [el("p", { class: "empty" }, "No state history.")];
+  if (!d.history || !d.history.length) {
+    return [el("p", { class: "empty" }, "No history.")];
   }
   const out: HTMLElement[] = [];
-  for (const ev of d.stateHistory) {
+  for (const ev of d.history) {
     const line = (ev.location?.range?.start?.line ?? 0) + 1;
     const row = el("div", {
       class: "history-row",
@@ -116,35 +120,41 @@ function renderHistoryBody(d: EntityDetails, ctx: PageCtx): HTMLElement[] {
   return out;
 }
 
-function renderStateSection(d: EntityDetails, ctx: PageCtx): HTMLElement[] {
-  const hasFields = d.fields && d.fields.length;
-  const hasHistory = d.stateHistory && d.stateHistory.length;
-  if (!hasFields && !hasHistory) return [];
+// renderDetailsTabs shows Relations, State, and History in one tab strip —
+// no collapsible wrapper, so it stays compact and keeps the descriptions high
+// on the page. Only the tabs with content appear; the first present tab is
+// active by default (Relations, then State, then History — history is rarely
+// the thing you open to). Switching tabs is local DOM state, so it resets to
+// the default when navigating to another entity.
+function renderDetailsTabs(d: EntityDetails, ctx: PageCtx): HTMLElement[] {
+  const tabs: { label: string; body: HTMLElement[] }[] = [];
+  if (d.relations && d.relations.length) {
+    tabs.push({ label: "Relations", body: renderRelationsBody(d.relations, ctx) });
+  }
+  if (d.fields && d.fields.length) {
+    tabs.push({ label: "State", body: renderStateBody(d) });
+  }
+  if (d.history && d.history.length) {
+    tabs.push({ label: "History", body: renderHistoryBody(d, ctx) });
+  }
+  if (!tabs.length) return [];
 
-  const isHistory = ctx.activeTab === "history";
-  const stateTab = el("button", { class: "tab" + (isHistory ? "" : " active") }, "State");
-  const historyTab = el("button", { class: "tab" + (isHistory ? " active" : "") }, "History");
-  const tabs = el("div", { class: "tabs" }, stateTab, historyTab);
-
-  const statePanel = el("div", { class: "tab-panel" + (isHistory ? "" : " active") }, ...renderStateBody(d));
-  const historyPanel = el("div", { class: "tab-panel" + (isHistory ? " active" : "") }, ...renderHistoryBody(d, ctx));
-
-  stateTab.onclick = () => {
-    stateTab.classList.add("active");
-    historyTab.classList.remove("active");
-    statePanel.classList.add("active");
-    historyPanel.classList.remove("active");
-    ctx.setActiveTab("state");
-  };
-  historyTab.onclick = () => {
-    historyTab.classList.add("active");
-    stateTab.classList.remove("active");
-    historyPanel.classList.add("active");
-    statePanel.classList.remove("active");
-    ctx.setActiveTab("history");
-  };
-
-  return [section("State", ctx.collapsed, ctx.onToggle, tabs, statePanel, historyPanel)];
+  const tabBar = el("div", { class: "tabs" });
+  const buttons: HTMLElement[] = [];
+  const panels: HTMLElement[] = [];
+  tabs.forEach((t, i) => {
+    const active = i === 0;
+    const btn = el("button", { class: "tab" + (active ? " active" : "") }, t.label);
+    const panel = el("div", { class: "tab-panel" + (active ? " active" : "") }, ...t.body);
+    btn.onclick = () => {
+      buttons.forEach((b, j) => b.classList.toggle("active", j === i));
+      panels.forEach((p, j) => p.classList.toggle("active", j === i));
+    };
+    buttons.push(btn);
+    panels.push(panel);
+    tabBar.appendChild(btn);
+  });
+  return [tabBar, ...panels];
 }
 
 function renderDescriptions(d: EntityDetails, ctx: PageCtx): HTMLElement[] {

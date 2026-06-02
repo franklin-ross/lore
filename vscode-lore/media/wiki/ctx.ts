@@ -16,7 +16,5 @@ export interface PageCtx {
   openHome(): void;
   collapsed: Set<string>;
   onToggle: (title: string, isCollapsed: boolean) => void;
-  readonly activeTab: "state" | "history";
-  setActiveTab(t: "state" | "history"): void;
   search: SearchController;
 }

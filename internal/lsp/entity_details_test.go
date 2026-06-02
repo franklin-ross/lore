@@ -475,10 +475,10 @@ func TestEntityDetailsStateHistoryLocationIsPreciseSpan(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got.StateHistory) == 0 {
+	if len(got.History) == 0 {
 		t.Fatal("expected one state event")
 	}
-	ev := got.StateHistory[0]
+	ev := got.History[0]
 	if ev.Op != "add" || ev.Target != "injured" {
 		t.Fatalf("unexpected event %+v", ev)
 	}
@@ -507,8 +507,8 @@ func TestEntityDetailsStateHistoryFieldDirectiveSpans(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got.StateHistory) < 2 {
-		t.Fatalf("expected two field events, got %d", len(got.StateHistory))
+	if len(got.History) < 2 {
+		t.Fatalf("expected two field events, got %d", len(got.History))
 	}
 	cases := []struct {
 		op, target, value, span string
@@ -517,7 +517,7 @@ func TestEntityDetailsStateHistoryFieldDirectiveSpans(t *testing.T) {
 		{op: "increment", target: "xp", value: "100", span: "xp += 100"},
 	}
 	for i, want := range cases {
-		ev := got.StateHistory[i]
+		ev := got.History[i]
 		if ev.Op != want.op || ev.Target != want.target || ev.Value != want.value {
 			t.Errorf("event[%d] = %+v, want op=%s target=%s value=%s", i, ev, want.op, want.target, want.value)
 		}
@@ -543,10 +543,10 @@ func TestEntityDetailsStateHistoryFieldValueUTF16(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got.StateHistory) == 0 {
+	if len(got.History) == 0 {
 		t.Fatal("expected one field event")
 	}
-	ev := got.StateHistory[0]
+	ev := got.History[0]
 	if ev.Op != "set" || ev.Target != "motto" {
 		t.Fatalf("unexpected event %+v", ev)
 	}
@@ -603,10 +603,10 @@ func TestEntityDetailsStateHistoryLocationUTF16(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got.StateHistory) == 0 {
+	if len(got.History) == 0 {
 		t.Fatal("expected one state event")
 	}
-	rng := got.StateHistory[0].Location.Range
+	rng := got.History[0].Location.Range
 	// `+cursed` sits after "Lúthien (character): Elven princess. " — count
 	// runes (UTF-16 units) for the prefix.
 	prefix := "Lúthien (character): Elven princess. "

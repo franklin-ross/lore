@@ -146,7 +146,28 @@ type EntityDetailsResult struct {
 	Descriptions []EntityDescriptionBlock `json:"descriptions,omitempty"`
 	InboundRefs  []EntityRefGroup         `json:"inboundRefs,omitempty"`
 	OutboundRefs []EntityRefGroup         `json:"outboundRefs,omitempty"`
-	StateHistory []EntityStateEventItem   `json:"stateHistory,omitempty"`
+	History      []EntityStateEventItem   `json:"history,omitempty"`
+	Relations    []EntityRelationGroup    `json:"relations,omitempty"`
+}
+
+// EntityRelationRef is one related entity within a relation group: the
+// navigable entity label, an optional deviation annotation (the surface label
+// when it differs from the group's canonical), and the palette colour index
+// (-1 when the other endpoint doesn't resolve to a known entity).
+type EntityRelationRef struct {
+	Label       string `json:"label"`
+	Annotation  string `json:"annotation,omitempty"`
+	ColourIndex int32  `json:"colourIndex"`
+}
+
+// EntityRelationGroup is one relation row in the wiki: an adaptive header and
+// its related entities. Incoming marks a generic edge pointing at this entity
+// (Header is the relation label, Items are the sources) so the client can
+// render the direction.
+type EntityRelationGroup struct {
+	Header   string              `json:"header"`
+	Incoming bool                `json:"incoming,omitempty"`
+	Items    []EntityRelationRef `json:"items"`
 }
 
 // entityDetails resolves the entity in scope and assembles the response.
@@ -207,8 +228,62 @@ func buildEntityDetails(ps *projectState, ent *lore.Entity) *EntityDetailsResult
 		Descriptions: buildDescriptionBlocks(ps, world, ent),
 		InboundRefs:  buildInboundRefs(ps, world, ent),
 		OutboundRefs: buildOutboundRefs(ps, world, ent),
-		StateHistory: buildStateHistory(ps, ent),
+		History:      buildHistory(ps, ent),
+		Relations:    buildEntityRelations(world, ent),
 	}
+}
+
+// buildEntityRelations resolves the entity's relations and projects them onto
+// the wiki wire types: outgoing groups under adaptive headers, then generic
+// incoming edges grouped by label. Each related entity carries its navigation
+// label and palette colour so the webview can colour and link it.
+func buildEntityRelations(world *lore.World, ent *lore.Entity) []EntityRelationGroup {
+	if world.Vocab == nil {
+		return nil
+	}
+	render := lore.BuildRelationRender(world.ResolveRelations(world.Vocab, ent), world.Vocab)
+
+	var out []EntityRelationGroup
+	for _, g := range render.Outgoing {
+		items := make([]EntityRelationRef, len(g.Items))
+		for i, it := range g.Items {
+			items[i] = relationRef(world, it.Other, it.Annotation)
+		}
+		out = append(out, EntityRelationGroup{Header: g.Header, Items: items})
+	}
+
+	// Generic incoming edges share no reciprocal, so group them by label.
+	byLabel := make(map[string][]string)
+	var labelOrder []string
+	for _, it := range render.Incoming {
+		if _, ok := byLabel[it.Label]; !ok {
+			labelOrder = append(labelOrder, it.Label)
+		}
+		byLabel[it.Label] = append(byLabel[it.Label], it.Other)
+	}
+	sort.Strings(labelOrder)
+	for _, label := range labelOrder {
+		sources := byLabel[label]
+		sort.Strings(sources)
+		items := make([]EntityRelationRef, len(sources))
+		for i, src := range sources {
+			items[i] = relationRef(world, src, "")
+		}
+		out = append(out, EntityRelationGroup{Header: label, Incoming: true, Items: items})
+	}
+	return out
+}
+
+// relationRef resolves a related entity name to its navigation label and
+// palette colour, falling back to the raw name (colour -1) when it doesn't
+// resolve — a relation to a not-yet-defined entity still renders.
+func relationRef(world *lore.World, name, annotation string) EntityRelationRef {
+	ref := EntityRelationRef{Label: name, Annotation: annotation, ColourIndex: -1}
+	if ent, err := world.FindEntity(name); err == nil && ent != nil {
+		ref.Label = entityLabel(world, ent.Name, ent.Type)
+		ref.ColourIndex = int32(entityColourIndex(ent))
+	}
+	return ref
 }
 
 func buildFieldEntries(fields map[string]lore.FieldValue) []EntityFieldEntry {
@@ -411,7 +486,10 @@ func lookupGroupMeta(world *lore.World, name string) (int32, []string, []string)
 	return int32(entityColourIndex(ent)), append([]string(nil), ent.Aliases...), activeTags(ent.Tags)
 }
 
-func buildStateHistory(ps *projectState, ent *lore.Entity) []EntityStateEventItem {
+// buildHistory returns the entity's full directive timeline in source order —
+// tags, fields, and relation edges merged into one chronology, since they're
+// all directives that happened to the entity over time.
+func buildHistory(ps *projectState, ent *lore.Entity) []EntityStateEventItem {
 	if len(ent.StateHistory) == 0 {
 		return nil
 	}
@@ -449,6 +527,10 @@ func stateOpName(op lore.StateOp) string {
 		return "set"
 	case lore.StateOpIncrement:
 		return "increment"
+	case lore.StateOpEdgeAdd:
+		return "edgeAdd"
+	case lore.StateOpEdgeRemove:
+		return "edgeRemove"
 	}
 	return "unknown"
 }

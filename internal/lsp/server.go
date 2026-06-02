@@ -561,8 +561,8 @@ func formatEntityHover(world *lore.World, ent *lore.Entity, cursorFile string, c
 	} else {
 		fmt.Fprintf(&b, "<strong>%s</strong>", header.String())
 	}
-	b.WriteString(renderHoverStateBlocks(world, ent, cursorFile, cursorLine, mode))
 	b.WriteString(renderHoverRelations(world, ent, cursorFile, cursorLine, mode))
+	b.WriteString(renderHoverStateBlocks(world, ent, cursorFile, cursorLine, mode))
 
 	texts := make([]string, 0, len(ent.Descriptions))
 	for _, d := range ent.Descriptions {

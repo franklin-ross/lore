@@ -384,9 +384,10 @@ Built (`internal/lore` + wiring):
   ResolveStateAt cursor cutoff (`relation_resolve.go`): either side, either
   label, add or remove converge on one edge; reciprocal/incoming computed.
 - Display: grouped by canonical, adaptive header, deviation annotations
-  (`relation_display.go`). Shared-surface pluralisation uses a trailing "s"
-  unless the alias already ends in one (so "members" doesn't become
-  "memberss"); only the canonical carries a configurable plural.
+  (`relation_display.go`). Headers pluralise with regular English rules
+  (sibilant → "es", consonant + "y" → "ies", else "s"); irregulars use a
+  relation's configured `plural`. A shared surface alias already ending in
+  "s" is left as-is so "members" doesn't double to "memberss".
 - Wired into `lore query` and LSP hover (relations resolve at the cursor,
   same timeline as state).
 
@@ -406,3 +407,16 @@ Done since first cut:
   `lore query`.
 - Vocabulary validation (reciprocity conflicts) surfaced via `lore check`
   and an LSP warning toast.
+- Wiki panel: a "Relations" section on the entity page, sharing the
+  adaptive-header/annotation logic with hover via `BuildRelationRender`.
+  It renders as a borderless `fields`-style table matching the State
+  section; related entities are coloured, clickable pills and generic
+  incoming edges show an inward arrow.
+- Wiki layout: Relations, State, and History share one compact tab strip
+  (no collapsible wrapper, to keep descriptions high on the page). Only
+  tabs with content appear; the first present is active by default
+  (Relations → State → History, since history is rarely the thing you open
+  to). History is the **merged** directive timeline (tags, fields, and
+  edges) in source order, each row jumping to its source — one chronology
+  for state and relation changes. The relation label + arrow ("members →")
+  never wrap apart from each other even when the entity list wraps.

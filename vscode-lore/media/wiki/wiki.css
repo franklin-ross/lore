@@ -372,6 +372,10 @@ table.fields td.k { color: var(--vscode-descriptionForeground); }
   color: var(--vscode-list-activeSelectionForeground, var(--vscode-textLink-foreground));
 }
 
+.relation-head { white-space: nowrap; }
+.relation-ent[style*="cursor"]:hover { text-decoration: underline; cursor: pointer; }
+.relation-annotation { color: var(--vscode-descriptionForeground); }
+
 .ref-group { margin: 8px 0 16px; }
 .ref-group .label {
   display: inline-block;
@@ -442,7 +446,7 @@ table.fields td.k { color: var(--vscode-descriptionForeground); }
   display: flex;
   gap: 4px;
   border-bottom: 1px solid var(--vscode-panel-border);
-  margin: 4px 0 8px;
+  margin: 12px 0 8px;
 }
 .tab {
   background: transparent;

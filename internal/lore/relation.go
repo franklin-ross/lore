@@ -37,7 +37,10 @@ func BuiltinRelations() []RelationDef {
 	return []RelationDef{
 		{Canonical: "parent", Reciprocal: "child", Aliases: []string{"father", "mother", "dad", "mum", "mom"}},
 		{Canonical: "child", Plural: "children", Aliases: []string{"son", "daughter", "kid"}},
-		{Canonical: "sibling", Reciprocal: "sibling", Aliases: []string{"brother", "sister"}},
+		{Canonical: "step-parent", Reciprocal: "step-child", Aliases: []string{"step-father", "step-mother"}},
+		{Canonical: "step-child", Plural: "step-children", Aliases: []string{"step-son", "step-daughters"}},
+		{Canonical: "sibling", Reciprocal: "sibling", Aliases: []string{"brother", "sister", "half-brother", "half-sister"}},
+		{Canonical: "step-sibling", Reciprocal: "step-sibling", Aliases: []string{"step-brother", "step-sister"}},
 		// Gender variants are aliases of one canonical, never separate
 		// canonicals — two canonicals sharing a reciprocal break edge identity
 		// (a reciprocal is a one-to-one back-pointer). English lacks a common
@@ -49,12 +52,11 @@ func BuiltinRelations() []RelationDef {
 		{Canonical: "cousin", Reciprocal: "cousin"},
 		{Canonical: "grandparent", Reciprocal: "grandchild"},
 		{Canonical: "grandchild", Plural: "grandchildren"},
-		{Canonical: "spouse", Reciprocal: "spouse", Aliases: []string{"husband", "wife", "partner"}},
-		{Canonical: "friend", Reciprocal: "friend"},
-		{Canonical: "ally", Reciprocal: "ally", Plural: "allies"},
-		{Canonical: "enemy", Reciprocal: "enemy", Plural: "enemies"},
-		{Canonical: "member", Reciprocal: "memberOf", Aliases: []string{"members"}},
-		{Canonical: "memberOf"},
+		{Canonical: "spouse", Reciprocal: "spouse", Aliases: []string{"husband", "wife", "partner", "married"}},
+		{Canonical: "member", Reciprocal: "member-of", Aliases: []string{"members"}},
+		{Canonical: "member-of"},
+		{Canonical: "contains", Reciprocal: "within"},
+		{Canonical: "within", Aliases: []string{"inside"}},
 	}
 }
 
@@ -156,10 +158,10 @@ func (v *RelationVocab) Plural(canonical string) string {
 			return d.Plural
 		}
 		if d.Canonical != "" {
-			return d.Canonical + "s"
+			return pluralise(d.Canonical)
 		}
 	}
-	return key + "s"
+	return pluralise(key)
 }
 
 // Display returns the canonical relation's name in its original casing, for
@@ -181,6 +183,35 @@ func (v *RelationVocab) Known(canonical string) bool {
 // lowercased. Relation labels are vocabulary, matched case-insensitively.
 func canonKey(s string) string {
 	return strings.ToLower(strings.TrimSpace(s))
+}
+
+// pluralise applies regular English pluralisation: a sibilant ending (s, x, z,
+// ch, sh) takes "es"; a consonant followed by "y" becomes "ies"; everything
+// else takes "s". Irregulars (child → children) aren't covered — those use a
+// relation's configured Plural. Safe for canonical relation names, which are
+// always proper singulars.
+func pluralise(w string) string {
+	lw := strings.ToLower(w)
+	switch {
+	case strings.HasSuffix(lw, "s"), strings.HasSuffix(lw, "x"), strings.HasSuffix(lw, "z"),
+		strings.HasSuffix(lw, "ch"), strings.HasSuffix(lw, "sh"):
+		return w + "es"
+	case len(lw) >= 2 && strings.HasSuffix(lw, "y") && isConsonant(lw[len(lw)-2]):
+		return w[:len(w)-1] + "ies"
+	default:
+		return w + "s"
+	}
+}
+
+func isConsonant(b byte) bool {
+	if b < 'a' || b > 'z' {
+		return false
+	}
+	switch b {
+	case 'a', 'e', 'i', 'o', 'u':
+		return false
+	}
+	return true
 }
 
 // relationDefsFromConfig converts the lore.toml [relations.*] table into
