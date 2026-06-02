@@ -1,6 +1,8 @@
 package lsp
 
 import (
+	"lore/internal/lore"
+
 	"github.com/tliron/glsp"
 	protocol "github.com/tliron/glsp/protocol_3_16"
 )
@@ -16,8 +18,12 @@ func (s *Server) hover(_ *glsp.Context, params *protocol.HoverParams) (*protocol
 	}
 
 	cursorLine := int(params.Position.Line) + 1 // LSP 0-based → lore 1-based
+	// A definition block reads as one beat, so resolve "at cursor" state as of
+	// the end of the block the cursor sits in — directives later in the same
+	// block count, rather than being cut off at the exact hovered line.
+	cutoffLine := blockEndLine(ps.world(), rel, cursorLine)
 	col := &colouriser{world: ps.world(), palette: s.palette}
-	content := formatEntityHover(ps.world(), match.Entity, rel, cursorLine, s.hoverStateMode, s.hoverShowStateDirectives, col)
+	content := formatEntityHover(ps.world(), match.Entity, rel, cutoffLine, s.hoverStateMode, s.hoverShowStateDirectives, col)
 	line := params.Position.Line
 	lineText := s.getLine(params.TextDocument.URI, line)
 	return &protocol.Hover{
@@ -30,4 +36,26 @@ func (s *Server) hover(_ *glsp.Context, params *protocol.HoverParams) (*protocol
 			End:   protocol.Position{Line: line, Character: utf16UnitsForBytes(lineText, match.End)},
 		},
 	}, nil
+}
+
+// blockEndLine returns the last line of the definition block that contains
+// cursorLine in file, so hover resolves "at cursor" state as of the end of the
+// whole block — a multi-line entity definition reads as a single beat, not a
+// per-line timeline. Asides are skipped: when the cursor sits in an aside
+// nested inside a header definition, the enclosing definition's span already
+// covers it; a bare aside in free prose leaves the cutoff at cursorLine.
+// Returns cursorLine unchanged when the cursor isn't inside any definition.
+func blockEndLine(world *lore.World, file string, cursorLine int) int {
+	end := cursorLine
+	for i := range world.Entities {
+		for _, d := range world.Entities[i].Descriptions {
+			if d.File != file || d.IsAside {
+				continue
+			}
+			if d.Line <= cursorLine && cursorLine <= d.EndLine && d.EndLine > end {
+				end = d.EndLine
+			}
+		}
+	}
+	return end
 }

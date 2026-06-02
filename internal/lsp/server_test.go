@@ -519,7 +519,7 @@ func TestFormatEntityHoverBothModeNoneAtCursor(t *testing.T) {
 
 // hoverWorld builds a single-file world with the builtin relation vocab, for
 // relation-hover tests that need real edge resolution.
-func hoverWorld(t *testing.T, src string) (*lore.World, *lore.Entity, func(name string) *lore.Entity) {
+func hoverWorld(t *testing.T, src string) (*lore.World, func(name string) *lore.Entity) {
 	t.Helper()
 	world := lore.Merge([]*lore.FileParse{lore.ParseFile("test.md", src)})
 	world.Vocab = lore.NewRelationVocab(lore.BuiltinRelations())
@@ -532,7 +532,7 @@ func hoverWorld(t *testing.T, src string) (*lore.World, *lore.Entity, func(name 
 		t.Fatalf("entity %q not found", name)
 		return nil
 	}
-	return world, nil, find
+	return world, find
 }
 
 // A reverse relation declared after the hovered entity must still appear: in
@@ -540,7 +540,7 @@ func hoverWorld(t *testing.T, src string) (*lore.World, *lore.Entity, func(name 
 // annotation because at the cursor the forward edge wasn't declared yet.
 func TestHoverReverseRelationDeclaredLater(t *testing.T) {
 	// Doug at line 1; Sarah declares father -> Doug at line 3.
-	world, _, find := hoverWorld(t, "Doug (person): A dwarf.\n\nSarah (person): father -> Doug\n")
+	world, find := hoverWorld(t, "Doug (person): A dwarf.\n\nSarah (person): father -> Doug\n")
 	doug := find("Doug")
 
 	latest := formatEntityHover(world, doug, "test.md", 1, HoverStateModeLatest, true, nil)
@@ -562,12 +562,37 @@ func TestHoverReverseRelationDeclaredLater(t *testing.T) {
 // A relation present at the cursor but removed by latest shows the cursor value
 // with a "(latest: …)" annotation, like a diverging field.
 func TestHoverRelationRemovedByLatest(t *testing.T) {
-	world, _, find := hoverWorld(t, "Sarah (person): friend -> Mary\n\nMary (person): ok\n\nSarah (person): friend -/> Mary\n")
+	world, find := hoverWorld(t, "Sarah (person): friend -> Mary\n\nMary (person): ok\n\nSarah (person): friend -/> Mary\n")
 	sarah := find("Sarah")
 
 	both := formatEntityHover(world, sarah, "test.md", 1, HoverStateModeBoth, true, nil)
 	if !strings.Contains(both, "friend → Mary  (latest: (none))") {
 		t.Fatalf("both mode should show cursor friendship with latest (none); got %q", both)
+	}
+}
+
+// Hovering anywhere in a multi-line definition block resolves state as of the
+// end of the block, so a directive on a later continuation line still shows.
+func TestHoverBlockTreatedAsOneBeat(t *testing.T) {
+	// Header on line 1; +injured on the continuation line 2 of the same block.
+	world, find := hoverWorld(t, "Sarah (person): A ranger.\n  She is +injured.\n")
+	sarah := find("Sarah")
+
+	if got := blockEndLine(world, "test.md", 1); got != 2 {
+		t.Fatalf("blockEndLine at header line 1 = %d; want 2 (block spans to line 2)", got)
+	}
+
+	// Strip directives from prose so "+injured" can only come from the state
+	// block, not the description text.
+	// At-cursor view as of the block end (line 2) shows the later directive.
+	atBlock := formatEntityHover(world, sarah, "test.md", 2, HoverStateModeAtCursor, false, nil)
+	if !strings.Contains(atBlock, "+injured") {
+		t.Fatalf("hover as of block end should show +injured; got %q", atBlock)
+	}
+	// As of the exact header line it would not — proving the snap matters.
+	atHeader := formatEntityHover(world, sarah, "test.md", 1, HoverStateModeAtCursor, false, nil)
+	if strings.Contains(atHeader, "+injured") {
+		t.Fatalf("at exact line 1 the directive is later; got %q", atHeader)
 	}
 }
 
