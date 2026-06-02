@@ -2,7 +2,7 @@
 
 Entity definitions, cross-references, and semantic highlighting for TTRPG campaign notes written in plain markdown.
 
-Lore reads your session notes and prose, recognises entity names, tracks their state across the timeline (`+captured`, `hp = 12`), and surfaces it as hovers, autocomplete, semantic colouring, and a wiki view. No database, no frontmatter — just markdown that reads as prose and parses as structure.
+Lore reads your session notes and prose, recognises entity names, tracks their state across the timeline (`+captured`, `hp = 12`), records typed relations between them (`father -> Doug`), and surfaces it all as hovers, autocomplete, semantic colouring, a wiki view, and a knowledge graph. No database, no frontmatter — just markdown that reads as prose and parses as structure.
 
 See the [main project README](https://github.com/franklin-ross/lore#readme) for the file format, CLI, and a worked example.
 
@@ -14,15 +14,48 @@ The extension uses the bundled `lore` binary. Override via `lore.serverPath` if 
 
 ## Features
 
-- **Semantic highlighting** with stable per-entity colours.
-- **Hover** showing resolved state at the cursor and the latest state.
+- **Semantic highlighting** with stable per-entity colours. Directive sub-tokens colour too — operators (`= += -= -> -/>`) and tag sigils, state/relation names, list separators, and field values by kind (numbers vs text). Driven by real parsed directives, so prose like `x = y` stays plain.
+- **Relations** — typed, directional edges between entities (`father -> Doug`, `members -/> Borin`), declared once and rendered on both endpoints. See [Relations](#relations) below.
+- **Hover** showing resolved state at the cursor and the latest state, plus the entity's relations as of that point in the timeline. State resolves to the end of the current definition, not the end of the line.
 - **Go to Definition / Find References** via the language server.
-- **Autocomplete** for entity names with type-aware disambiguation.
-- **Diagnostics** for undefined references.
+- **Autocomplete** for entity names with type-aware disambiguation, relation labels in the directive label slot, and entity targets after a relation arrow (`-> ` / `-/> `).
+- **Diagnostics** for undefined references and for relation removals (`-/>`) of relations that were never set.
 - **Definition styling** — tinted background or underline on the canonical occurrence of each name.
-- **Wiki view** — full picture of an entity (state, history, descriptions, inbound and outbound references). Open via `F12` on a name, the entity tree, or the `Lore: Open Entity Wiki` command.
+- **Wiki view** — full picture of an entity (relations, state, history, descriptions, inbound and outbound references). Open via `F12` on a name, the entity tree, or the `Lore: Open Entity Wiki` command. Navigate with the toolbar `←` `→` arrows or the mouse back/forward buttons.
 - **Entity tree** in the Explorer sidebar with filter and refresh.
 - **Knowledge graph** — interactive force-directed view of every entity and the references between them. See [Knowledge Graph](#knowledge-graph) below.
+
+## Relations
+
+A relation is a typed, directional edge between two entities, written with the `->` operator alongside tags and fields:
+
+```
+Sarah (person): father -> Doug
+Party (group): members -> Aragorn, Bilbo
+```
+
+One declaration renders on both endpoints. With a known vocabulary, the reverse side shows the canonical reciprocal — Sarah's card reads `father → Doug`, Doug's reads `child → Sarah`. An undefined label still works as a generic relation: the reverse falls back to the named-incoming form (`Sarah → bestie`).
+
+Relations are world-state on the timeline, so they accumulate and can be retracted as the world changes, with `-/>`:
+
+```
+Guild (group): members -/> Borin
+```
+
+Removal is reciprocity-aware — either endpoint retracts the relation with either label. Removing a relation that was never set raises a diagnostic. Hover and the wiki show an entity's relations as of the cursor position, the net set after removals.
+
+Relation vocabulary is optional config in `lore.toml` — it enriches relations you reuse enough to care about (reciprocals, aliases, plurals):
+
+```toml
+[relations.parent]
+reciprocal = "child"        # bidirectional; child gets reciprocal = parent for free
+aliases = ["father", "mother", "dad", "mum"]
+
+[relations.spouse]
+reciprocal = "spouse"       # self-reciprocal = symmetric
+```
+
+Built-in vocabulary for common familial, social, and membership relations ships by default; extend or override by defining the same name. A bad definition (two relations sharing one reciprocal, or a non-mutual reciprocal) raises a warning toast at project load. See the [main project README](https://github.com/franklin-ross/lore#readme) and the [relations spec](https://github.com/franklin-ross/lore/blob/main/docs/specs/2026-06-02-entity-relations.md) for the full model.
 
 ## Commands
 
@@ -66,10 +99,11 @@ To unbind or rebind, use `Preferences: Open Keyboard Shortcuts (JSON)`:
 
 ## Knowledge Graph
 
-`Lore: Open Knowledge Graph` opens an interactive force-directed view of every entity in the project, with edges drawn between entities that reference each other. Single-click focuses a node (mirrors to the wiki); double-click opens the entity wiki; drag pins a node; click empty space to clear focus.
+`Lore: Open Knowledge Graph` opens an interactive force-directed view of every entity in the project. Two edge layers are drawn: **relations** (explicit typed edges, bold, labelled at the edge midpoint, arrowheads suppressed on symmetric relations) and **mentions** (faint, reference-derived). Single-click focuses a node (mirrors to the wiki); double-click opens the entity wiki; drag pins a node; click empty space to clear focus.
 
 ### Toolbar
 
+- **Edges** — `Relations` / `Mentions` toggles, each an independent on/off layer. Relations default on, mentions off — explicit edges are the less-overwhelming default.
 - **Hops** — `1` / `2` / `all`, limits visible nodes to those within N edges of the focused node
 - **Types** — opens a quick-pick to filter visible entity types
 - **Layout** — picks the simulation algorithm (see below)
