@@ -73,13 +73,18 @@ Sarah: father -> Doug          # add
 Doug: daughter -/> Sarah       # removes the same edge
 ```
 
-Removing an edge that was never set is a no-op and emits a soft
-diagnostic, mirroring the existing "remove a tag that isn't set" warning.
-For a generic (undefined) relation the system has no reciprocal
-knowledge, so a remove phrased from the opposite label can't match — it
-just warns.
+Removing an edge that was never set warns — `EdgeRemovalIssues` folds the
+edges in source order and flags each `-/>` against an unset edge, surfaced
+in `lore check` and the editor (the relation analogue of "remove a tag
+that isn't set"). It's reciprocity-aware: a removal phrased from the
+reciprocal label still cancels the canonical edge and doesn't warn. For a
+generic (undefined) relation there's no reciprocal, so a remove from the
+opposite label can't match — and is flagged. Completion in a `-/>` target
+slot offers only the entities currently connected via that relation, the
+set the removal can actually act on.
 
-(The `-/>` glyph is provisional; the capability is settled.)
+`-/>` is the chosen removal glyph — deliberately a touch awkward, but the
+clearest of the options (`-<` reads wrong, `-x` is ambiguous).
 
 ### Reciprocal Rendering
 
@@ -344,8 +349,6 @@ from prose.
 
 ## Open Questions
 
-- Edge removal glyph (`-/>` vs alternatives). The capability is settled;
-  only the spelling is open.
 - Canonical storage orientation for an edge, so that adds and removes
   from either side and either label converge deterministically on one
   edge (see Edge Identity).
@@ -399,10 +402,11 @@ Graph (done):
   context), suppresses arrowheads on symmetric relations, and offers a
   Relations / Mentions edge-layer toggle. Relations default on, mentions off
   — explicit edges are the less-overwhelming default. Applies to the embedded
-  wiki graph too. Edge labels (drawing "father"/"member" on the line) are the
-  one deferred piece — a separate renderer addition.
+  wiki graph too.
+- Edge labels: each relation edge draws its label (`father`/`member`) at the
+  edge midpoint, nudged off the line, fading with hop visibility.
 
-Authoring (partial):
+Authoring:
 
 - Completion offers entity targets after a relation arrow (`label -> ` /
   `-/> `); `>` is a completion trigger. Context detection requires a
@@ -421,18 +425,24 @@ Authoring (partial):
   a text value (`status = tense`) as a string, using `Value.Kind` and a
   recorded `ValueSpan`. Text-value tokens yield to embedded entity names in
   overlap resolution, so a value like `inventory += Andúril` keeps the
-  entity coloured.
+  entity coloured. List commas get a `lorePunctuation` token so they read as
+  separators rather than string text.
+- Relation-label completion: the vocabulary is offered (alongside entities)
+  at the directive label slot — the first word after the entity header `:`
+  or a `;` separator — so a relation is one keystroke from the start of a
+  directive without polluting prose further along the line.
+- Inline aside in *target* position: `father -> (Doug: daughter -> Sarah)`
+  resolves the aside to its entity (`blankInlineAsides` keeps the subject
+  name in place), so one line declares a custom label on each side and both
+  converge on a single edge.
 
-Deferred (separable follow-ups, none load-bearing for the engine):
+Deferred / not pursued:
 
-- Graph edge labels rendered on the lines.
-- Relation-label completion (offering vocab labels as you type the label
-  slot) — the slot is ambiguous with prose, so it needs a careful trigger.
-- Go-to-definition on relation endpoints.
-- Inline aside in *target* position (`father -> (Doug: daughter -> Sarah)`).
-  The aside mechanism exists; resolving an aside to its entity in the
-  target slot is not yet wired, so use two blocks for a custom far side.
-- The optional "relation `bestie` is undefined" soft diagnostic.
+- Go-to-definition specifically on a relation — unnecessary: the target
+  entity in `father -> Doug` is already a reference, so F12/ctrl-click on it
+  jumps to the entity.
+- An "undefined relation" soft diagnostic — dropped; a generic edge is a
+  valid, intentional construct.
 
 Done since first cut:
 
