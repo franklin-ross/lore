@@ -41,7 +41,7 @@ func BuiltinRelations() []RelationDef {
 		{Canonical: "parent", Reciprocal: "child", Aliases: []string{"father", "mother", "dad", "mum", "mom"}},
 		{Canonical: "child", Plural: "children", Aliases: []string{"son", "daughter", "kid"}},
 		{Canonical: "step-parent", Reciprocal: "step-child", Aliases: []string{"step-father", "step-mother"}},
-		{Canonical: "step-child", Plural: "step-children", Aliases: []string{"step-son", "step-daughters"}},
+		{Canonical: "step-child", Plural: "step-children", Aliases: []string{"step-son", "step-daughter"}},
 		{Canonical: "sibling", Reciprocal: "sibling", Aliases: []string{"brother", "sister", "half-brother", "half-sister"}},
 		{Canonical: "step-sibling", Reciprocal: "step-sibling", Aliases: []string{"step-brother", "step-sister"}},
 		// Gender variants are aliases of one canonical, never separate
@@ -53,13 +53,45 @@ func BuiltinRelations() []RelationDef {
 		{Canonical: "pibling", Reciprocal: "nibling", Aliases: []string{"aunt", "uncle"}},
 		{Canonical: "nibling", Aliases: []string{"niece", "nephew"}},
 		{Canonical: "cousin", Reciprocal: "cousin"},
-		{Canonical: "grandparent", Reciprocal: "grandchild"},
+		{Canonical: "grandparent", Reciprocal: "grandchild", Aliases: []string{"grandmother", "grandfather"}},
 		{Canonical: "grandchild", Plural: "grandchildren"},
 		{Canonical: "spouse", Reciprocal: "spouse", Aliases: []string{"husband", "wife", "partner", "married"}},
-		{Canonical: "member", Reciprocal: "member-of", Aliases: []string{"members"}},
-		{Canonical: "member-of"},
-		{Canonical: "contains", Reciprocal: "within"},
-		{Canonical: "within", Aliases: []string{"inside"}},
+		{Canonical: "member", Reciprocal: "member-of"},
+		{Canonical: "member-of", Plural: "members-of"},
+		// Social allegiance — bread and butter of campaign notes. All symmetric.
+		// `friend` and `ally` overlap deliberately (warmth vs alignment); pick
+		// whichever fits the prose. Plurals (members/allies/friends/enemies)
+		// resolve automatically, so they aren't listed as aliases.
+		{Canonical: "ally", Reciprocal: "ally"},
+		{Canonical: "friend", Reciprocal: "friend"},
+		{Canonical: "enemy", Reciprocal: "enemy", Aliases: []string{"rival", "nemesis"}},
+		// Containment is generic — boxes, chests, ships, regions all "contain".
+		// Canonicals are nouns (they key the edge, label the undeclared reverse
+		// side, and feed the pluraliser, which assumes a proper singular): the
+		// holder's side is `contents`, the held side `container`. The verbs
+		// `contains`/`holds` are aliases — `pluralise` would mangle `contains`
+		// ("containses") if it were canonical. `contents` already reads plural,
+		// so its Plural is pinned to itself. `contents`/`container` sit on
+		// opposite endpoints — a reciprocal pair, not aliases of one canonical.
+		{Canonical: "contents", Reciprocal: "container", Plural: "contents", Aliases: []string{"contains", "holds"}},
+		{Canonical: "container", Plural: "containers", Aliases: []string{"within", "inside"}},
+		{Canonical: "residence", Reciprocal: "resident", Aliases: []string{"home", "abode", "dwelling"}},
+		{Canonical: "resident", Aliases: []string{"tenant", "inhabitant", "occupant"}},
+		// `owns` (subject is the owner) sits on `possession`, since
+		// `A: possession -> B` already reads "A owns B".
+		{Canonical: "possession", Reciprocal: "owner", Aliases: []string{"belongings", "property", "owns"}},
+		{Canonical: "owner", Aliases: []string{"proprietor", "holder"}},
+		// `leader` is a noun: `A: leader -> B` = "B is A's leader", so A is the
+		// follower. The verb `serves` (subject = follower) therefore sits on
+		// `leader`; `leads` (subject = leader) on `follower`.
+		{Canonical: "leader", Reciprocal: "follower", Aliases: []string{"chief", "boss", "serves"}},
+		{Canonical: "follower", Aliases: []string{"servant", "subordinate", "minion", "leads"}},
+		{Canonical: "mentor", Reciprocal: "student", Aliases: []string{"teacher"}},
+		{Canonical: "student", Aliases: []string{"apprentice", "pupil", "disciple"}},
+		// `made`/`forged` (subject = maker) sit on `creation`, since
+		// `A: creation -> B` reads "B is A's creation" (A made B).
+		{Canonical: "creator", Reciprocal: "creation", Aliases: []string{"maker", "author"}},
+		{Canonical: "creation", Plural: "creations", Aliases: []string{"made", "crafted", "forged", "built"}},
 	}
 }
 
@@ -124,6 +156,21 @@ func NewRelationVocab(defs []RelationDef) *RelationVocab {
 	}
 	for canon := range v.byCanonical {
 		v.aliasIndex[canon] = canon
+	}
+
+	// A relation's plural resolves as an input label too, so you can write
+	// `Cuthbert: children -> Milly, Bobby` as naturally as `child -> Milly`.
+	// Canonical names and explicit aliases already in the index win, so this
+	// only fills gaps. Display still preserves whatever surface you typed.
+	for canon := range v.byCanonical {
+		key := canonKey(v.Plural(canon))
+		if key == "" || key == canon {
+			continue
+		}
+		if _, taken := v.aliasIndex[key]; taken {
+			continue
+		}
+		v.aliasIndex[key] = canon
 	}
 	return v
 }

@@ -130,6 +130,110 @@ separators between quoted and bareword items, and run-on directives
 See [`docs/specs/2026-04-11-entity-state-tracking.md`](specs/2026-04-11-entity-state-tracking.md)
 for the full specification.
 
+## Relations
+
+A **relation** is a typed, directional link between two entities, written
+with `->` alongside tags and fields. Declare it once and it renders on
+both endpoints.
+
+```
+Sarah (person): father -> Doug
+Party (group): members -> Aragorn, Bilbo
+```
+
+Multiple targets are comma-separated, and relations accumulate across
+sessions like list fields. Remove one with `-/>` as the world changes:
+
+```
+Guild (group): members -> Borin
+Guild: Borin storms out. members -/> Borin
+```
+
+Removal is reciprocity-aware: either endpoint can retract the link with
+either label. Hover and the wiki show an entity's relations **as of the
+cursor position** — the net set after removals, on the same timeline as
+state. An undefined label still works (a *generic* edge); the vocabulary
+below is pure upgrade.
+
+### The One Rule
+
+The label names **what the target is to the subject**:
+
+```
+A: rel -> B          reads as          "B is A's rel."
+```
+
+- `Sarah: father -> Doug` → Doug is Sarah's father.
+- `Party: members -> Aragorn` → Aragorn is Party's member.
+
+Read it that way and direction never surprises you. The natural-language
+idiom "Sarah, *daughter of* Doug" is the other way around, so write it
+from the parent (`Doug: daughter -> Sarah`) or possessively from the
+child (`Sarah: father -> Doug`) — both record the same link.
+
+### Configuring Relations
+
+The vocabulary is optional config in `lore.toml`. It enriches relations
+you reuse enough to care about — without it, `->` still works.
+
+```toml
+[relations.parent]
+reciprocal = "child"                       # the reverse label, shown on the far side
+aliases = ["father", "mother", "dad", "mum"]
+
+[relations.child]
+plural = "children"                        # for merged headers; defaults to name + "s"
+aliases = ["son", "daughter"]
+
+[relations.spouse]
+reciprocal = "spouse"                      # self-reciprocal = symmetric
+aliases = ["husband", "wife", "partner"]
+```
+
+- **`reciprocal`** — the canonical reverse. Bidirectional: defining one
+  way implies the other. A relation whose reciprocal is itself is
+  symmetric (`spouse`, `sibling`, `ally`).
+- **`aliases`** — surface labels that mean the same relation. Display is
+  preserving: Lore keeps the word you typed and uses the canonical only
+  for matching, reciprocity, and merging.
+- **`plural`** — used in merged headers (`child` → `children`). A relation's
+  plural also resolves as an **input label**, so `Cuthbert: children -> Milly,
+  Bobby` works as naturally as `child -> Milly`. If the auto-pluralised form
+  reads awkwardly, set `plural` explicitly or add a pluralised alias.
+
+Four rules keep a custom relation from misbehaving — the parser warns on
+the first two, but the last two are on you:
+
+1. **Reciprocals are one-to-one.** Two relations must not share a
+   reciprocal. To cover gendered variants, make them **aliases of one
+   canonical**, never separate canonicals — `aunt` and `uncle` are
+   aliases of a single relation, not two relations both reversing
+   `nibling`. (Lore's built-ins use the neutral `pibling`/`nibling` for
+   exactly this reason.)
+2. **Reciprocals are mutual.** If `A` reverses `B`, then `B` must reverse
+   `A`, not some third relation.
+3. **Canonicals are singular nouns.** The canonical is the edge's key,
+   the label shown on an undeclared reverse side, and the stem that gets
+   pluralised for headers — so a verb breaks it (`contains` would
+   pluralise to "containses"). Make the canonical a noun (`contents`) and
+   put the verb in `aliases` (`contains`, `holds`). If a noun canonical
+   already ends in "s", pin its `plural` to itself.
+4. **A verb alias goes on the side whose *subject* performs it** — which
+   is the opposite side from the matching noun, because the noun reads
+   possessively. `A: leader -> B` means "B is A's leader", so A is the
+   follower; the verb `serves` (the subject serves) therefore belongs to
+   `leader`, and `leads` to `follower`. Likewise, `owns` sits with
+   `possession` (not `owner`), and `made`/`forged` with `creation`.
+
+Built-in vocabulary for common familial, social, membership, containment,
+residence, ownership, hierarchy, mentorship, and authorship relations
+ships by default; define a relation of the same canonical name to extend
+or override it. A bad definition (rules 1–2) is flagged in `lore check`
+and as a warning toast in VSCode when the config loads.
+
+See [`docs/specs/2026-06-02-entity-relations.md`](specs/2026-06-02-entity-relations.md)
+for the full specification.
+
 ## Free Text
 
 Any text that isn't an entity definition. Separated from entity definitions by blank lines. Treated as narrative — searchable, and entity references within it are detected, but it's not attached to any particular entity.

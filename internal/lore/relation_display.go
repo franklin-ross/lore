@@ -279,9 +279,13 @@ func pluraliseSurface(surface, canonical string, vocab *RelationVocab) string {
 	if canonKey(surface) == canonical {
 		return vocab.Plural(canonical)
 	}
-	// A surface alias may already read as plural ("members"); leave any
-	// s-ending as-is rather than risk doubling. Other endings are unambiguous
-	// singulars, so the regular rules apply.
+	// The surface may already be a plural the author typed — the canonical's
+	// own plural ("children"), or any s-ending ("members"). Leave those as-is
+	// rather than doubling them. Other endings are unambiguous singulars, so
+	// the regular rules apply.
+	if canonKey(surface) == canonKey(vocab.Plural(canonical)) {
+		return surface
+	}
 	if strings.HasSuffix(surface, "s") {
 		return surface
 	}

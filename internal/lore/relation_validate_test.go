@@ -11,6 +11,35 @@ func TestValidateBuiltinsAreClean(t *testing.T) {
 	}
 }
 
+// Canonicals are singular nouns: they feed pluralise(), which doubles an
+// s-ending ("contains" -> "containses"). A canonical that already ends in s
+// (a verb, or an already-plural noun like "contents") must pin its Plural so
+// the mixed-surface header stays sane.
+func TestBuiltinCanonicalsPluraliseSanely(t *testing.T) {
+	for _, d := range BuiltinRelations() {
+		if strings.HasSuffix(strings.ToLower(d.Canonical), "s") && d.Plural == "" {
+			t.Errorf("canonical %q ends in s but has no Plural; pluralise would mangle it (use a singular noun or pin Plural)", d.Canonical)
+		}
+	}
+}
+
+// No label (canonical or alias) may appear on two canonicals. The vocab's
+// alias index is last-write-wins and validation doesn't catch it, so a
+// duplicate would silently bind a word to the wrong relation. Guard the
+// built-ins against that.
+func TestBuiltinsHaveNoDuplicateLabels(t *testing.T) {
+	owner := map[string]string{}
+	for _, d := range BuiltinRelations() {
+		for _, label := range append([]string{d.Canonical}, d.Aliases...) {
+			key := strings.ToLower(label)
+			if prev, ok := owner[key]; ok {
+				t.Errorf("label %q claimed by both %q and %q", label, prev, d.Canonical)
+			}
+			owner[key] = d.Canonical
+		}
+	}
+}
+
 func TestValidateManyToOneReciprocal(t *testing.T) {
 	defs := []RelationDef{
 		{Canonical: "aunt", Reciprocal: "nibling"},

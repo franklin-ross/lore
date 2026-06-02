@@ -66,10 +66,19 @@ func TestVocabPluralDefaultAndConfigured(t *testing.T) {
 func TestVocabLabels(t *testing.T) {
 	v := NewRelationVocab(BuiltinRelations())
 	labels := v.Labels()
-	for _, w := range []string{"father", "parent", "members", "spouse", "aunt"} {
+	// Completion offers canonicals and true-synonym aliases.
+	for _, w := range []string{"father", "parent", "member", "spouse", "aunt"} {
 		if !slices.Contains(labels, w) {
 			t.Errorf("Labels() missing %q; got %v", w, labels)
 		}
+	}
+	// Plurals resolve as input but aren't separate suggestions — the singular
+	// canonical stands in for them, like case-insensitivity.
+	if slices.Contains(labels, "members") {
+		t.Errorf("Labels() should not list the plural %q", "members")
+	}
+	if canon, known := v.Resolve("members"); !known || canon != "member" {
+		t.Errorf("Resolve(members) = %q,%v; want member,true (still resolves)", canon, known)
 	}
 }
 
@@ -111,16 +120,16 @@ func TestRelationAuntUncleConvergeToOneEdge(t *testing.T) {
 
 func TestPluraliseRules(t *testing.T) {
 	cases := map[string]string{
-		"parent": "parents",  // default + s
-		"spouse": "spouses",  // ends in e, not a sibilant
-		"ally":   "allies",   // consonant + y → ies
-		"enemy":  "enemies",  // consonant + y → ies
-		"day":    "days",     // vowel + y → just s
-		"witch":  "witches",  // ch → es
-		"dish":   "dishes",   // sh → es
-		"box":    "boxes",    // x → es
-		"boss":   "bosses",   // s → es
-		"child":  "childs",   // naive — irregulars rely on configured Plural
+		"parent": "parents", // default + s
+		"spouse": "spouses", // ends in e, not a sibilant
+		"ally":   "allies",  // consonant + y → ies
+		"enemy":  "enemies", // consonant + y → ies
+		"day":    "days",    // vowel + y → just s
+		"witch":  "witches", // ch → es
+		"dish":   "dishes",  // sh → es
+		"box":    "boxes",   // x → es
+		"boss":   "bosses",  // s → es
+		"child":  "childs",  // naive — irregulars rely on configured Plural
 	}
 	for in, want := range cases {
 		if got := pluralise(in); got != want {

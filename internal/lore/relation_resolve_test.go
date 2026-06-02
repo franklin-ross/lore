@@ -1,6 +1,9 @@
 package lore
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func focusGroups(t *testing.T, world *World, name string) []RelationGroup {
 	t.Helper()
@@ -100,6 +103,100 @@ func TestRelationMembershipReciprocal(t *testing.T) {
 	aragorn := findGroup(focusGroups(t, world, "Aragorn"), "member-of")
 	if len(aragorn) != 1 || aragorn[0].Other != "Party" {
 		t.Fatalf("Aragorn member-of = %+v; want [Party]", aragorn)
+	}
+}
+
+// Containment is generic and must read true from either endpoint. The old
+// vocab filed `within`/`inside` as aliases of the container-side canonical, so
+// one side always rendered inverted; `contains`/`container` are a proper pair.
+func TestRelationContainmentBothDirections(t *testing.T) {
+	// Declared from the container: "Barovia contains the town". `contains` is a
+	// verb alias of the `contents` canonical.
+	w1 := setupTestWorld(t, "Region (place): contains -> Town\n\nTown (place): A hamlet.\n")
+	if g := findGroup(focusGroups(t, w1, "Region"), "contents"); len(g) != 1 || g[0].Other != "Town" || g[0].Incoming {
+		t.Fatalf("Region contents = %+v; want outgoing to Town", g)
+	}
+	// Town's reverse must say the region is its container, not its contents.
+	if g := findGroup(focusGroups(t, w1, "Town"), "container"); len(g) != 1 || g[0].Other != "Region" {
+		t.Fatalf("Town container = %+v; want [Region] (region is the town's container)", g)
+	}
+
+	// Declared from the contained, generic case: "the sword is within the box".
+	w2 := setupTestWorld(t, "Sword (item): within -> Box\n\nBox (item): A chest.\n")
+	box := findGroup(focusGroups(t, w2, "Box"), "contents")
+	if len(box) != 1 || box[0].Other != "Sword" {
+		t.Fatalf("Box contents = %+v; want [Sword] (box contains the sword, not vice versa)", box)
+	}
+	sword := findGroup(focusGroups(t, w2, "Sword"), "container")
+	if len(sword) != 1 || sword[0].Surface != "within" {
+		t.Fatalf("Sword container = %+v; want one item, surface 'within' (preserved)", sword)
+	}
+}
+
+// Audit: for representative reciprocal pairs, declaring `A: <label> -> B` must
+// converge on one edge whose reverse renders as the true inverse canonical on
+// B. This locks the semantics a structurally-valid-but-inverted vocab (the old
+// containment bug) would silently violate.
+func TestRelationReciprocalSemanticsAudit(t *testing.T) {
+	cases := []struct {
+		label, fwdCanon, revCanon string
+	}{
+		{"father", "parent", "child"},
+		{"members", "member", "member-of"},
+		{"owner", "owner", "possession"},
+		{"contains", "contents", "container"},
+		{"within", "container", "contents"},
+		{"leader", "leader", "follower"},
+		// New pairs.
+		{"ally", "ally", "ally"},
+		{"enemy", "enemy", "enemy"},
+		{"mentor", "mentor", "student"},
+		{"teacher", "mentor", "student"},
+		{"creator", "creator", "creation"},
+		// Verb aliases must resolve to the side whose subject plays the verb's
+		// role — the trap that inverts an edge if placed wrong.
+		{"owns", "possession", "owner"},    // A owns B -> B is A's possession
+		{"serves", "leader", "follower"},   // A serves B -> B is A's leader
+		{"leads", "follower", "leader"},    // A leads B -> B is A's follower
+		{"forged", "creation", "creator"},  // A forged B -> B is A's creation
+		{"holds", "contents", "container"}, // A holds B -> A contains B
+	}
+	for _, c := range cases {
+		world := setupTestWorld(t, "A (thing): "+c.label+" -> B\n\nB (thing): x.\n")
+		fwd := findGroup(focusGroups(t, world, "A"), c.fwdCanon)
+		if len(fwd) != 1 || fwd[0].Other != "B" || fwd[0].Incoming {
+			t.Errorf("%s: A %s group = %+v; want outgoing to B", c.label, c.fwdCanon, fwd)
+		}
+		rev := findGroup(focusGroups(t, world, "B"), c.revCanon)
+		if len(rev) != 1 || rev[0].Other != "A" {
+			t.Errorf("%s: B reverse %s group = %+v; want [A]", c.label, c.revCanon, rev)
+		}
+	}
+}
+
+// A relation's plural resolves as an input label, so the natural
+// `Cuthbert: children -> ...` works, not just `child -> ...`. The header on
+// the multi-item group must stay "children", not double to "childrens".
+func TestRelationPluralAsInputLabel(t *testing.T) {
+	v := NewRelationVocab(BuiltinRelations())
+	if canon, known := v.Resolve("children"); !known || canon != "child" {
+		t.Fatalf("Resolve(children) = %q,%v; want child,true", canon, known)
+	}
+
+	world := setupTestWorld(t, "Cuthbert (person): children -> Milly, Bobby, Sally\n\nMilly (person): x.\nBobby (person): x.\nSally (person): x.\n")
+	kids := findGroup(focusGroups(t, world, "Cuthbert"), "child")
+	if len(kids) != 3 {
+		t.Fatalf("Cuthbert child group = %+v; want 3 items", kids)
+	}
+	// Reverse: each child sees Cuthbert as a parent.
+	if p := findGroup(focusGroups(t, world, "Milly"), "parent"); len(p) != 1 || p[0].Other != "Cuthbert" {
+		t.Fatalf("Milly parent = %+v; want [Cuthbert]", p)
+	}
+
+	// Header is the shared surface, left as the plural the author typed.
+	block := FormatRelationsBlock(focusGroups(t, world, "Cuthbert"), v)
+	if !strings.Contains(block, "children → ") || strings.Contains(block, "childrens") {
+		t.Fatalf("header should read 'children →', not doubled; got %q", block)
 	}
 }
 

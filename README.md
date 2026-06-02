@@ -39,6 +39,7 @@ The header before the first `:` defines an entity. Aliases (`| Sildar`) and type
 - **LSP server** (Go): hover, go-to-definition, find-references, autocomplete, diagnostics for undefined references.
 - **VSCode extension**: semantic highlighting with stable per-entity colours, inline state directives, definition styling, configurable hover.
 - **State tracking**: tags and fields on entities (`+captured`, `hp = 12`) resolved across the document timeline.
+- **Relations**: typed, directional links between entities (`father -> Doug`, `members -> Aragorn, Bilbo`), declared once and rendered on both endpoints. See [Relations](#relations) below.
 
 ## Install
 
@@ -86,6 +87,59 @@ lore check                          # report undefined references
 ```
 
 Open the folder in VSCode and the extension activates on `lore.toml`.
+
+## Relations
+
+A relation is a typed, directional link between two entities, written with `->`
+alongside tags and fields. Declare it once; it renders on both endpoints.
+
+```markdown
+Sarah (person): father -> Doug
+Party (group): members -> Aragorn, Bilbo
+Guild (group): Borin storms out. members -/> Borin
+```
+
+Multiple targets are comma-separated; relations accumulate across sessions and
+retract with `-/>`. An undefined label still works as a generic edge — the
+vocabulary is pure upgrade.
+
+**The one rule.** The label names *what the target is to the subject*:
+
+```
+A: rel -> B    reads as    "B is A's rel."
+```
+
+So `Sarah: father -> Doug` means Doug is Sarah's father, and his card shows the
+reciprocal (`child -> Sarah`) automatically.
+
+**Configuring vocabulary** (`lore.toml`, optional) lets you set reciprocals,
+aliases, and plurals:
+
+```toml
+[relations.parent]
+reciprocal = "child"                  # bidirectional; self-reciprocal = symmetric
+aliases = ["father", "mother", "dad", "mum"]
+
+[relations.child]
+plural = "children"                   # plurals resolve as input too: `children -> ...`
+aliases = ["son", "daughter"]
+```
+
+Four rules keep a custom relation well-behaved:
+
+1. **Reciprocals are one-to-one** — two relations must not share one. Model
+   gendered variants (`aunt`/`uncle`) as *aliases of one canonical*, not two.
+2. **Reciprocals are mutual** — if `A` reverses `B`, `B` reverses `A`.
+3. **Canonicals are singular nouns** — the canonical is pluralised for headers,
+   so a verb breaks it (`contains` → "containses"). Make it a noun (`contents`)
+   and put the verb in `aliases` (`contains`, `holds`).
+4. **A verb alias sits on the side whose *subject* performs it** — the opposite
+   side from the matching noun. `A: leader -> B` = "B is A's leader", so `serves`
+   belongs to `leader` and `leads` to `follower`.
+
+Built-ins cover familial, social, membership, containment, residence, ownership,
+hierarchy, mentorship, and authorship relations. The full rundown, with worked
+examples, is in [docs/format.md](docs/format.md#relations).
 
 See [docs/contributing.md](docs/contributing.md) for commit conventions and [docs/design.md](docs/design.md) for the architecture. See the release procedure at [RELEASING.md](RELEASING.md).
 
