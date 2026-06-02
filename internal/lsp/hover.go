@@ -41,15 +41,18 @@ func (s *Server) hover(_ *glsp.Context, params *protocol.HoverParams) (*protocol
 // blockEndLine returns the last line of the definition block that contains
 // cursorLine in file, so hover resolves "at cursor" state as of the end of the
 // whole block — a multi-line entity definition reads as a single beat, not a
-// per-line timeline. Asides are skipped: when the cursor sits in an aside
-// nested inside a header definition, the enclosing definition's span already
-// covers it; a bare aside in free prose leaves the cutoff at cursorLine.
-// Returns cursorLine unchanged when the cursor isn't inside any definition.
+// per-line timeline. This covers both header definitions and paren-wrapped
+// asides: a block-form aside `(Name: …)` can span many paragraphs, and its
+// EndLine is the close-paren line, so hovering inside it snaps the cutoff to
+// the aside's end. An aside nested inside a header definition is also fine —
+// the enclosing definition's span already contains the cursor, and the larger
+// EndLine wins. Returns cursorLine unchanged when the cursor isn't inside any
+// definition.
 func blockEndLine(world *lore.World, file string, cursorLine int) int {
 	end := cursorLine
 	for i := range world.Entities {
 		for _, d := range world.Entities[i].Descriptions {
-			if d.File != file || d.IsAside {
+			if d.File != file {
 				continue
 			}
 			if d.Line <= cursorLine && cursorLine <= d.EndLine && d.EndLine > end {

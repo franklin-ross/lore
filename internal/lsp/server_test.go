@@ -596,6 +596,32 @@ func TestHoverBlockTreatedAsOneBeat(t *testing.T) {
 	}
 }
 
+// A paren-wrapped (block-form) aside is a definition too, and may span many
+// paragraphs. Hovering anywhere inside it resolves state as of the close-paren
+// line, so a directive deep in the body still shows.
+func TestHoverBlockAsideTreatedAsOneBeat(t *testing.T) {
+	// Block aside opening on line 1, +injured on line 5, closing `)` on line 6.
+	src := "(Sarah (person):\n\nA ranger.\n\n+injured\n)\n"
+	world, find := hoverWorld(t, src)
+	sarah := find("Sarah")
+
+	cutoff := blockEndLine(world, "test.md", 1)
+	if cutoff != 6 {
+		t.Fatalf("blockEndLine at aside open line 1 = %d; want 6 (aside spans to close paren)", cutoff)
+	}
+
+	// Hovering at the aside open (line 1) snaps to the block end, so the later
+	// directive shows; resolving at the raw cursor line would not.
+	atBlock := formatEntityHover(world, sarah, "test.md", cutoff, HoverStateModeAtCursor, false, nil)
+	if !strings.Contains(atBlock, "+injured") {
+		t.Fatalf("hover as of block-aside end should show +injured; got %q", atBlock)
+	}
+	atOpen := formatEntityHover(world, sarah, "test.md", 1, HoverStateModeAtCursor, false, nil)
+	if strings.Contains(atOpen, "+injured") {
+		t.Fatalf("at raw aside-open line 1 the directive is later; got %q", atOpen)
+	}
+}
+
 func TestParseHoverStateMode(t *testing.T) {
 	cases := map[string]HoverStateMode{
 		"":         HoverStateModeBoth,
