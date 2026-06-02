@@ -1,6 +1,7 @@
 package lore
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 )
@@ -106,6 +107,43 @@ func (w *World) resolveEdgeMap(vocab *RelationVocab, fileOrder func(string) int,
 		}
 	}
 	return edges
+}
+
+// EdgeRemovalIssues folds every edge declaration in source order and returns a
+// warning for each `-/>` that removes an edge which was never set — the
+// relation analogue of "remove a tag that isn't set". Reciprocity is honoured:
+// a removal phrased from the reciprocal label still cancels the canonical edge,
+// so it doesn't warn.
+func (w *World) EdgeRemovalIssues(vocab *RelationVocab) []StateIssue {
+	if vocab == nil {
+		return nil
+	}
+	decls := w.collectEdgeDecls()
+	sort.SliceStable(decls, func(i, j int) bool {
+		return spanBefore(decls[i].span, decls[j].span, w.FileOrder)
+	})
+	present := make(map[relEdgeKey]bool)
+	var issues []StateIssue
+	for _, d := range decls {
+		key, _, _ := w.placeEdge(vocab, d)
+		if key == (relEdgeKey{}) {
+			continue
+		}
+		switch d.op {
+		case StateOpEdgeAdd:
+			present[key] = true
+		case StateOpEdgeRemove:
+			if !present[key] {
+				issues = append(issues, StateIssue{
+					Severity: SeverityWarning,
+					Message:  fmt.Sprintf("no %q relation to %q to remove", d.surface, d.target),
+					Span:     d.span,
+				})
+			}
+			present[key] = false
+		}
+	}
+	return issues
 }
 
 // GraphRelation is a resolved relationship for graph rendering: a labelled,

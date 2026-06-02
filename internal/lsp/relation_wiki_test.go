@@ -6,6 +6,29 @@ import (
 	"lore/internal/lore"
 )
 
+func TestRelationRemovalCompletions(t *testing.T) {
+	idx := loadIndexWithConfig(t, lore.Config{}, map[string]string{
+		"x.md": "Sarah (person): father -> Doug; mother -> Bea\n\n" +
+			"Doug (person): a\n\nBea (person): b\n",
+	})
+	w := idx.World()
+	sarah, _ := w.FindEntity("Sarah")
+
+	// `father -/> ` should offer only Sarah's parent-relation targets (Doug,
+	// Bea — both resolve under canonical "parent"), not the whole entity list.
+	list := relationRemovalCompletions(w, sarah, "x.md", 1, "father")
+	got := map[string]bool{}
+	for _, it := range list.Items {
+		got[it.Label] = true
+	}
+	if !got["Doug"] || !got["Bea"] {
+		t.Fatalf("removal completions = %v; want Doug and Bea", got)
+	}
+	if got["Sarah"] {
+		t.Fatalf("removal completions should not include unrelated/self entities: %v", got)
+	}
+}
+
 func TestBuildRelationEdgesGraph(t *testing.T) {
 	idx := loadIndexWithConfig(t, lore.Config{}, map[string]string{
 		"x.md": "Sarah (person): father -> Doug\n\nDoug (person): a\n",

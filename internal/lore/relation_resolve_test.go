@@ -110,6 +110,28 @@ func TestRelationRemovalCancelsEdge(t *testing.T) {
 	}
 }
 
+func TestEdgeRemovalIssues(t *testing.T) {
+	v := NewRelationVocab(BuiltinRelations())
+
+	// Removing an edge that was never set warns.
+	w1 := setupTestWorld(t, "Sarah (person): friend -/> Mary\n\nMary (person): x\n")
+	if got := w1.EdgeRemovalIssues(v); len(got) != 1 {
+		t.Fatalf("unset removal: want 1 issue, got %d: %+v", len(got), got)
+	}
+
+	// Add then remove: no warning.
+	w2 := setupTestWorld(t, "Sarah (person): friend -> Mary; friend -/> Mary\n\nMary (person): x\n")
+	if got := w2.EdgeRemovalIssues(v); len(got) != 0 {
+		t.Fatalf("matched removal: want 0 issues, got %+v", got)
+	}
+
+	// Reciprocal-label removal of a set edge: no warning.
+	w3 := setupTestWorld(t, "Sarah (person): father -> Doug\n\nDoug (person): daughter -/> Sarah\n")
+	if got := w3.EdgeRemovalIssues(v); len(got) != 0 {
+		t.Fatalf("reciprocal removal of set edge: want 0 issues, got %+v", got)
+	}
+}
+
 func TestRelationInlineAsideTarget(t *testing.T) {
 	// `father -> (Doug: daughter -> Sarah)`: one line, custom label each side.
 	world := setupTestWorld(t, "Sarah (person): father -> (Doug (person): daughter -> Sarah)\n")

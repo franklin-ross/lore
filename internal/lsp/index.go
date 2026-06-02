@@ -79,6 +79,7 @@ func (idx *Index) World() *lore.World {
 	defs := lore.EffectiveRelationDefs(idx.config)
 	idx.world.Vocab = lore.NewRelationVocab(defs)
 	idx.world.RelationIssues = lore.ValidateRelations(defs)
+	idx.world.FileIssues = append(idx.world.FileIssues, idx.world.EdgeRemovalIssues(idx.world.Vocab)...)
 	return idx.world
 }
 

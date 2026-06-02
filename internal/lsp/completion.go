@@ -52,10 +52,19 @@ func (s *Server) completion(_ *glsp.Context, params *protocol.CompletionParams) 
 		return entityActiveTagCompletions(ps.world(), ent, rel, cursorLine), nil
 	}
 
-	// Inside a relation directive's target list (`label -> ` / `label -/> `):
-	// offer entity names, since targets are entities.
-	if parseRelationTargetContext(prefix) {
-		return entityCompletions(ps.world()), nil
+	// Inside a relation directive's target list. For `->` (add) offer every
+	// entity; for `-/>` (remove) offer only the entities currently connected
+	// via that relation, mirroring how `-=`/`-tag` list removable values.
+	if label, remove, ok := parseRelationTargetContext(prefix); ok {
+		if !remove {
+			return entityCompletions(ps.world()), nil
+		}
+		cursorLine := int(params.Position.Line) + 1
+		ent := findOwningEntity(ps.world(), rel, cursorLine)
+		if ent == nil {
+			return &protocol.CompletionList{}, nil
+		}
+		return relationRemovalCompletions(ps.world(), ent, rel, cursorLine, label), nil
 	}
 
 	// The trigger characters exist to open directive popups; if none of the
@@ -100,6 +109,34 @@ func parseRelationLabelContext(prefix string) bool {
 	}
 	c := prefix[j-1]
 	return c == ':' || c == ';'
+}
+
+// relationRemovalCompletions offers the entities currently connected to ent
+// via the given relation label, resolved at the cursor — the set a `-/>`
+// removal can actually act on. Incoming generic edges are excluded: they're
+// declared on the other side and a same-label remove here wouldn't match.
+func relationRemovalCompletions(world *lore.World, ent *lore.Entity, file string, cursorLine int, label string) *protocol.CompletionList {
+	if world.Vocab == nil {
+		return &protocol.CompletionList{}
+	}
+	canon, _ := world.Vocab.Resolve(label)
+	groups := world.ResolveRelationsAt(world.Vocab, ent, world.FileOrder, file, cursorLine)
+	kind := protocol.CompletionItemKindReference
+	seen := make(map[string]bool)
+	var items []protocol.CompletionItem
+	for _, g := range groups {
+		if g.Canonical != canon {
+			continue
+		}
+		for _, it := range g.Items {
+			if it.Incoming || seen[it.Other] {
+				continue
+			}
+			seen[it.Other] = true
+			items = append(items, protocol.CompletionItem{Label: it.Other, Kind: &kind})
+		}
+	}
+	return &protocol.CompletionList{IsIncomplete: true, Items: items}
 }
 
 // labelSlotCompletions offers entity names plus relation-vocabulary labels for
@@ -217,12 +254,12 @@ func parseTagSigilContext(prefix string) (lore.StateOp, bool) {
 // list of a relation directive — after a `->` or `-/>` arrow with no directive
 // terminator between the arrow and the cursor. The arrow must be preceded by a
 // bareword label so a stray `->` in prose doesn't trigger entity completions.
-func parseRelationTargetContext(prefix string) bool {
+func parseRelationTargetContext(prefix string) (label string, remove, ok bool) {
 	depth := 0 // unmatched ')' seen while scanning back
 	for i := len(prefix) - 1; i >= 0; i-- {
 		switch prefix[i] {
 		case '.', '!', '?', ';', '\n', '\r':
-			return false
+			return "", false, false
 		case ')':
 			depth++
 		case '(':
@@ -232,36 +269,56 @@ func parseRelationTargetContext(prefix string) bool {
 				// no longer governs, so this isn't a target slot. A balanced
 				// disambiguator like `Barovia (nation)` decrements depth and
 				// scanning continues.
-				return false
+				return "", false, false
 			}
 			depth--
 		case '>':
 			if depth != 0 {
 				continue
 			}
-			if i >= 1 && prefix[i-1] == '-' {
-				return relationLabelBefore(prefix, i-1)
-			}
+			// Check `-/>` before `->`: both end in `>`.
 			if i >= 2 && prefix[i-1] == '/' && prefix[i-2] == '-' {
-				return relationLabelBefore(prefix, i-2)
+				if lbl, lok := relationLabelBefore(prefix, i-2); lok {
+					return lbl, true, true
+				}
+				return "", false, false
+			}
+			if i >= 1 && prefix[i-1] == '-' {
+				if lbl, lok := relationLabelBefore(prefix, i-1); lok {
+					return lbl, false, true
+				}
+				return "", false, false
 			}
 		}
 	}
-	return false
+	return "", false, false
 }
 
-// relationLabelBefore reports whether a bareword label sits immediately before
-// the arrow whose leading '-' is at arrowStart (spaces allowed in between).
-func relationLabelBefore(prefix string, arrowStart int) bool {
+// relationLabelBefore returns the bareword label immediately before the arrow
+// whose leading '-' is at arrowStart (spaces allowed between). ok is false when
+// no label-shaped token precedes the arrow.
+func relationLabelBefore(prefix string, arrowStart int) (string, bool) {
 	j := arrowStart
 	for j > 0 && (prefix[j-1] == ' ' || prefix[j-1] == '\t') {
 		j--
 	}
-	if j == 0 {
-		return false
+	end := j
+	for j > 0 {
+		r, w := utf8.DecodeLastRuneInString(prefix[:j])
+		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' || r == '-' {
+			j -= w
+			continue
+		}
+		break
 	}
-	r, _ := utf8.DecodeLastRuneInString(prefix[:j])
-	return unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' || r == '-'
+	if j == end {
+		return "", false
+	}
+	r, _ := utf8.DecodeRuneInString(prefix[j:end])
+	if !unicode.IsLetter(r) {
+		return "", false
+	}
+	return prefix[j:end], true
 }
 
 // isTagBoundary mirrors the directive scanner's atWordBoundaryLeft check —

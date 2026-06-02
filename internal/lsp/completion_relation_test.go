@@ -39,8 +39,27 @@ func TestParseRelationTargetContext(t *testing.T) {
 		"Sarah: father -> (Doug: x -> Sa": true,  // inside the aside's own target slot
 	}
 	for prefix, want := range cases {
-		if got := parseRelationTargetContext(prefix); got != want {
-			t.Errorf("parseRelationTargetContext(%q) = %v; want %v", prefix, got, want)
+		if _, _, got := parseRelationTargetContext(prefix); got != want {
+			t.Errorf("parseRelationTargetContext(%q) ok = %v; want %v", prefix, got, want)
+		}
+	}
+}
+
+func TestParseRelationTargetContextLabelAndRemove(t *testing.T) {
+	cases := []struct {
+		prefix string
+		label  string
+		remove bool
+	}{
+		{"Sarah: father -> Do", "father", false},
+		{"Sarah: friend -/> Ma", "friend", true},
+		{"Party: members -/> ", "members", true},
+	}
+	for _, c := range cases {
+		label, remove, ok := parseRelationTargetContext(c.prefix)
+		if !ok || label != c.label || remove != c.remove {
+			t.Errorf("parseRelationTargetContext(%q) = (%q,%v,%v); want (%q,%v,true)",
+				c.prefix, label, remove, ok, c.label, c.remove)
 		}
 	}
 }

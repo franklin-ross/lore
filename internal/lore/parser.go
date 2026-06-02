@@ -17,5 +17,6 @@ func Parse(project *Project) (*World, error) {
 	defs := EffectiveRelationDefs(project.Config)
 	world.Vocab = NewRelationVocab(defs)
 	world.RelationIssues = ValidateRelations(defs)
+	world.FileIssues = append(world.FileIssues, world.EdgeRemovalIssues(world.Vocab)...)
 	return world, nil
 }
