@@ -27,6 +27,15 @@ type World struct {
 	// silently drop these (they look like prose); FileIssues lets the LSP
 	// and `check` surface them so authors notice the gap.
 	FileIssues []StateIssue
+	// Vocab is the relation vocabulary used to resolve edge directives into
+	// relations. Merge installs the built-in vocabulary; Parse overlays the
+	// project's lore.toml [relations.*] entries on top.
+	Vocab *RelationVocab
+	// RelationIssues holds vocabulary integrity problems — reciprocity
+	// conflicts in lore.toml [relations.*]. They aren't tied to a prose line,
+	// so Check surfaces them against the config file and the LSP reports them
+	// at the project level.
+	RelationIssues []RelationIssue
 }
 
 // FileSource is one parsed file's path and raw content, kept on the World so
@@ -36,10 +45,13 @@ type FileSource struct {
 	Content string
 }
 
-// NewWorld creates an empty World.
+// NewWorld creates an empty World with the built-in relation vocabulary. Parse
+// overlays project config on top; callers that build worlds directly (LSP
+// index, tests) get the built-ins by default.
 func NewWorld() *World {
 	return &World{
 		References: make(map[string][]Reference),
+		Vocab:      NewRelationVocab(BuiltinRelations()),
 	}
 }
 
@@ -206,6 +218,12 @@ func (w *World) Check() []Issue {
 			File:    fi.Span.File,
 			Line:    fi.Span.Line,
 			Message: fi.Message,
+		})
+	}
+	for _, ri := range w.RelationIssues {
+		issues = append(issues, Issue{
+			File:    configFilename,
+			Message: ri.Message,
 		})
 	}
 	return issues

@@ -202,6 +202,31 @@ func (s *Server) discoverAllProjects() {
 		totalEntities += len(ps.world().Entities)
 	}
 	s.logInfo("indexed %d entities from %d files across %d projects", totalEntities, totalFiles, len(s.projects))
+	s.reportRelationIssues()
+}
+
+// reportRelationIssues surfaces lore.toml relation-config conflicts (e.g. two
+// relations sharing a reciprocal) as a client toast. It runs at project load
+// and reload — which is when relation config can change — not on every edit,
+// so it doesn't spam. Each project's issues collapse into a single message.
+func (s *Server) reportRelationIssues() {
+	if s.notify == nil {
+		return
+	}
+	for _, ps := range s.projects {
+		issues := ps.world().RelationIssues
+		if len(issues) == 0 {
+			continue
+		}
+		msgs := make([]string, len(issues))
+		for i, ri := range issues {
+			msgs[i] = ri.Message
+		}
+		s.notify(protocol.ServerWindowShowMessage, &protocol.ShowMessageParams{
+			Type:    protocol.MessageTypeWarning,
+			Message: "Lore relation config: " + strings.Join(msgs, "; "),
+		})
+	}
 }
 
 // logInfo sends an informational message to the client's output channel.
@@ -490,6 +515,30 @@ func renderHoverStateBlocks(world *lore.World, ent *lore.Entity, cursorFile stri
 	return "\n\n```lore-state\n" + body + "\n```"
 }
 
+// renderHoverRelations resolves the entity's relations and renders them as a
+// fenced block, mirroring the state block. Relations resolve at the cursor
+// when the hover mode shows point-in-time state, otherwise at latest — so an
+// entity's relations track the same timeline as its tags and fields.
+func renderHoverRelations(world *lore.World, ent *lore.Entity, cursorFile string, cursorLine int, mode HoverStateMode) string {
+	if world == nil || world.Vocab == nil {
+		return ""
+	}
+	showAt := (mode == HoverStateModeAtCursor || mode == HoverStateModeBoth) && cursorFile != ""
+
+	var groups []lore.RelationGroup
+	if showAt {
+		groups = world.ResolveRelationsAt(world.Vocab, ent, world.FileOrder, cursorFile, cursorLine)
+	} else {
+		groups = world.ResolveRelations(world.Vocab, ent)
+	}
+
+	body := lore.FormatRelationsBlock(groups, world.Vocab)
+	if body == "" {
+		return ""
+	}
+	return "\n\n```lore-relations\n" + body + "\n```"
+}
+
 // formatEntityHover builds markdown hover content for an entity. The cursor
 // (file, line) is used to compute the "state at cursor" block when mode
 // requests it; pass an empty cursorFile to show only the latest state. When
@@ -513,6 +562,7 @@ func formatEntityHover(world *lore.World, ent *lore.Entity, cursorFile string, c
 		fmt.Fprintf(&b, "<strong>%s</strong>", header.String())
 	}
 	b.WriteString(renderHoverStateBlocks(world, ent, cursorFile, cursorLine, mode))
+	b.WriteString(renderHoverRelations(world, ent, cursorFile, cursorLine, mode))
 
 	texts := make([]string, 0, len(ent.Descriptions))
 	for _, d := range ent.Descriptions {

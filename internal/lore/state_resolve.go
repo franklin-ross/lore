@@ -58,6 +58,11 @@ func ResolveState(events []StateEvent) (map[string]bool, map[string]FieldValue, 
 	var issues []StateIssue
 
 	for _, ev := range events {
+		// Edge events carry a Value (their target list) but are not field
+		// state — they resolve into the relation graph, not tags/fields.
+		if ev.Op == StateOpEdgeAdd || ev.Op == StateOpEdgeRemove {
+			continue
+		}
 		if ev.Value != nil {
 			issues = append(issues, applyFieldEvent(fields, ev)...)
 			continue

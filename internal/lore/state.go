@@ -27,6 +27,8 @@ const (
 	StateOpRemove         // -tag, field -= value
 	StateOpSet            // field = value
 	StateOpIncrement      // field += value
+	StateOpEdgeAdd       // label -> target[, target]
+	StateOpEdgeRemove    // label -/> target[, target]
 )
 
 // StateSpan is the byte span of a directive within its source file.

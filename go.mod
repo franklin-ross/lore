@@ -6,12 +6,12 @@ require (
 	github.com/BurntSushi/toml v1.6.0
 	github.com/bmatcuk/doublestar/v4 v4.10.0
 	github.com/tliron/commonlog v0.2.21
+	github.com/yuin/goldmark v1.8.2
 )
 
 require (
 	github.com/segmentio/ksuid v1.0.4 // indirect
 	github.com/tliron/go-kutil v0.4.0 // indirect
-	github.com/yuin/goldmark v1.8.2 // indirect
 )
 
 require (

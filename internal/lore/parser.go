@@ -13,5 +13,9 @@ func Parse(project *Project) (*World, error) {
 		}
 		files = append(files, ParseFile(rel, string(data)))
 	}
-	return Merge(files), nil
+	world := Merge(files)
+	defs := EffectiveRelationDefs(project.Config)
+	world.Vocab = NewRelationVocab(defs)
+	world.RelationIssues = ValidateRelations(defs)
+	return world, nil
 }

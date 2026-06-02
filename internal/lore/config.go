@@ -13,8 +13,18 @@ const configFilename = "lore.toml"
 
 // Config holds the parsed lore.toml settings.
 type Config struct {
-	Files  []string `toml:"files"`
-	Ignore []string `toml:"ignore"`
+	Files     []string                  `toml:"files"`
+	Ignore    []string                  `toml:"ignore"`
+	Relations map[string]RelationConfig `toml:"relations"`
+}
+
+// RelationConfig is a single [relations.<name>] entry in lore.toml. The table
+// key supplies the canonical relation name; these fields supply its reciprocal,
+// display plural, and surface aliases.
+type RelationConfig struct {
+	Reciprocal string   `toml:"reciprocal"`
+	Plural     string   `toml:"plural"`
+	Aliases    []string `toml:"aliases"`
 }
 
 // Project is a loaded lore project: its filesystem, config, matcher, and

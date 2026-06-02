@@ -66,6 +66,25 @@ func (s *directiveScanner) tryDirective() (StateEvent, bool) {
 		}
 		s.pos = savedPos
 	}
+	// Edge directive: `label -> target[, target]` or `label -/> target`. Tried
+	// before field ops so the `->`/`-/>` arrows aren't mistaken for a `-=`
+	// remove (they share a leading `-` but differ on the next byte).
+	if label, op, ok := s.tryEdgeOp(); ok {
+		targets, tok := s.readTargets()
+		if !tok {
+			s.skipSpacesTabs()
+			s.skipToTerminator()
+			s.addIssue(SeverityWarning, "expected one or more entities after relation arrow", s.spanFrom(start))
+			return StateEvent{}, false
+		}
+		return StateEvent{
+			Op:     op,
+			Target: label,
+			Value:  targets,
+			Span:   s.spanFrom(start),
+		}, true
+	}
+
 	// Field directive: `name`, optional WS, operator `=` / `+=` / `-=`, optional WS, value.
 	if target, op, ok := s.tryFieldOp(); ok {
 		value, vok := s.readValue()
@@ -240,6 +259,75 @@ func (s *directiveScanner) tryFieldOp() (string, StateOp, bool) {
 	}
 	s.pos = saved
 	return "", StateOpUnknown, false
+}
+
+// tryEdgeOp looks for `label <ws>? ->` or `label <ws>? -/>` at the current
+// position. On success it returns the relation label and edge op and advances
+// past the arrow. On failure it rewinds. The `-=` field operator is left for
+// tryFieldOp: it shares the leading `-` but its second byte is `=`, not `>`
+// or `/`.
+func (s *directiveScanner) tryEdgeOp() (string, StateOp, bool) {
+	saved := s.pos
+	if !s.atWordBoundaryLeft() {
+		return "", StateOpUnknown, false
+	}
+	name, ok := s.readIdentifier()
+	if !ok {
+		return "", StateOpUnknown, false
+	}
+	s.skipSpacesTabs()
+	if s.pos >= len(s.text) || s.text[s.pos] != '-' {
+		s.pos = saved
+		return "", StateOpUnknown, false
+	}
+	// `-/>` removal — check before `->` since both open with `-`.
+	if s.pos+2 < len(s.text) && s.text[s.pos+1] == '/' && s.text[s.pos+2] == '>' {
+		s.pos += 3
+		return name, StateOpEdgeRemove, true
+	}
+	// `->` addition.
+	if s.pos+1 < len(s.text) && s.text[s.pos+1] == '>' {
+		s.pos += 2
+		return name, StateOpEdgeAdd, true
+	}
+	s.pos = saved
+	return "", StateOpUnknown, false
+}
+
+// readTargets reads the comma-separated entity references after a relation
+// arrow. It always takes the text-list path (targets are entity names, never
+// numbers) and reuses readListItem so disambiguated names like
+// `Barovia (town)` and multi-word names parse the same way field values do.
+func (s *directiveScanner) readTargets() (*FieldValue, bool) {
+	s.skipSpacesTabs()
+	if s.pos >= len(s.text) || s.isTerminator(s.text[s.pos]) {
+		return nil, false
+	}
+	var items []string
+	for {
+		s.skipSpacesTabs()
+		if s.pos >= len(s.text) || s.isTerminator(s.text[s.pos]) {
+			break
+		}
+		item, ok := s.readListItem()
+		if !ok {
+			break
+		}
+		items = append(items, item)
+		s.skipSpacesTabs()
+		if s.pos >= len(s.text) || s.isTerminator(s.text[s.pos]) {
+			break
+		}
+		if s.text[s.pos] == ',' {
+			s.pos++
+			continue
+		}
+		break
+	}
+	if len(items) == 0 {
+		return nil, false
+	}
+	return &FieldValue{Kind: FieldText, Text: items}, true
 }
 
 // skipSpacesTabs advances past ASCII spaces and tabs.

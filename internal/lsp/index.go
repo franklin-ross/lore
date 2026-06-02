@@ -18,6 +18,7 @@ import (
 type Index struct {
 	files   map[string]*lore.FileParse
 	matcher lore.Matcher // captured at LoadProject; drives merge order
+	config  lore.Config  // captured at LoadProject; supplies [relations.*]
 	world   *lore.World  // cached merged world; nil when stale
 }
 
@@ -32,6 +33,7 @@ func NewIndex() *Index {
 func (idx *Index) LoadProject(project *lore.Project) error {
 	idx.files = make(map[string]*lore.FileParse, len(project.FilePaths))
 	idx.matcher = project.Matcher
+	idx.config = project.Config
 	for _, rel := range project.FilePaths {
 		data, err := fs.ReadFile(project.FS, rel)
 		if err != nil {
@@ -71,6 +73,12 @@ func (idx *Index) World() *lore.World {
 	}
 	idx.matcher.SortFileParses(files)
 	idx.world = lore.Merge(files)
+	// Overlay the project's [relations.*] config onto the built-in vocabulary
+	// and validate it, so hover/relations resolution and the relation-config
+	// diagnostics match what `lore query` produces.
+	defs := lore.EffectiveRelationDefs(idx.config)
+	idx.world.Vocab = lore.NewRelationVocab(defs)
+	idx.world.RelationIssues = lore.ValidateRelations(defs)
 	return idx.world
 }
 

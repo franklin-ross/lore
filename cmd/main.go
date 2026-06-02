@@ -156,6 +156,12 @@ func cmdQuery(world *lore.World, args []string) {
 		fmt.Println()
 	}
 
+	if groups := world.ResolveRelations(world.Vocab, ent); len(groups) > 0 {
+		fmt.Println("Relations:")
+		fmt.Println(lore.FormatRelationsBlock(groups, world.Vocab))
+		fmt.Println()
+	}
+
 	for _, desc := range ent.Descriptions {
 		fmt.Println(desc.Text)
 		fmt.Printf("  — %s:%d\n\n", desc.File, desc.Line)
@@ -218,6 +224,12 @@ func cmdCheck(world *lore.World) {
 	}
 
 	for _, issue := range issues {
-		fmt.Printf("%s:%d: %s\n", issue.File, issue.Line, issue.Message)
+		if issue.Line > 0 {
+			fmt.Printf("%s:%d: %s\n", issue.File, issue.Line, issue.Message)
+		} else {
+			// Project-level issues (e.g. lore.toml relation conflicts) have no
+			// source line.
+			fmt.Printf("%s: %s\n", issue.File, issue.Message)
+		}
 	}
 }
