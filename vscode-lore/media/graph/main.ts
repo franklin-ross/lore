@@ -52,6 +52,8 @@ interface PersistedState {
   activeLayoutId?: string;
   layouts?: LayoutOptionsMap;
   settingsPanelOpen?: boolean;
+  showRelations?: boolean;
+  showMentions?: boolean;
   // Legacy flat keys — read once on startup, then dropped.
   clustering?: boolean;
   linkDistance?: number;
@@ -83,6 +85,10 @@ let focus: string | null = persisted.focus ?? null;
 let hopLimit: number | null = persisted.hopLimit === undefined ? 2 : persisted.hopLimit;
 let filteredTypes: string[] | null = null;
 let panelOpen = persisted.settingsPanelOpen === true;
+// Relations (explicit typed edges) are the default layer; mentions are off
+// until the user opts in, since they're noisier.
+let showRelations = persisted.showRelations !== false;
+let showMentions = persisted.showMentions === true;
 
 // migrate folds legacy flat option keys into the layouts namespace under
 // force-hierarchical — the only layout that existed before this change.
@@ -96,6 +102,8 @@ function migrate(raw: PersistedState): PersistedState {
     activeLayoutId: raw.activeLayoutId,
     layouts: raw.layouts ? { ...raw.layouts } : {},
     settingsPanelOpen: raw.settingsPanelOpen,
+    showRelations: raw.showRelations,
+    showMentions: raw.showMentions,
   };
   let migrated = false;
   for (const key of LEGACY_OPTION_KEYS) {
@@ -117,6 +125,8 @@ function saveState(): void {
     activeLayoutId: persisted.activeLayoutId,
     layouts: persisted.layouts,
     settingsPanelOpen: panelOpen,
+    showRelations,
+    showMentions,
   });
 }
 
@@ -173,6 +183,7 @@ for (const opt of activeLayout.options) {
 }
 
 view.setHopLimit(hopLimit);
+view.setEdgeKinds(showRelations, showMentions);
 
 let panelBody: HTMLElement | null = null;
 let panelTitleEl: HTMLSpanElement | null = null;
@@ -207,6 +218,7 @@ if (
 function buildToolbar(): void {
   toolbarHost.innerHTML = "";
   toolbarHost.appendChild(buildScopeGroup());
+  toolbarHost.appendChild(buildEdgeKindGroup());
   toolbarHost.appendChild(buildTypesButton());
   toolbarHost.appendChild(buildLayoutDropdown());
 
@@ -258,6 +270,48 @@ function buildScopeGroup(): HTMLElement {
     scopeGroup.appendChild(btn);
   }
   return scopeGroup;
+}
+
+// buildEdgeKindGroup renders the Relations/Mentions edge-layer toggles. Each
+// is an independent on/off button; relations default on, mentions off.
+function buildEdgeKindGroup(): HTMLElement {
+  const group = document.createElement("div");
+  group.className = "scope-group";
+  const label = document.createElement("span");
+  label.className = "scope-label";
+  label.textContent = "Edges:";
+  group.appendChild(label);
+
+  const apply = () => {
+    view.setEdgeKinds(showRelations, showMentions);
+    saveState();
+  };
+
+  const relBtn = document.createElement("button");
+  relBtn.type = "button";
+  relBtn.className = "scope-btn" + (showRelations ? " active" : "");
+  relBtn.textContent = "Relations";
+  relBtn.title = "Show explicit relation edges";
+  relBtn.addEventListener("click", () => {
+    showRelations = !showRelations;
+    relBtn.classList.toggle("active", showRelations);
+    apply();
+  });
+  group.appendChild(relBtn);
+
+  const menBtn = document.createElement("button");
+  menBtn.type = "button";
+  menBtn.className = "scope-btn" + (showMentions ? " active" : "");
+  menBtn.textContent = "Mentions";
+  menBtn.title = "Show reference-derived mention edges";
+  menBtn.addEventListener("click", () => {
+    showMentions = !showMentions;
+    menBtn.classList.toggle("active", showMentions);
+    apply();
+  });
+  group.appendChild(menBtn);
+
+  return group;
 }
 
 function buildTypesButton(): HTMLButtonElement {

@@ -36,7 +36,9 @@ type relEdgeKey struct {
 type relEdge struct {
 	rel       string
 	aName     string
+	aType     string
 	bName     string
+	bType     string
 	symmetric bool
 	directed  bool
 	labelA    string // surface label for endpoint A's side ("" = canonical)
@@ -47,6 +49,7 @@ type relEdge struct {
 type edgeDecl struct {
 	subjKey  string
 	subjName string
+	subjType string
 	surface  string
 	target   string
 	op       StateOp
@@ -65,6 +68,12 @@ func (w *World) ResolveRelations(vocab *RelationVocab, focus *Entity) []Relation
 // cursorFile folds every event (latest state). The fold mirrors ResolveStateAt
 // so relations resolve on the same timeline as tags and fields.
 func (w *World) ResolveRelationsAt(vocab *RelationVocab, focus *Entity, fileOrder func(string) int, cursorFile string, cursorLine int) []RelationGroup {
+	return w.projectFocus(vocab, focus, w.resolveEdgeMap(vocab, fileOrder, cursorFile, cursorLine))
+}
+
+// resolveEdgeMap folds every edge declaration into the resolved edge set,
+// applying the cursor cutoff when cursorFile is non-empty.
+func (w *World) resolveEdgeMap(vocab *RelationVocab, fileOrder func(string) int, cursorFile string, cursorLine int) map[relEdgeKey]*relEdge {
 	decls := w.collectEdgeDecls()
 	sort.SliceStable(decls, func(i, j int) bool {
 		return spanBefore(decls[i].span, decls[j].span, fileOrder)
@@ -96,8 +105,55 @@ func (w *World) ResolveRelationsAt(vocab *RelationVocab, focus *Entity, fileOrde
 			cur.present = false
 		}
 	}
+	return edges
+}
 
-	return w.projectFocus(vocab, focus, edges)
+// GraphRelation is a resolved relationship for graph rendering: a labelled,
+// directed edge between two entities in canonical orientation. Label is the
+// source entity's term for the target (its surface label, or the canonical
+// relation when that side wasn't named). Symmetric marks relations whose
+// direction isn't meaningful (spouse, sibling, friend).
+type GraphRelation struct {
+	FromName string
+	FromType string
+	ToName   string
+	ToType   string
+	Label    string
+	Symmetric bool
+}
+
+// ResolveAllRelations returns every resolved relationship in the world (latest
+// state), one per canonical edge, for the relation graph.
+func (w *World) ResolveAllRelations(vocab *RelationVocab) []GraphRelation {
+	edges := w.resolveEdgeMap(vocab, w.FileOrder, "", 0)
+	out := make([]GraphRelation, 0, len(edges))
+	for _, e := range edges {
+		if !e.present {
+			continue
+		}
+		label := e.labelA
+		if label == "" {
+			label = vocab.Display(e.rel)
+		}
+		out = append(out, GraphRelation{
+			FromName:  e.aName,
+			FromType:  e.aType,
+			ToName:    e.bName,
+			ToType:    e.bType,
+			Label:     label,
+			Symmetric: e.symmetric,
+		})
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].FromName != out[j].FromName {
+			return out[i].FromName < out[j].FromName
+		}
+		if out[i].ToName != out[j].ToName {
+			return out[i].ToName < out[j].ToName
+		}
+		return out[i].Label < out[j].Label
+	})
+	return out
 }
 
 // collectEdgeDecls flattens every entity's edge events into declarations whose
@@ -118,6 +174,7 @@ func (w *World) collectEdgeDecls() []edgeDecl {
 				decls = append(decls, edgeDecl{
 					subjKey:  subjKey,
 					subjName: ent.Name,
+					subjType: ent.Type,
 					surface:  ev.Target,
 					target:   t,
 					op:       ev.Op,
@@ -138,7 +195,7 @@ func (w *World) placeEdge(vocab *RelationVocab, d edgeDecl) (relEdgeKey, *relEdg
 	if canon == "" {
 		return relEdgeKey{}, nil, 0
 	}
-	tgtKey, tgtName := w.resolveTargetIdentity(d.target)
+	tgtKey, tgtName, tgtType := w.resolveTargetIdentity(d.target)
 
 	recip := ""
 	if known {
@@ -149,18 +206,19 @@ func (w *World) placeEdge(vocab *RelationVocab, d edgeDecl) (relEdgeKey, *relEdg
 	case !known || recip == "":
 		// Generic or no-reciprocal: directed edge, subject -> object.
 		key := relEdgeKey{rel: canon, a: d.subjKey, b: tgtKey}
-		return key, &relEdge{rel: canon, aName: d.subjName, bName: tgtName, directed: true}, 0
+		return key, &relEdge{rel: canon, aName: d.subjName, aType: d.subjType, bName: tgtName, bType: tgtType, directed: true}, 0
 
 	case recip == canon:
 		// Symmetric: order endpoints so both declarations converge.
-		aKey, aName, bKey, bName := d.subjKey, d.subjName, tgtKey, tgtName
+		aKey, aName, aType := d.subjKey, d.subjName, d.subjType
+		bKey, bName, bType := tgtKey, tgtName, tgtType
 		slot := 0
 		if aKey > bKey {
-			aKey, aName, bKey, bName = bKey, bName, aKey, aName
+			aKey, aName, aType, bKey, bName, bType = bKey, bName, bType, aKey, aName, aType
 			slot = 1
 		}
 		key := relEdgeKey{rel: canon, a: aKey, b: bKey}
-		return key, &relEdge{rel: canon, aName: aName, bName: bName, symmetric: true}, slot
+		return key, &relEdge{rel: canon, aName: aName, aType: aType, bName: bName, bType: bType, symmetric: true}, slot
 
 	default:
 		// Asymmetric: orient by the primary (smaller) canonical name. A is the
@@ -169,12 +227,12 @@ func (w *World) placeEdge(vocab *RelationVocab, d edgeDecl) (relEdgeKey, *relEdg
 		primary := min(canon, recip)
 		if canon == primary {
 			key := relEdgeKey{rel: primary, a: d.subjKey, b: tgtKey}
-			return key, &relEdge{rel: primary, aName: d.subjName, bName: tgtName}, 0
+			return key, &relEdge{rel: primary, aName: d.subjName, aType: d.subjType, bName: tgtName, bType: tgtType}, 0
 		}
 		// Reciprocal orientation: target is the primary subject, subject the
 		// primary object, so the surface labels the object (B) side.
 		key := relEdgeKey{rel: primary, a: tgtKey, b: d.subjKey}
-		return key, &relEdge{rel: primary, aName: tgtName, bName: d.subjName}, 1
+		return key, &relEdge{rel: primary, aName: tgtName, aType: tgtType, bName: d.subjName, bType: d.subjType}, 1
 	}
 }
 
@@ -241,12 +299,12 @@ func (w *World) projectFocus(vocab *RelationVocab, focus *Entity, edges map[relE
 // resolveTargetIdentity resolves a raw target reference to a canonical entity
 // identity key and display name. Unresolved or ambiguous targets fall back to
 // the raw text so a relation to a not-yet-defined entity still renders.
-func (w *World) resolveTargetIdentity(raw string) (key, name string) {
+func (w *World) resolveTargetIdentity(raw string) (key, name, typ string) {
 	if ent, err := w.FindEntity(strings.TrimSpace(raw)); err == nil {
-		return entityIdentityKey(ent.Name, ent.Type), ent.Name
+		return entityIdentityKey(ent.Name, ent.Type), ent.Name, ent.Type
 	}
 	trimmed := strings.TrimSpace(raw)
-	return "raw:" + strings.ToLower(trimmed), trimmed
+	return "raw:" + strings.ToLower(trimmed), trimmed, ""
 }
 
 // entityIdentityKey builds a stable identity key for an entity, including type

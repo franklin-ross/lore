@@ -39,6 +39,11 @@
   fill: none;
 }
 
+.graph-edge-relation {
+  stroke-width: 2;
+  fill: none;
+}
+
 .graph-centroid {
   fill: none;
   stroke: var(--vscode-descriptionForeground);

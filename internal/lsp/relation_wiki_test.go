@@ -6,6 +6,20 @@ import (
 	"lore/internal/lore"
 )
 
+func TestBuildRelationEdgesGraph(t *testing.T) {
+	idx := loadIndexWithConfig(t, lore.Config{}, map[string]string{
+		"x.md": "Sarah (person): father -> Doug\n\nDoug (person): a\n",
+	})
+	res := buildGraphResult(idx.World())
+	if len(res.RelationEdges) != 1 {
+		t.Fatalf("want 1 relation edge, got %+v", res.RelationEdges)
+	}
+	e := res.RelationEdges[0]
+	if e.From != "Doug" || e.To != "Sarah" || e.Label != "child" {
+		t.Fatalf("relation edge = %+v; want Doug -> Sarah labelled child", e)
+	}
+}
+
 func TestBuildEntityRelationsWiki(t *testing.T) {
 	idx := loadIndexWithConfig(t, lore.Config{}, map[string]string{
 		"x.md": "Doug (person): daughter -> Sarah; child -> Tim\n\n" +

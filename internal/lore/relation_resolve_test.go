@@ -97,9 +97,9 @@ func TestRelationMembershipReciprocal(t *testing.T) {
 	if len(party) != 1 || party[0].Other != "Aragorn" {
 		t.Fatalf("Party member = %+v; want [Aragorn]", party)
 	}
-	aragorn := findGroup(focusGroups(t, world, "Aragorn"), "memberof")
+	aragorn := findGroup(focusGroups(t, world, "Aragorn"), "member-of")
 	if len(aragorn) != 1 || aragorn[0].Other != "Party" {
-		t.Fatalf("Aragorn memberof = %+v; want [Party]", aragorn)
+		t.Fatalf("Aragorn member-of = %+v; want [Party]", aragorn)
 	}
 }
 
@@ -107,6 +107,25 @@ func TestRelationRemovalCancelsEdge(t *testing.T) {
 	world := setupTestWorld(t, "Sarah (person): friend -> Mary; friend -/> Mary\n\nMary (person): x.\n")
 	if g := findGroup(focusGroups(t, world, "Sarah"), "friend"); g != nil {
 		t.Fatalf("Sarah friend should be empty after removal, got %+v", g)
+	}
+}
+
+func TestResolveAllRelationsForGraph(t *testing.T) {
+	world := setupTestWorld(t, "Sarah (person): father -> Doug\n\nDoug (person): x\n\nParty (group): members -> Sarah\n")
+	v := NewRelationVocab(BuiltinRelations())
+	all := world.ResolveAllRelations(v)
+	if len(all) != 2 {
+		t.Fatalf("want 2 edges, got %d: %+v", len(all), all)
+	}
+	// Sorted by FromName: Doug, then Party.
+	if all[0].FromName != "Doug" || all[0].ToName != "Sarah" || all[0].Label != "child" {
+		t.Fatalf("edge0 = %+v; want Doug -> Sarah labelled child", all[0])
+	}
+	if all[0].FromType != "person" || all[0].ToType != "person" {
+		t.Fatalf("edge0 types = %q/%q; want person/person", all[0].FromType, all[0].ToType)
+	}
+	if all[1].FromName != "Party" || all[1].ToName != "Sarah" || all[1].Label != "members" {
+		t.Fatalf("edge1 = %+v; want Party -> Sarah labelled members", all[1])
 	}
 }
 

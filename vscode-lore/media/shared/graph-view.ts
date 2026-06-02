@@ -37,9 +37,17 @@ export interface GraphDefEdge {
     count: number;
 }
 
+export interface GraphRelationEdge {
+    from: string;
+    to: string;
+    label: string;
+    symmetric?: boolean;
+}
+
 export interface GraphPayload {
     nodes?: GraphNode[];
     defEdges?: GraphDefEdge[];
+    relationEdges?: GraphRelationEdge[];
 }
 
 export interface GraphHandlers {
@@ -61,6 +69,9 @@ export interface LayoutChoice {
 export interface GraphView {
     update(payload: GraphPayload, focus: string | null | undefined): void;
     setFocus(label: string | null | undefined): void;
+    // Choose which edge layers are drawn. Relations are the explicit typed
+    // edges; mentions are reference-derived. Relations default on, mentions off.
+    setEdgeKinds(relations: boolean, mentions: boolean): void;
     setHopLimit(limit: number | null): void;
     setArrowSize(size: number): void;
     setTypeFilter(types: string[] | null): void;
@@ -87,6 +98,9 @@ export function mountGraph(
     let lastNodes: RenderNode[] = [];
     let lastLinks: RenderLink[] = [];
     let lastCentroids: RenderCentroid[] = [];
+    let lastPayload: GraphPayload = {};
+    let showRelations = true;
+    let showMentions = false;
 
     let factory: LayoutFactory = defaultFactory;
     let engine: LayoutEngine = factory.create();
@@ -133,24 +147,41 @@ export function mountGraph(
     engine.setHandlers(engineHandlers);
     engine.start();
 
-    function update(
-        payload: GraphPayload,
-        nextFocus: string | null | undefined,
-    ): void {
-        focus = nextFocus ?? focus;
+    function buildLinks(payload: GraphPayload, ids: Set<string>): RenderLink[] {
+        const rLinks: RenderLink[] = [];
+        if (showRelations) {
+            for (const e of payload.relationEdges ?? []) {
+                if (!ids.has(e.from) || !ids.has(e.to)) continue;
+                rLinks.push({
+                    source: e.from,
+                    target: e.to,
+                    count: 1,
+                    kind: "relation",
+                    symmetric: e.symmetric,
+                });
+            }
+        }
+        if (showMentions) {
+            for (const e of payload.defEdges ?? []) {
+                if (!ids.has(e.from) || !ids.has(e.to)) continue;
+                rLinks.push({ source: e.from, target: e.to, count: e.count, kind: "mention" });
+            }
+        }
+        return rLinks;
+    }
 
-        const rNodes: RenderNode[] = (payload.nodes ?? []).map((n) => ({
+    // applyData rebuilds the renderer/engine inputs from the last payload and
+    // current edge-kind toggles. Called on both fresh payloads and toggle
+    // changes so switching layers doesn't need a server round-trip.
+    function applyData(): void {
+        const rNodes: RenderNode[] = (lastPayload.nodes ?? []).map((n) => ({
             id: n.label,
             name: n.name,
             type: n.type,
             colourIndex: n.colourIndex,
         }));
         const ids = new Set(rNodes.map((n) => n.id));
-        const rLinks: RenderLink[] = [];
-        for (const e of payload.defEdges ?? []) {
-            if (!ids.has(e.from) || !ids.has(e.to)) continue;
-            rLinks.push({ source: e.from, target: e.to, count: e.count });
-        }
+        const rLinks = buildLinks(lastPayload, ids);
 
         lastNodes = rNodes;
         lastLinks = rLinks;
@@ -168,6 +199,21 @@ export function mountGraph(
             focus ?? undefined,
         );
         renderer.setFocus(focus);
+    }
+
+    function update(
+        payload: GraphPayload,
+        nextFocus: string | null | undefined,
+    ): void {
+        focus = nextFocus ?? focus;
+        lastPayload = payload;
+        applyData();
+    }
+
+    function setEdgeKinds(relations: boolean, mentions: boolean): void {
+        showRelations = relations;
+        showMentions = mentions;
+        applyData();
     }
 
     function setFocus(label: string | null | undefined): void {
@@ -250,6 +296,7 @@ export function mountGraph(
     return {
         update,
         setFocus,
+        setEdgeKinds,
         setHopLimit,
         setArrowSize,
         setTypeFilter,

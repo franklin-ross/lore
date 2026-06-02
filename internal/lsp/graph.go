@@ -45,9 +45,21 @@ type GraphDefEdge struct {
 	Count int    `json:"count"`
 }
 
+// GraphRelationEdge is a typed relationship edge for the graph: a directed,
+// labelled edge between two entities. Symmetric marks edges whose direction
+// isn't meaningful (spouse, sibling). These are the explicit relation edges,
+// distinct from the mention-derived DefEdges.
+type GraphRelationEdge struct {
+	From      string `json:"from"`
+	To        string `json:"to"`
+	Label     string `json:"label"`
+	Symmetric bool   `json:"symmetric,omitempty"`
+}
+
 type GraphResult struct {
-	Nodes    []GraphNode    `json:"nodes"`
-	DefEdges []GraphDefEdge `json:"defEdges"`
+	Nodes         []GraphNode         `json:"nodes"`
+	DefEdges      []GraphDefEdge      `json:"defEdges"`
+	RelationEdges []GraphRelationEdge `json:"relationEdges"`
 	// Message, when set, is a human-readable explanation for an empty
 	// result that the client should surface in place of a blank canvas
 	// (e.g. multiple projects with no active editor to disambiguate).
@@ -106,9 +118,35 @@ func (s *Server) graphWorld(params *GraphParams) *lore.World {
 
 func buildGraphResult(world *lore.World) *GraphResult {
 	return &GraphResult{
-		Nodes:    buildGraphNodes(world),
-		DefEdges: buildDefEdges(world),
+		Nodes:         buildGraphNodes(world),
+		DefEdges:      buildDefEdges(world),
+		RelationEdges: buildRelationEdges(world),
 	}
+}
+
+// buildRelationEdges projects the world's resolved relationships onto graph
+// edges, mapping each endpoint to its disambiguated node label so edges line
+// up with nodes. Self-edges and edges to unresolved entities are dropped.
+func buildRelationEdges(world *lore.World) []GraphRelationEdge {
+	if world.Vocab == nil {
+		return nil
+	}
+	rels := world.ResolveAllRelations(world.Vocab)
+	out := make([]GraphRelationEdge, 0, len(rels))
+	for _, r := range rels {
+		from := entityLabel(world, r.FromName, r.FromType)
+		to := entityLabel(world, r.ToName, r.ToType)
+		if from == "" || to == "" || from == to {
+			continue
+		}
+		out = append(out, GraphRelationEdge{
+			From:      from,
+			To:        to,
+			Label:     r.Label,
+			Symmetric: r.Symmetric,
+		})
+	}
+	return out
 }
 
 func buildGraphNodes(world *lore.World) []GraphNode {

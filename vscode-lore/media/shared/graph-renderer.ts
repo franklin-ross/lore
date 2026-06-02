@@ -15,6 +15,11 @@ export interface RenderLink {
     source: string;
     target: string;
     count: number;
+    // "relation" edges are explicit typed relationships; "mention" edges are
+    // reference-derived. Defaults to mention when unset. Relations render
+    // bolder; symmetric relations (spouse, sibling) omit the arrowhead.
+    kind?: "mention" | "relation";
+    symmetric?: boolean;
 }
 
 export interface RenderCentroid {
@@ -216,7 +221,9 @@ export function mountRenderer(
     }
 
     function linkKey(l: RenderLink): string {
-        return `${l.source}→${l.target}`;
+        // Kind is part of the key so a relation and a mention between the same
+        // pair coexist as separate lines.
+        return `${l.kind ?? "mention"}:${l.source}→${l.target}`;
     }
 
     function recomputeHops(): void {
@@ -390,7 +397,9 @@ export function mountRenderer(
                     "http://www.w3.org/2000/svg",
                     "line",
                 );
-                line.classList.add("graph-edge-def");
+                line.classList.add(
+                    l.kind === "relation" ? "graph-edge-relation" : "graph-edge-def",
+                );
                 line.setAttribute("stroke", `url(#${gradientId})`);
                 linkLayer.appendChild(line);
 
@@ -414,19 +423,24 @@ export function mountRenderer(
             const CROSS_BOUNDARY_FADE = 0.35;
             const sFade = opT === 0 && opS > 0 ? CROSS_BOUNDARY_FADE : 1;
             const tFade = opS === 0 && opT > 0 ? CROSS_BOUNDARY_FADE : 1;
+            // Relations are the explicit, curated layer — draw them at full
+            // strength; mentions sit back as fainter context.
+            const base = l.kind === "relation" ? 1 : 0.5;
             bundle.stopFrom.setAttribute(
                 "stop-opacity",
-                String(opS * sFade * 0.7),
+                String(opS * sFade * base),
             );
             bundle.stopTo.setAttribute(
                 "stop-opacity",
-                String(opT * tFade * 0.7),
+                String(opT * tFade * base),
             );
 
             const visible = opS > 0 || opT > 0;
             bundle.line.style.display = visible ? "" : "none";
 
-            if (arrowSize > 0 && opT > 0) {
+            // Directed edges get an arrowhead; symmetric relations (spouse,
+            // sibling) read as undirected, so skip it.
+            if (arrowSize > 0 && opT > 0 && !l.symmetric) {
                 bundle.line.setAttribute(
                     "marker-end",
                     `url(#arrow-${s.colourIndex})`,
