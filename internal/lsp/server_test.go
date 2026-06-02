@@ -517,6 +517,60 @@ func TestFormatEntityHoverBothModeNoneAtCursor(t *testing.T) {
 	}
 }
 
+// hoverWorld builds a single-file world with the builtin relation vocab, for
+// relation-hover tests that need real edge resolution.
+func hoverWorld(t *testing.T, src string) (*lore.World, *lore.Entity, func(name string) *lore.Entity) {
+	t.Helper()
+	world := lore.Merge([]*lore.FileParse{lore.ParseFile("test.md", src)})
+	world.Vocab = lore.NewRelationVocab(lore.BuiltinRelations())
+	find := func(name string) *lore.Entity {
+		for i := range world.Entities {
+			if world.Entities[i].Name == name {
+				return &world.Entities[i]
+			}
+		}
+		t.Fatalf("entity %q not found", name)
+		return nil
+	}
+	return world, nil, find
+}
+
+// A reverse relation declared after the hovered entity must still appear: in
+// latest mode it shows plainly; in both mode it carries a "(latest: …)"
+// annotation because at the cursor the forward edge wasn't declared yet.
+func TestHoverReverseRelationDeclaredLater(t *testing.T) {
+	// Doug at line 1; Sarah declares father -> Doug at line 3.
+	world, _, find := hoverWorld(t, "Doug (person): A dwarf.\n\nSarah (person): father -> Doug\n")
+	doug := find("Doug")
+
+	latest := formatEntityHover(world, doug, "test.md", 1, HoverStateModeLatest, true, nil)
+	if !strings.Contains(latest, "child → Sarah") {
+		t.Fatalf("latest mode should show reverse child → Sarah; got %q", latest)
+	}
+
+	both := formatEntityHover(world, doug, "test.md", 1, HoverStateModeBoth, true, nil)
+	if !strings.Contains(both, "child → (none)  (latest: Sarah)") {
+		t.Fatalf("both mode should mark the later-declared reverse edge as latest-only; got %q", both)
+	}
+
+	at := formatEntityHover(world, doug, "test.md", 1, HoverStateModeAtCursor, true, nil)
+	if strings.Contains(at, "Sarah") {
+		t.Fatalf("atCursor at line 1 should not yet see Sarah's edge; got %q", at)
+	}
+}
+
+// A relation present at the cursor but removed by latest shows the cursor value
+// with a "(latest: …)" annotation, like a diverging field.
+func TestHoverRelationRemovedByLatest(t *testing.T) {
+	world, _, find := hoverWorld(t, "Sarah (person): friend -> Mary\n\nMary (person): ok\n\nSarah (person): friend -/> Mary\n")
+	sarah := find("Sarah")
+
+	both := formatEntityHover(world, sarah, "test.md", 1, HoverStateModeBoth, true, nil)
+	if !strings.Contains(both, "friend → Mary  (latest: (none))") {
+		t.Fatalf("both mode should show cursor friendship with latest (none); got %q", both)
+	}
+}
+
 func TestParseHoverStateMode(t *testing.T) {
 	cases := map[string]HoverStateMode{
 		"":         HoverStateModeBoth,

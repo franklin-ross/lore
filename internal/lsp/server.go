@@ -517,23 +517,34 @@ func renderHoverStateBlocks(world *lore.World, ent *lore.Entity, cursorFile stri
 }
 
 // renderHoverRelations resolves the entity's relations and renders them as a
-// fenced block, mirroring the state block. Relations resolve at the cursor
-// when the hover mode shows point-in-time state, otherwise at latest — so an
-// entity's relations track the same timeline as its tags and fields.
+// fenced block, mirroring renderHoverStateBlocks. In atCursor mode relations
+// resolve at the cursor; in latest mode (or both without a cursor) at latest;
+// in both mode the cursor view is primary with "(latest: …)" annotations where
+// the membership has since changed — the relation analogue of the merged state
+// block.
 func renderHoverRelations(world *lore.World, ent *lore.Entity, cursorFile string, cursorLine int, mode HoverStateMode) string {
 	if world == nil || world.Vocab == nil {
 		return ""
 	}
+	showLatest := mode == HoverStateModeLatest || mode == HoverStateModeBoth
 	showAt := (mode == HoverStateModeAtCursor || mode == HoverStateModeBoth) && cursorFile != ""
 
-	var groups []lore.RelationGroup
-	if showAt {
-		groups = world.ResolveRelationsAt(world.Vocab, ent, world.FileOrder, cursorFile, cursorLine)
-	} else {
-		groups = world.ResolveRelations(world.Vocab, ent)
+	var body string
+	switch {
+	case !showAt:
+		if !showLatest {
+			return ""
+		}
+		body = lore.FormatRelationsBlock(world.ResolveRelations(world.Vocab, ent), world.Vocab)
+	case mode == HoverStateModeAtCursor:
+		at := world.ResolveRelationsAt(world.Vocab, ent, world.FileOrder, cursorFile, cursorLine)
+		body = lore.FormatRelationsBlock(at, world.Vocab)
+	default:
+		at := world.ResolveRelationsAt(world.Vocab, ent, world.FileOrder, cursorFile, cursorLine)
+		latest := world.ResolveRelations(world.Vocab, ent)
+		body = lore.FormatRelationsBlockMerged(at, latest, world.Vocab)
 	}
 
-	body := lore.FormatRelationsBlock(groups, world.Vocab)
 	if body == "" {
 		return ""
 	}
