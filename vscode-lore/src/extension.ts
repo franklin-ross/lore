@@ -354,10 +354,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         await wikiPanel.showHome(source);
       }
     }),
-    vscode.commands.registerCommand("lore.openGraph", async (arg: unknown) => {
+    vscode.commands.registerCommand("lore.openGraph", async (arg: unknown, sourceArg: unknown) => {
       const entity = typeof arg === "string" ? arg : undefined;
+      // Prefer an explicit source (the wiki passes its current page's source,
+      // since the active surface there is a webview, not a text editor).
+      // Fall back to the active editor for palette / F12 invocations.
       const editor = vscode.window.activeTextEditor;
-      const source = editor ? editor.document.uri.toString() : undefined;
+      const source = typeof sourceArg === "string"
+        ? sourceArg
+        : (editor ? editor.document.uri.toString() : undefined);
       await graphPanel.show(source, entity);
     }),
   );

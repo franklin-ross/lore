@@ -103,7 +103,11 @@ func (w *World) resolveEdgeMap(vocab *RelationVocab, fileOrder func(string) int,
 				cur.labelB = d.surface
 			}
 		case StateOpEdgeRemove:
+			// Clear labels too: a later re-add from the opposite slot would
+			// otherwise inherit this declaration's stale surface term.
 			cur.present = false
+			cur.labelA = ""
+			cur.labelB = ""
 		}
 	}
 	return edges

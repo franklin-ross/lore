@@ -23,7 +23,12 @@ interface EntityListResponse {
 
 interface GraphNode { label: string; name: string; type?: string; colourIndex: number }
 interface GraphDefEdge { from: string; to: string; count: number }
-interface GraphResponse { nodes?: GraphNode[]; defEdges?: GraphDefEdge[] }
+interface GraphRelationEdge { from: string; to: string; label: string; symmetric?: boolean }
+interface GraphResponse {
+  nodes?: GraphNode[];
+  defEdges?: GraphDefEdge[];
+  relationEdges?: GraphRelationEdge[];
+}
 
 interface LspRange {
   start: { line: number; character: number };
@@ -398,7 +403,11 @@ export class LoreWikiPanel {
         return;
       case "openGraphHere": {
         const entity = this.current()?.kind === "entity" ? this.current()?.value : undefined;
-        await vscode.commands.executeCommand("lore.openGraph", entity);
+        // Pass the page's own source explicitly: the active surface is this
+        // webview, so the command's activeTextEditor fallback would yield no
+        // source and the graph would render its "open a lore project" empty
+        // state instead of scoping to the current entity's project.
+        await vscode.commands.executeCommand("lore.openGraph", entity, this.current()?.source);
         return;
       }
       case "openType":

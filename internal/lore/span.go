@@ -34,6 +34,11 @@ func translateSpan(span StateSpan, segments []descSegment) StateSpan {
 	if len(segments) == 0 {
 		return span
 	}
+	// A zero/unset span (e.g. ValueSpan on a tag or edge directive) carries no
+	// location; translating it would manufacture bogus coordinates. Leave it be.
+	if span == (StateSpan{}) {
+		return span
+	}
 	// Find the last segment whose joinedStart is <= span.StartByte.
 	seg := segments[0]
 	for _, s := range segments {

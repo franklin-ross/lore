@@ -37,8 +37,8 @@ export interface EntityDetails {
 }
 
 // renderEntityPage builds the full DOM for one entity's wiki page. ctx
-// supplies palette + state callbacks (openEntity, openType, navigate,
-// collapsed, onToggle, activeTab, setActiveTab).
+// supplies palette + state callbacks (openEntity, openType, openHome,
+// navigate, collapsed, onToggle, search).
 export function renderEntityPage(d: EntityDetails | undefined, ctx: PageCtx): HTMLElement[] {
   if (!d || !d.found) {
     return [el("p", { class: "empty" }, "Entity not found in this project.")];

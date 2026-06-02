@@ -166,13 +166,21 @@ function resolveFocusLabel(
 // connections leaving the visible neighbourhood. Edge endpoints outside
 // the kept set are dropped — graph-view does the same on update() but
 // this keeps the wire payload smaller.
-function filterToNeighbourhood(
+export function filterToNeighbourhood(
   payload: GraphPayload,
   focus: string,
 ): GraphPayload {
   const adj = new Map<string, Set<string>>();
   for (const n of payload.nodes ?? []) adj.set(n.label, new Set());
   for (const e of payload.defEdges ?? []) {
+    adj.get(e.from)?.add(e.to);
+    adj.get(e.to)?.add(e.from);
+  }
+  // Relation edges connect entities too — without them, an entity linked
+  // only by a typed relation (and never by a mention) wouldn't pull its
+  // partner into the neighbourhood, and the relation edge itself would
+  // never render.
+  for (const e of payload.relationEdges ?? []) {
     adj.get(e.from)?.add(e.to);
     adj.get(e.to)?.add(e.from);
   }
@@ -188,5 +196,6 @@ function filterToNeighbourhood(
 
   const nodes = (payload.nodes ?? []).filter((n) => keep.has(n.label));
   const defEdges = (payload.defEdges ?? []).filter((e) => keep.has(e.from) && keep.has(e.to));
-  return { nodes, defEdges };
+  const relationEdges = (payload.relationEdges ?? []).filter((e) => keep.has(e.from) && keep.has(e.to));
+  return { nodes, defEdges, relationEdges };
 }
