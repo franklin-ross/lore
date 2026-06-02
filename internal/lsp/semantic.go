@@ -26,10 +26,20 @@ func semanticTokensLegend() protocol.SemanticTokensLegend {
 		modifiers[i] = modifierName(i)
 	}
 	return protocol.SemanticTokensLegend{
-		TokenTypes:     []string{"loreEntity"},
+		TokenTypes:     []string{"loreEntity", "loreOperator", "loreName", "loreNumber", "loreString", "lorePunctuation"},
 		TokenModifiers: modifiers,
 	}
 }
+
+// Token type indices into the legend above.
+const (
+	tokenTypeEntity      = 0 // entity name (colour via modifier bits)
+	tokenTypeOperator    = 1 // directive operator/sigil/arrow (+ = += -= -> -/>)
+	tokenTypeName        = 2 // field name, tag name, or relation label
+	tokenTypeNumber      = 3 // numeric field value
+	tokenTypeString      = 4 // text field value
+	tokenTypePunctuation = 5 // structured-field punctuation (list commas)
+)
 
 func modifierName(index int) string {
 	return "loreColour" + string(rune('A'+index))
@@ -60,7 +70,7 @@ type rawToken struct {
 
 func (s *Server) semanticTokensFull(_ *glsp.Context, params *protocol.SemanticTokensParams) (*protocol.SemanticTokens, error) {
 	uri := params.TextDocument.URI
-	ps, _ := s.projectForURI(uri)
+	ps, rel := s.projectForURI(uri)
 	if ps == nil {
 		return &protocol.SemanticTokens{Data: []uint32{}}, nil
 	}
@@ -125,6 +135,28 @@ func (s *Server) semanticTokensFull(_ *glsp.Context, params *protocol.SemanticTo
 		}
 	}
 
+	// Directive sub-tokens: operators/sigils/arrows and field/tag/relation
+	// names, taken from the parser's events. Because these come from real
+	// recognised directives (not a regex over prose), only state the parser
+	// actually tracks lights up — `x = y` in narrative stays plain.
+	for ei := range world.Entities {
+		for _, ev := range world.Entities[ei].StateHistory {
+			appendDirectiveToken(&tokens, lines, ev.OpSpan, tokenTypeOperator, rel)
+			appendDirectiveToken(&tokens, lines, ev.NameSpan, tokenTypeName, rel)
+			if ev.Value != nil {
+				// Colour the value by kind. Text values may contain entity
+				// names, which colour themselves — the string token yields to
+				// them in resolveOverlaps so embedded entities still win.
+				switch ev.Value.Kind {
+				case lore.FieldNumeric:
+					appendDirectiveToken(&tokens, lines, ev.ValueSpan, tokenTypeNumber, rel)
+				case lore.FieldText:
+					appendStringValueTokens(&tokens, lines, ev.ValueSpan, rel)
+				}
+			}
+		}
+	}
+
 	tokens = resolveOverlaps(tokens)
 
 	sort.Slice(tokens, func(i, j int) bool {
@@ -142,6 +174,110 @@ func (s *Server) semanticTokensFull(_ *glsp.Context, params *protocol.SemanticTo
 	return &protocol.SemanticTokens{Data: data}, nil
 }
 
+// appendDirectiveToken emits a semantic token for a directive sub-span (an
+// operator or a name/label) when it belongs to the file being tokenised.
+// Byte columns are converted to UTF-16 against the line text, matching the
+// encoding the entity tokens use.
+func appendDirectiveToken(tokens *[]rawToken, lines []string, sp lore.StateSpan, tokenType uint32, rel string) {
+	if sp.File != rel || sp.EndByte <= sp.StartByte {
+		return
+	}
+	lineIdx := sp.Line - 1
+	if lineIdx < 0 || lineIdx >= len(lines) {
+		return
+	}
+	line := lines[lineIdx]
+	startByte := sp.StartByte
+	endByte := sp.EndByte
+	if startByte > len(line) {
+		return
+	}
+	if endByte > len(line) {
+		endByte = len(line)
+	}
+	startU16 := utf16UnitsForBytes(line, startByte)
+	endU16 := utf16UnitsForBytes(line, endByte)
+	*tokens = append(*tokens, rawToken{
+		line:      uint32(lineIdx),
+		startChar: startU16,
+		length:    endU16 - startU16,
+		tokenType: tokenType,
+		modifiers: 0,
+	})
+}
+
+// appendStringValueTokens emits one string token per comma-separated item in a
+// text field value, leaving the commas (and surrounding whitespace)
+// untokenised so they take the editor's ordinary punctuation colour rather
+// than the string colour. Commas inside quotes don't split. Each item token
+// still yields to embedded entity names via resolveOverlaps.
+func appendStringValueTokens(tokens *[]rawToken, lines []string, sp lore.StateSpan, rel string) {
+	if sp.File != rel || sp.EndByte <= sp.StartByte {
+		return
+	}
+	lineIdx := sp.Line - 1
+	if lineIdx < 0 || lineIdx >= len(lines) {
+		return
+	}
+	line := lines[lineIdx]
+	start := sp.StartByte
+	end := sp.EndByte
+	if start > len(line) {
+		return
+	}
+	if end > len(line) {
+		end = len(line)
+	}
+
+	emit := func(a, b int) {
+		for a < b && (line[a] == ' ' || line[a] == '\t') {
+			a++
+		}
+		for b > a && (line[b-1] == ' ' || line[b-1] == '\t') {
+			b--
+		}
+		if a >= b {
+			return
+		}
+		startU16 := utf16UnitsForBytes(line, a)
+		endU16 := utf16UnitsForBytes(line, b)
+		*tokens = append(*tokens, rawToken{
+			line:      uint32(lineIdx),
+			startChar: startU16,
+			length:    endU16 - startU16,
+			tokenType: tokenTypeString,
+			modifiers: 0,
+		})
+	}
+
+	emitComma := func(i int) {
+		cu := utf16UnitsForBytes(line, i)
+		*tokens = append(*tokens, rawToken{
+			line:      uint32(lineIdx),
+			startChar: cu,
+			length:    utf16UnitsForBytes(line, i+1) - cu,
+			tokenType: tokenTypePunctuation,
+			modifiers: 0,
+		})
+	}
+
+	seg := start
+	inQuote := false
+	for i := start; i < end; i++ {
+		switch line[i] {
+		case '"':
+			inQuote = !inQuote
+		case ',':
+			if !inQuote {
+				emit(seg, i)
+				emitComma(i)
+				seg = i + 1
+			}
+		}
+	}
+	emit(seg, end)
+}
+
 // resolveOverlaps drops tokens whose span overlaps a longer token on the same
 // line. LSP forbids overlapping semantic tokens; without this, e.g. a "Vallaki"
 // match at column 0 and a "Vallaki Cathedral" match at column 0 both emit and
@@ -156,6 +292,13 @@ func resolveOverlaps(tokens []rawToken) []rawToken {
 	sort.Slice(tokens, func(i, j int) bool {
 		if tokens[i].line != tokens[j].line {
 			return tokens[i].line < tokens[j].line
+		}
+		// String (text-value) tokens claim last, so an entity name embedded in
+		// a text value keeps its colour and the string token is the one dropped.
+		si := tokens[i].tokenType == tokenTypeString
+		sj := tokens[j].tokenType == tokenTypeString
+		if si != sj {
+			return !si
 		}
 		if tokens[i].length != tokens[j].length {
 			return tokens[i].length > tokens[j].length

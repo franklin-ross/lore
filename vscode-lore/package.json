@@ -298,6 +298,21 @@
                 "scopes": {
                     "loreEntity": [
                         "entity.name.lore"
+                    ],
+                    "loreOperator": [
+                        "keyword.operator.lore"
+                    ],
+                    "loreName": [
+                        "variable.parameter.lore"
+                    ],
+                    "loreNumber": [
+                        "constant.numeric.lore"
+                    ],
+                    "loreString": [
+                        "string.unquoted.lore"
+                    ],
+                    "lorePunctuation": [
+                        "punctuation.separator.lore"
                     ]
                 }
             }

@@ -410,14 +410,24 @@ Authoring (partial):
 - The hover's relations block gets a `lore-relations` TextMate grammar
   (paralleling `lore-state`), so the relation label, arrow, annotations,
   and entities are highlighted rather than rendered as flat monospace.
+- In-buffer semantic highlighting of directive sub-tokens: the parser now
+  records `OpSpan`/`NameSpan` on each event (operator/sigil/arrow and
+  name/label), and the LSP emits `loreOperator`/`loreName` semantic tokens
+  for them — covering relation arrows (`->`/`-/>`), field ops (`=`/`+=`/
+  `-=`), and tag sigils alike. Driven by real parsed directives, so prose
+  like `x = y` stays plain (and a directive that doesn't highlight is a
+  cue it isn't being parsed as state).
+- Field values colour by kind: a numeric value (`gold = 875`) as a number,
+  a text value (`status = tense`) as a string, using `Value.Kind` and a
+  recorded `ValueSpan`. Text-value tokens yield to embedded entity names in
+  overlap resolution, so a value like `inventory += Andúril` keeps the
+  entity coloured.
 
 Deferred (separable follow-ups, none load-bearing for the engine):
 
 - Graph edge labels rendered on the lines.
 - Relation-label completion (offering vocab labels as you type the label
   slot) — the slot is ambiguous with prose, so it needs a careful trigger.
-- In-buffer semantic highlighting of relation labels and arrows in `.md`
-  (entity targets already colour via the existing entity tokens).
 - Go-to-definition on relation endpoints.
 - Inline aside in *target* position (`father -> (Doug: daughter -> Sarah)`).
   The aside mechanism exists; resolving an aside to its entity in the

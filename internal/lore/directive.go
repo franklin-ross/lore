@@ -39,6 +39,17 @@ type directiveScanner struct {
 	line    int
 	pos     int
 	pending []StateIssue
+
+	// Sub-token byte ranges from the most recent tryFieldOp/tryEdgeOp match,
+	// in s.text coordinates: the name/label and the operator/arrow. tryDirective
+	// reads them to populate StateEvent.NameSpan/OpSpan.
+	nameStart, nameEnd int
+	opStart, opEnd     int
+}
+
+// span builds a StateSpan for a byte range in s.text (description coordinates).
+func (s *directiveScanner) span(start, end int) StateSpan {
+	return StateSpan{File: s.file, Line: s.line, StartByte: start, EndByte: end}
 }
 
 // tryDirective attempts to parse a directive starting at the current
@@ -59,9 +70,11 @@ func (s *directiveScanner) tryDirective() (StateEvent, bool) {
 		s.pos++
 		if target, ok := s.readTagName(); ok {
 			return StateEvent{
-				Op:     op,
-				Target: target,
-				Span:   s.spanFrom(start),
+				Op:       op,
+				Target:   target,
+				Span:     s.spanFrom(start),
+				OpSpan:   s.span(start, start+1),
+				NameSpan: s.span(start+1, s.pos),
 			}, true
 		}
 		s.pos = savedPos
@@ -70,6 +83,8 @@ func (s *directiveScanner) tryDirective() (StateEvent, bool) {
 	// before field ops so the `->`/`-/>` arrows aren't mistaken for a `-=`
 	// remove (they share a leading `-` but differ on the next byte).
 	if label, op, ok := s.tryEdgeOp(); ok {
+		nameSpan := s.span(s.nameStart, s.nameEnd)
+		opSpan := s.span(s.opStart, s.opEnd)
 		targets, tok := s.readTargets()
 		if !tok {
 			s.skipSpacesTabs()
@@ -78,15 +93,21 @@ func (s *directiveScanner) tryDirective() (StateEvent, bool) {
 			return StateEvent{}, false
 		}
 		return StateEvent{
-			Op:     op,
-			Target: label,
-			Value:  targets,
-			Span:   s.spanFrom(start),
+			Op:       op,
+			Target:   label,
+			Value:    targets,
+			Span:     s.spanFrom(start),
+			OpSpan:   opSpan,
+			NameSpan: nameSpan,
 		}, true
 	}
 
 	// Field directive: `name`, optional WS, operator `=` / `+=` / `-=`, optional WS, value.
 	if target, op, ok := s.tryFieldOp(); ok {
+		nameSpan := s.span(s.nameStart, s.nameEnd)
+		opSpan := s.span(s.opStart, s.opEnd)
+		s.skipSpacesTabs()
+		valueStart := s.pos
 		value, vok := s.readValue()
 		if !vok {
 			// The field name and operator matched, but the value is missing
@@ -101,10 +122,13 @@ func (s *directiveScanner) tryDirective() (StateEvent, bool) {
 			return StateEvent{}, false
 		}
 		return StateEvent{
-			Op:     op,
-			Target: target,
-			Value:  value,
-			Span:   s.spanFrom(start),
+			Op:        op,
+			Target:    target,
+			Value:     value,
+			Span:      s.spanFrom(start),
+			OpSpan:    opSpan,
+			NameSpan:  nameSpan,
+			ValueSpan: s.span(valueStart, s.pos),
 		}, true
 	}
 	return StateEvent{}, false
@@ -236,29 +260,41 @@ func (s *directiveScanner) tryFieldOp() (string, StateOp, bool) {
 	if !ok {
 		return "", StateOpUnknown, false
 	}
+	nameEnd := s.pos
 	s.skipSpacesTabs()
 	if s.pos >= len(s.text) {
 		s.pos = saved
 		return "", StateOpUnknown, false
 	}
+	opStart := s.pos
 	c := s.text[s.pos]
 	switch c {
 	case '=':
 		s.pos++
+		s.setTokenSpans(saved, nameEnd, opStart, s.pos)
 		return name, StateOpSet, true
 	case '+':
 		if s.pos+1 < len(s.text) && s.text[s.pos+1] == '=' {
 			s.pos += 2
+			s.setTokenSpans(saved, nameEnd, opStart, s.pos)
 			return name, StateOpIncrement, true
 		}
 	case '-':
 		if s.pos+1 < len(s.text) && s.text[s.pos+1] == '=' {
 			s.pos += 2
+			s.setTokenSpans(saved, nameEnd, opStart, s.pos)
 			return name, StateOpRemove, true
 		}
 	}
 	s.pos = saved
 	return "", StateOpUnknown, false
+}
+
+// setTokenSpans records the name and operator byte ranges for the directive
+// just matched, so tryDirective can attach them to the event.
+func (s *directiveScanner) setTokenSpans(nameStart, nameEnd, opStart, opEnd int) {
+	s.nameStart, s.nameEnd = nameStart, nameEnd
+	s.opStart, s.opEnd = opStart, opEnd
 }
 
 // tryEdgeOp looks for `label <ws>? ->` or `label <ws>? -/>` at the current
@@ -275,19 +311,23 @@ func (s *directiveScanner) tryEdgeOp() (string, StateOp, bool) {
 	if !ok {
 		return "", StateOpUnknown, false
 	}
+	nameEnd := s.pos
 	s.skipSpacesTabs()
 	if s.pos >= len(s.text) || s.text[s.pos] != '-' {
 		s.pos = saved
 		return "", StateOpUnknown, false
 	}
+	arrowStart := s.pos
 	// `-/>` removal — check before `->` since both open with `-`.
 	if s.pos+2 < len(s.text) && s.text[s.pos+1] == '/' && s.text[s.pos+2] == '>' {
 		s.pos += 3
+		s.setTokenSpans(saved, nameEnd, arrowStart, s.pos)
 		return name, StateOpEdgeRemove, true
 	}
 	// `->` addition.
 	if s.pos+1 < len(s.text) && s.text[s.pos+1] == '>' {
 		s.pos += 2
+		s.setTokenSpans(saved, nameEnd, arrowStart, s.pos)
 		return name, StateOpEdgeAdd, true
 	}
 	s.pos = saved

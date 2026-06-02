@@ -54,6 +54,10 @@ type StateEvent struct {
 	// same coordinate space as Span and translate with it.
 	OpSpan   StateSpan
 	NameSpan StateSpan
+	// ValueSpan locates a field directive's value (numeric or text). Empty for
+	// tags and edges (edge targets are entities, highlighted on their own).
+	// Pair it with Value.Kind to colour the value as a number or string.
+	ValueSpan StateSpan
 }
 
 // StateIssue is a diagnostic produced by directive parsing or state

@@ -13,6 +13,9 @@ type descSegment struct {
 func translateSpans(events []StateEvent, issues []StateIssue, segments []descSegment) {
 	for i := range events {
 		events[i].Span = translateSpan(events[i].Span, segments)
+		events[i].OpSpan = translateSpan(events[i].OpSpan, segments)
+		events[i].NameSpan = translateSpan(events[i].NameSpan, segments)
+		events[i].ValueSpan = translateSpan(events[i].ValueSpan, segments)
 	}
 	for i := range issues {
 		issues[i].Span = translateSpan(issues[i].Span, segments)
