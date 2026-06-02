@@ -77,8 +77,11 @@ export class LoreWikiPanel {
 
   // Open or reveal the wiki for an entity. Equivalent to navigating to an
   // entity page; kept as a named method for older call sites.
-  async show(entity: string, source: string | undefined): Promise<void> {
-    await this.navigate({ kind: "entity", value: entity, source });
+  // reveal controls whether an already-open panel is brought to the front.
+  // Graph clicks pass reveal=false: the wiki content should follow the
+  // selection, but bringing its tab forward would steal focus from the graph.
+  async show(entity: string, source: string | undefined, reveal = true): Promise<void> {
+    await this.navigate({ kind: "entity", value: entity, source }, reveal);
   }
 
   async showHome(source: string | undefined): Promise<void> {
@@ -121,8 +124,8 @@ export class LoreWikiPanel {
   // back(), forward entries past the cursor are discarded — same behaviour
   // as a browser. Re-navigating to the page already at the cursor doesn't
   // grow the stack but still triggers a refresh.
-  async navigate(page: WikiPage): Promise<void> {
-    this.ensurePanel();
+  async navigate(page: WikiPage, reveal = true): Promise<void> {
+    this.ensurePanel(reveal);
     const top = this.current();
     if (!samePage(top, page)) {
       this.history.splice(this.cursor + 1);
@@ -288,9 +291,13 @@ export class LoreWikiPanel {
     return this.history.map((p) => ({ ...p }));
   }
 
-  private ensurePanel(): void {
+  private ensurePanel(reveal = true): void {
     if (this.panel) {
-      this.panel.reveal(undefined, true);
+      // reveal=false: leave the panel where it is (possibly behind the graph
+      // tab) and just let refresh update its content — no tab switch, no
+      // focus change. preserveFocus on reveal isn't enough on its own,
+      // because bringing the tab forward in a shared column hides the graph.
+      if (reveal) this.panel.reveal(undefined, true);
       return;
     }
     const webviewRoot = vscode.Uri.joinPath(this.context.extensionUri, "out", "wiki");
@@ -332,7 +339,9 @@ export class LoreWikiPanel {
     this.busSub?.dispose();
     this.busSub = this.bus.onDidFocus((focus) => {
       if (focus.origin === "wiki") return;
-      void this.show(focus.entity, focus.source);
+      // Graph (and other external) focus updates the content but must not
+      // pull the wiki tab forward — the user is working in the graph.
+      void this.show(focus.entity, focus.source, false);
     });
   }
 
