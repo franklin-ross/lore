@@ -48,6 +48,12 @@ type StateEvent struct {
 	Target string
 	Value  *FieldValue
 	Span   StateSpan
+	// OpSpan and NameSpan locate the sub-tokens within Span for highlighting:
+	// OpSpan is the operator/sigil/arrow (`+`, `=`, `+=`, `-=`, `->`, `-/>`),
+	// NameSpan is the tag name, field name, or relation label. Both are in the
+	// same coordinate space as Span and translate with it.
+	OpSpan   StateSpan
+	NameSpan StateSpan
 }
 
 // StateIssue is a diagnostic produced by directive parsing or state

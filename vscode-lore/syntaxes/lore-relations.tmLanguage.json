@@ -1,0 +1,35 @@
+{
+    "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+    "name": "Lore Relations",
+    "scopeName": "source.lore-relations",
+    "patterns": [
+        { "include": "#relation-line" }
+    ],
+    "repository": {
+        "relation-line": {
+            "begin": "^(\\s*)([^→←\\n]+?)\\s*(→|←)\\s*",
+            "beginCaptures": {
+                "2": { "name": "variable.parameter.relation.lore-relations" },
+                "3": { "name": "keyword.operator.arrow.lore-relations" }
+            },
+            "end": "$",
+            "patterns": [
+                { "include": "#annotation" },
+                { "include": "#separator" },
+                { "include": "#entity" }
+            ]
+        },
+        "annotation": {
+            "match": "\\([^)]*\\)",
+            "name": "comment.block.annotation.lore-relations"
+        },
+        "separator": {
+            "match": ",",
+            "name": "punctuation.separator.list.lore-relations"
+        },
+        "entity": {
+            "match": "[^,()]+?(?=\\s*(?:,|\\(|$))",
+            "name": "string.unquoted.entity.lore-relations"
+        }
+    }
+}

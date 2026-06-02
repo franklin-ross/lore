@@ -138,8 +138,9 @@ func (s *Server) initialize(ctx *glsp.Context, params *protocol.InitializeParams
 				// `+`/`-`/`=` open suggestions on the directive sigil itself
 				// (so `-l` isn't required to start a tag), `,` and ` ` keep
 				// the popup alive as the author types more list items past
-				// a separator.
-				TriggerCharacters: []string{"+", "-", "=", ",", " "},
+				// a separator, and `>` opens entity targets right after a
+				// relation arrow (`->`/`-/>`).
+				TriggerCharacters: []string{"+", "-", "=", ",", " ", ">"},
 			},
 			SemanticTokensProvider: &protocol.SemanticTokensOptions{
 				Legend: semanticTokensLegend(),

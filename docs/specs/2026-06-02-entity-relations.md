@@ -391,10 +391,34 @@ Built (`internal/lore` + wiring):
 - Wired into `lore query` and LSP hover (relations resolve at the cursor,
   same timeline as state).
 
+Graph (done):
+
+- `lore/graph` carries `relationEdges` — directed, labelled, symmetric-aware
+  edges from `ResolveAllRelations`, distinct from mention-derived `defEdges`.
+- The graph webview renders relations bolder (mentions sit back as faint
+  context), suppresses arrowheads on symmetric relations, and offers a
+  Relations / Mentions edge-layer toggle. Relations default on, mentions off
+  — explicit edges are the less-overwhelming default. Applies to the embedded
+  wiki graph too. Edge labels (drawing "father"/"member" on the line) are the
+  one deferred piece — a separate renderer addition.
+
+Authoring (partial):
+
+- Completion offers entity targets after a relation arrow (`label -> ` /
+  `-/> `); `>` is a completion trigger. Context detection requires a
+  bareword label before the arrow so a stray `->` in prose stays quiet.
+- The hover's relations block gets a `lore-relations` TextMate grammar
+  (paralleling `lore-state`), so the relation label, arrow, annotations,
+  and entities are highlighted rather than rendered as flat monospace.
+
 Deferred (separable follow-ups, none load-bearing for the engine):
 
-- LSP editor features for relation labels: semantic highlighting,
-  slot-aware completion (labels vs targets), go-to-definition on endpoints.
+- Graph edge labels rendered on the lines.
+- Relation-label completion (offering vocab labels as you type the label
+  slot) — the slot is ambiguous with prose, so it needs a careful trigger.
+- In-buffer semantic highlighting of relation labels and arrows in `.md`
+  (entity targets already colour via the existing entity tokens).
+- Go-to-definition on relation endpoints.
 - Inline aside in *target* position (`father -> (Doug: daughter -> Sarah)`).
   The aside mechanism exists; resolving an aside to its entity in the
   target slot is not yet wired, so use two blocks for a custom far side.

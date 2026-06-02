@@ -52,6 +52,12 @@ func (s *Server) completion(_ *glsp.Context, params *protocol.CompletionParams) 
 		return entityActiveTagCompletions(ps.world(), ent, rel, cursorLine), nil
 	}
 
+	// Inside a relation directive's target list (`label -> ` / `label -/> `):
+	// offer entity names, since targets are entities.
+	if parseRelationTargetContext(prefix) {
+		return entityCompletions(ps.world()), nil
+	}
+
 	// The trigger characters exist to open directive popups; if none of the
 	// directive matchers fired, suppress so the author isn't bombarded with
 	// the entity list every time they type a space, comma, or stray sigil
@@ -154,6 +160,41 @@ func parseTagSigilContext(prefix string) (lore.StateOp, bool) {
 		return sigilOp(c), true
 	}
 	return 0, false
+}
+
+// parseRelationTargetContext reports whether the cursor sits in the target
+// list of a relation directive — after a `->` or `-/>` arrow with no directive
+// terminator between the arrow and the cursor. The arrow must be preceded by a
+// bareword label so a stray `->` in prose doesn't trigger entity completions.
+func parseRelationTargetContext(prefix string) bool {
+	for i := len(prefix) - 1; i >= 0; i-- {
+		switch prefix[i] {
+		case '.', '!', '?', ';', '\n', '\r':
+			return false
+		case '>':
+			if i >= 1 && prefix[i-1] == '-' {
+				return relationLabelBefore(prefix, i-1)
+			}
+			if i >= 2 && prefix[i-1] == '/' && prefix[i-2] == '-' {
+				return relationLabelBefore(prefix, i-2)
+			}
+		}
+	}
+	return false
+}
+
+// relationLabelBefore reports whether a bareword label sits immediately before
+// the arrow whose leading '-' is at arrowStart (spaces allowed in between).
+func relationLabelBefore(prefix string, arrowStart int) bool {
+	j := arrowStart
+	for j > 0 && (prefix[j-1] == ' ' || prefix[j-1] == '\t') {
+		j--
+	}
+	if j == 0 {
+		return false
+	}
+	r, _ := utf8.DecodeLastRuneInString(prefix[:j])
+	return unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' || r == '-'
 }
 
 // isTagBoundary mirrors the directive scanner's atWordBoundaryLeft check —

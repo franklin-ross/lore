@@ -67,6 +67,12 @@
                 "aliases": [
                     "Lore State"
                 ]
+            },
+            {
+                "id": "lore-relations",
+                "aliases": [
+                    "Lore Relations"
+                ]
             }
         ],
         "grammars": [
@@ -74,6 +80,11 @@
                 "language": "lore-state",
                 "scopeName": "source.lore-state",
                 "path": "./syntaxes/lore-state.tmLanguage.json"
+            },
+            {
+                "language": "lore-relations",
+                "scopeName": "source.lore-relations",
+                "path": "./syntaxes/lore-relations.tmLanguage.json"
             }
         ],
         "commands": [
