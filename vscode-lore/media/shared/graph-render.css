@@ -44,6 +44,14 @@
   fill: none;
 }
 
+.graph-edge-label {
+  fill: var(--vscode-descriptionForeground);
+  font-size: 9px;
+  font-family: var(--vscode-font-family);
+  pointer-events: none;
+  user-select: none;
+}
+
 .graph-centroid {
   fill: none;
   stroke: var(--vscode-descriptionForeground);

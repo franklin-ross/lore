@@ -51,17 +51,30 @@ func displayNameForAside(h Header, world *World) string {
 
 // blankInlineAsides returns a copy of text where every inline-aside range
 // (the entire `(Subject: body)` parenthetical) is replaced with spaces of
-// the same byte length. Used by merge to strip aside contents out of a
-// definition body before scanning for directives, so directives inside the
-// aside aren't double-counted as the owner's events.
+// the same byte length — except the subject name, which is left in place.
+// Used by merge to strip aside contents out of a definition body before
+// scanning for directives, so directives inside the aside aren't
+// double-counted as the owner's events. Keeping the name (at its original
+// offsets) lets an aside in a directive target or value position —
+// `father -> (Doug: daughter -> Sarah)` — still resolve to its entity.
 func blankInlineAsides(text string) string {
-	spans := findInlineAsideRanges(text)
-	if len(spans) == 0 {
+	groups := scanParenGroups(text)
+	if len(groups) == 0 {
 		return text
 	}
 	buf := []byte(text)
-	for _, sp := range spans {
-		for i := sp.StartByte; i < sp.EndByte && i < len(buf); i++ {
+	for _, g := range groups {
+		contents := text[g.start+1 : g.end-1]
+		if !looksLikeHeader(contents) {
+			continue
+		}
+		nameStart, nameEnd := asideSubjectNameRange(contents)
+		keepStart := g.start + 1 + nameStart
+		keepEnd := g.start + 1 + nameEnd
+		for i := g.start; i < g.end && i < len(buf); i++ {
+			if nameStart >= 0 && i >= keepStart && i < keepEnd {
+				continue // preserve the subject name
+			}
 			if buf[i] != '\n' && buf[i] != '\r' {
 				buf[i] = ' '
 			}
@@ -70,24 +83,24 @@ func blankInlineAsides(text string) string {
 	return string(buf)
 }
 
-// findInlineAsideRanges scans text for top-level paren-balanced groups whose
-// contents look like a header definition (`Name: rest` or `Name (type): rest`).
-// Returned spans cover the outer `(` through the matching `)` inclusive,
-// in byte coordinates relative to text. Newlines disqualify a group — a
-// stray `(` doesn't swallow the rest of the prose looking for its match.
-//
-// Used by stripDirectivesFromText so the entire aside disappears from a
-// description's CleanText, not just the inner directives.
-func findInlineAsideRanges(text string) []StateSpan {
-	var spans []StateSpan
-	for _, g := range scanParenGroups(text) {
-		contents := text[g.start+1 : g.end-1]
-		if !looksLikeHeader(contents) {
-			continue
-		}
-		spans = append(spans, StateSpan{StartByte: g.start, EndByte: g.end})
+// asideSubjectNameRange returns the byte range of just the subject name within
+// an aside's contents (the text between the parens), or (-1,-1) when it can't
+// be located. Distinct from typo.go's asideNameRange, which spans the whole
+// header (name plus any type/aliases).
+func asideSubjectNameRange(contents string) (int, int) {
+	colon := IndexHeaderColon(contents)
+	if colon < 0 {
+		return -1, -1
 	}
-	return spans
+	header, ok := ParseHeader(strings.TrimSpace(contents))
+	if !ok {
+		return -1, -1
+	}
+	start, end, ok := LocateNameInHeader(contents[:colon], header.Name)
+	if !ok {
+		return -1, -1
+	}
+	return start, end
 }
 
 // parenGroup is a half-open byte range covering `(` through `)` inclusive

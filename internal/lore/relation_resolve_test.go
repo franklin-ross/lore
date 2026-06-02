@@ -110,6 +110,25 @@ func TestRelationRemovalCancelsEdge(t *testing.T) {
 	}
 }
 
+func TestRelationInlineAsideTarget(t *testing.T) {
+	// `father -> (Doug: daughter -> Sarah)`: one line, custom label each side.
+	world := setupTestWorld(t, "Sarah (person): father -> (Doug (person): daughter -> Sarah)\n")
+	v := NewRelationVocab(BuiltinRelations())
+
+	doug, err := world.FindEntity("Doug")
+	if err != nil {
+		t.Fatalf("aside should define Doug: %v", err)
+	}
+	sarah, _ := world.FindEntity("Sarah")
+
+	if g := findGroup(world.ResolveRelations(v, sarah), "parent"); len(g) != 1 || g[0].Other != "Doug" || g[0].Surface != "father" {
+		t.Fatalf("Sarah parent = %+v; want one father -> Doug", g)
+	}
+	if g := findGroup(world.ResolveRelations(v, doug), "child"); len(g) != 1 || g[0].Other != "Sarah" || g[0].Surface != "daughter" {
+		t.Fatalf("Doug child = %+v; want one daughter -> Sarah", g)
+	}
+}
+
 func TestResolveAllRelationsForGraph(t *testing.T) {
 	world := setupTestWorld(t, "Sarah (person): father -> Doug\n\nDoug (person): x\n\nParty (group): members -> Sarah\n")
 	v := NewRelationVocab(BuiltinRelations())

@@ -158,6 +158,7 @@ export function mountGraph(
                     count: 1,
                     kind: "relation",
                     symmetric: e.symmetric,
+                    label: e.label,
                 });
             }
         }

@@ -20,6 +20,7 @@ export interface RenderLink {
     // bolder; symmetric relations (spouse, sibling) omit the arrowhead.
     kind?: "mention" | "relation";
     symmetric?: boolean;
+    label?: string;
 }
 
 export interface RenderCentroid {
@@ -135,6 +136,7 @@ export function mountRenderer(
             gradient: SVGLinearGradientElement;
             stopFrom: SVGStopElement;
             stopTo: SVGStopElement;
+            label?: SVGTextElement;
         }
     >();
     let focus: string | null = null;
@@ -404,6 +406,18 @@ export function mountRenderer(
                 linkLayer.appendChild(line);
 
                 bundle = { line, gradient, stopFrom, stopTo };
+                // Relation edges carry a label drawn at the edge midpoint.
+                if (l.kind === "relation" && l.label) {
+                    const text = document.createElementNS(
+                        "http://www.w3.org/2000/svg",
+                        "text",
+                    );
+                    text.classList.add("graph-edge-label");
+                    text.setAttribute("text-anchor", "middle");
+                    text.textContent = l.label;
+                    linkLayer.appendChild(text);
+                    bundle.label = text;
+                }
                 linkEls.set(key, bundle);
             }
 
@@ -437,6 +451,15 @@ export function mountRenderer(
 
             const visible = opS > 0 || opT > 0;
             bundle.line.style.display = visible ? "" : "none";
+            if (bundle.label) {
+                if (l.label) bundle.label.textContent = l.label;
+                // Only label edges within the focused entity's visible
+                // subgraph (both ends in hop range). With nothing selected,
+                // labels would clutter the whole graph, so hide them.
+                const labelled = focus !== null && opS > 0 && opT > 0;
+                bundle.label.style.display = labelled ? "" : "none";
+                bundle.label.setAttribute("fill-opacity", String(Math.min(opS, opT)));
+            }
 
             // Directed edges get an arrowhead; symmetric relations (spouse,
             // sibling) read as undirected, so skip it.
@@ -453,6 +476,7 @@ export function mountRenderer(
             if (!seen.has(k)) {
                 el.line.remove();
                 el.gradient.remove();
+                el.label?.remove();
                 linkEls.delete(k);
             }
         }
@@ -543,6 +567,18 @@ export function mountRenderer(
             bundle.gradient.setAttribute("y1", String(y1));
             bundle.gradient.setAttribute("x2", String(x2));
             bundle.gradient.setAttribute("y2", String(y2));
+            if (bundle.label) {
+                // Centre the label on the edge midpoint, nudged just off the
+                // line along its normal so it doesn't sit directly on it.
+                const mx = (x1 + x2) / 2;
+                const my = (y1 + y2) / 2;
+                const len = Math.hypot(x2 - x1, y2 - y1) || 1;
+                const nx = -(y2 - y1) / len;
+                const ny = (x2 - x1) / len;
+                const off = 4;
+                bundle.label.setAttribute("x", String(mx + nx * off));
+                bundle.label.setAttribute("y", String(my + ny * off));
+            }
         }
         for (const c of centroids) {
             const els = centroidEls.get(c.id);

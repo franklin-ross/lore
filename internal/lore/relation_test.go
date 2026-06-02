@@ -1,6 +1,9 @@
 package lore
 
-import "testing"
+import (
+	"slices"
+	"testing"
+)
 
 func TestVocabResolvesAliasToCanonical(t *testing.T) {
 	v := NewRelationVocab(BuiltinRelations())
@@ -57,6 +60,16 @@ func TestVocabPluralDefaultAndConfigured(t *testing.T) {
 	}
 	if got := v.Plural("friend"); got != "friends" {
 		t.Fatalf("friend plural = %q; want friends (default +s)", got)
+	}
+}
+
+func TestVocabLabels(t *testing.T) {
+	v := NewRelationVocab(BuiltinRelations())
+	labels := v.Labels()
+	for _, w := range []string{"father", "parent", "members", "spouse", "aunt"} {
+		if !slices.Contains(labels, w) {
+			t.Errorf("Labels() missing %q; got %v", w, labels)
+		}
 	}
 }
 

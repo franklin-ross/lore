@@ -68,7 +68,58 @@ func (s *Server) completion(_ *glsp.Context, params *protocol.CompletionParams) 
 		return &protocol.CompletionList{}, nil
 	}
 
+	// At the start of a directive (the first word after the entity header `:`
+	// or a `;` separator) a relation label is plausible, so offer the
+	// vocabulary alongside entities. Only the leading word qualifies, so prose
+	// further along the line isn't affected.
+	if parseRelationLabelContext(prefix) {
+		return labelSlotCompletions(ps.world()), nil
+	}
+
 	return entityCompletions(ps.world()), nil
+}
+
+// parseRelationLabelContext reports whether the cursor is typing the first
+// word after a `:` or `;` — the position a directive (and thus a relation
+// label) begins. Spaces between the separator and the word are allowed.
+func parseRelationLabelContext(prefix string) bool {
+	j := len(prefix)
+	for j > 0 {
+		r, w := utf8.DecodeLastRuneInString(prefix[:j])
+		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' || r == '-' {
+			j -= w
+			continue
+		}
+		break
+	}
+	for j > 0 && (prefix[j-1] == ' ' || prefix[j-1] == '\t') {
+		j--
+	}
+	if j == 0 {
+		return false
+	}
+	c := prefix[j-1]
+	return c == ':' || c == ';'
+}
+
+// labelSlotCompletions offers entity names plus relation-vocabulary labels for
+// the directive label slot, so both a relation (`father -> …`) and a plain
+// entity reference are one keystroke away.
+func labelSlotCompletions(world *lore.World) *protocol.CompletionList {
+	list := entityCompletions(world)
+	if world.Vocab == nil {
+		return list
+	}
+	kind := protocol.CompletionItemKindKeyword
+	detail := "relation"
+	for _, label := range world.Vocab.Labels() {
+		list.Items = append(list.Items, protocol.CompletionItem{
+			Label:  label,
+			Kind:   &kind,
+			Detail: &detail,
+		})
+	}
+	return list
 }
 
 // parseFieldListContext reports whether prefix ends inside the value of a
@@ -167,11 +218,27 @@ func parseTagSigilContext(prefix string) (lore.StateOp, bool) {
 // terminator between the arrow and the cursor. The arrow must be preceded by a
 // bareword label so a stray `->` in prose doesn't trigger entity completions.
 func parseRelationTargetContext(prefix string) bool {
+	depth := 0 // unmatched ')' seen while scanning back
 	for i := len(prefix) - 1; i >= 0; i-- {
 		switch prefix[i] {
 		case '.', '!', '?', ';', '\n', '\r':
 			return false
+		case ')':
+			depth++
+		case '(':
+			if depth == 0 {
+				// An unmatched '(' means the cursor sits inside this group —
+				// e.g. an inline aside `father -> (Doug: …)`. The outer arrow
+				// no longer governs, so this isn't a target slot. A balanced
+				// disambiguator like `Barovia (nation)` decrements depth and
+				// scanning continues.
+				return false
+			}
+			depth--
 		case '>':
+			if depth != 0 {
+				continue
+			}
 			if i >= 1 && prefix[i-1] == '-' {
 				return relationLabelBefore(prefix, i-1)
 			}

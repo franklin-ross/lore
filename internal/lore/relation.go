@@ -1,6 +1,9 @@
 package lore
 
-import "strings"
+import (
+	"sort"
+	"strings"
+)
 
 // RelationDef defines a relation type: its canonical name, the canonical name
 // of its reciprocal (the label shown on the far endpoint), an optional display
@@ -171,6 +174,30 @@ func (v *RelationVocab) Display(canonical string) string {
 		return d.Canonical
 	}
 	return canonKey(canonical)
+}
+
+// Labels returns every relation label in the vocabulary — canonical names and
+// their aliases, in display casing — sorted and de-duplicated. Used to offer
+// relation labels as completions in the directive label slot.
+func (v *RelationVocab) Labels() []string {
+	seen := make(map[string]bool)
+	var out []string
+	add := func(label string) {
+		key := canonKey(label)
+		if key == "" || seen[key] {
+			return
+		}
+		seen[key] = true
+		out = append(out, label)
+	}
+	for _, d := range v.byCanonical {
+		add(d.Canonical)
+		for _, a := range d.Aliases {
+			add(a)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // Known reports whether canonical names a defined relation.
