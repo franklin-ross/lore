@@ -115,6 +115,24 @@ const toolbar = mountToolbar(toolbarHost, {
   openHistoryIndex: (index) => vscode.postMessage({ type: "goto", index }),
 }, search);
 
+// Mouse back/forward (X1/X2) buttons mirror the toolbar's ← → arrows. In
+// pointer/mouse events button 3 is back (X1) and 4 is forward (X2). The
+// extension's back()/forward() are bounds-safe, so we post unconditionally.
+// preventDefault on mousedown stops the host from attempting its own
+// (nonexistent) history navigation and swallowing the gesture.
+window.addEventListener("mousedown", (e) => {
+  if (e.button === 3 || e.button === 4) e.preventDefault();
+});
+window.addEventListener("mouseup", (e) => {
+  if (e.button === 3) {
+    e.preventDefault();
+    vscode.postMessage({ type: "back" });
+  } else if (e.button === 4) {
+    e.preventDefault();
+    vscode.postMessage({ type: "forward" });
+  }
+});
+
 // Persistent embedded graph at the bottom of the wiki view. Lives outside
 // the #root that re-renders on every navigation so the graph instance —
 // and its layout state — survives across page changes.
