@@ -103,37 +103,47 @@ Multiple targets are comma-separated; relations accumulate across sessions and
 retract with `-/>`. An undefined label still works as a generic edge — the
 vocabulary is pure upgrade.
 
-**The one rule.** The label names *what the target is to the subject*:
+**The one rule.** The label names _what the target is to the subject_:
 
 ```
 A: rel -> B    reads as    "B is A's rel."
 ```
 
 So `Sarah: father -> Doug` means Doug is Sarah's father, and his card shows the
-reciprocal (`child -> Sarah`) automatically.
+reciprocal (`child -> Sarah`) automatically. To write it subject-first, every
+noun has a synthesised genitive: `Sarah: daughter-of -> Doug` records the same
+edge from the other end (`daughter-of` resolves to the reciprocal, `parent`).
 
 **Configuring vocabulary** (`lore.toml`, optional) lets you set reciprocals,
-aliases, and plurals:
+noun aliases, raw aliases (verbs/locatives taken as-is), and irregular plurals:
 
 ```toml
 [relations.parent]
-reciprocal = "child"                  # bidirectional; self-reciprocal = symmetric
+reciprocal = "child"
 aliases = ["father", "mother", "dad", "mum"]
 
 [relations.child]
-plural = "children"                   # plurals resolve as input too: `children -> ...`
-aliases = ["son", "daughter"]
+aliases = ["daughter", "son"]
+
+[relations.possession]
+reciprocal = "owner"
+aliases = ["belongings", "property"]  # nouns; `<noun>-of` genitive is synthesised
+raw_aliases = ["owns"]                # taken as-is (verbs, locatives); no genitive/plural
+
+[plurals]                             # plurals are automatic; pin only what the inflector can't know
+drow = "drow"                         # invariant plural (would otherwise be "drows")
 ```
 
 Four rules keep a custom relation well-behaved:
 
 1. **Reciprocals are one-to-one** — two relations must not share one. Model
-   gendered variants (`aunt`/`uncle`) as *aliases of one canonical*, not two.
+   gendered variants (`aunt`/`uncle`) as _aliases of one canonical_, not two.
 2. **Reciprocals are mutual** — if `A` reverses `B`, `B` reverses `A`.
-3. **Canonicals are singular nouns** — the canonical is pluralised for headers,
-   so a verb breaks it (`contains` → "containses"). Make it a noun (`contents`)
-   and put the verb in `aliases` (`contains`, `holds`).
-4. **A verb alias sits on the side whose *subject* performs it** — the opposite
+3. **Canonicals and aliases are nouns** — they get pluralised for headers and
+   suffixed for genitives, so a verb breaks it (`contains` → "containses"). Make
+   the canonical a noun (`contents`) and put the verb in `raw_aliases`
+   (`contains`, `holds`).
+4. **A raw alias sits on the side whose _subject_ performs it** — the opposite
    side from the matching noun. `A: leader -> B` = "B is A's leader", so `serves`
    belongs to `leader` and `leads` to `follower`.
 

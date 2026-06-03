@@ -522,7 +522,7 @@ func TestFormatEntityHoverBothModeNoneAtCursor(t *testing.T) {
 func hoverWorld(t *testing.T, src string) (*lore.World, func(name string) *lore.Entity) {
 	t.Helper()
 	world := lore.Merge([]*lore.FileParse{lore.ParseFile("test.md", src)})
-	world.Vocab = lore.NewRelationVocab(lore.BuiltinRelations())
+	world.Vocab = lore.NewRelationVocab(lore.BuiltinRelations(), lore.BuiltinPlurals())
 	find := func(name string) *lore.Entity {
 		for i := range world.Entities {
 			if world.Entities[i].Name == name {
@@ -739,7 +739,6 @@ func TestFormatEntityHoverColourisesNamesAndDescriptions(t *testing.T) {
 		t.Fatalf("hover did not wrap Strahd reference in description: %q", out)
 	}
 }
-
 
 func TestFileToURIEncodesSpecialChars(t *testing.T) {
 	ps := &projectState{root: "/workspace/notes"}

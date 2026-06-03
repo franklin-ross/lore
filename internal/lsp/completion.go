@@ -148,15 +148,37 @@ func labelSlotCompletions(world *lore.World) *protocol.CompletionList {
 		return list
 	}
 	kind := protocol.CompletionItemKindKeyword
-	detail := "relation"
 	for _, label := range world.Vocab.Labels() {
+		detail, doc := describeRelationLabel(world.Vocab, label)
 		list.Items = append(list.Items, protocol.CompletionItem{
 			Label:  label,
 			Kind:   &kind,
-			Detail: &detail,
+			Detail: ptrStr(detail),
+			Documentation: protocol.MarkupContent{
+				Kind:  protocol.MarkupKindMarkdown,
+				Value: doc,
+			},
 		})
 	}
 	return list
+}
+
+// describeRelationLabel builds the completion detail and documentation for a
+// relation label. detail names the canonical the label stands in for ("alias of
+// parent", or "relation" when the label *is* the canonical); doc adds the
+// reverse-side label so the author can see what the edge records.
+func describeRelationLabel(vocab *lore.RelationVocab, label string) (detail, doc string) {
+	canon, known := vocab.Resolve(label)
+	if !known {
+		return "relation", ""
+	}
+	canonDisplay := vocab.Display(canon)
+	reciprocal := relationReciprocal(vocab, canon)
+
+	if strings.EqualFold(canon, label) {
+		return "relation", fmt.Sprintf("Relation `%s` — %s.", canonDisplay, reciprocal)
+	}
+	return "alias of " + canonDisplay, fmt.Sprintf("`%s`, alias of `%s` — %s.", label, canonDisplay, reciprocal)
 }
 
 // parseFieldListContext reports whether prefix ends inside the value of a

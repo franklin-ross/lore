@@ -22,13 +22,13 @@ type FieldValue struct {
 type StateOp int
 
 const (
-	StateOpUnknown StateOp = iota
-	StateOpAdd            // +tag
-	StateOpRemove         // -tag, field -= value
-	StateOpSet            // field = value
-	StateOpIncrement      // field += value
-	StateOpEdgeAdd       // label -> target[, target]
-	StateOpEdgeRemove    // label -/> target[, target]
+	StateOpUnknown    StateOp = iota
+	StateOpAdd                // +tag
+	StateOpRemove             // -tag, field -= value
+	StateOpSet                // field = value
+	StateOpIncrement          // field += value
+	StateOpEdgeAdd            // label -> target[, target]
+	StateOpEdgeRemove         // label -/> target[, target]
 )
 
 // StateSpan is the byte span of a directive within its source file.

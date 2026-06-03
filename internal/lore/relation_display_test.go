@@ -3,7 +3,7 @@ package lore
 import "testing"
 
 func TestFormatRelationsSharedSurfacePluralised(t *testing.T) {
-	v := NewRelationVocab(BuiltinRelations())
+	v := NewRelationVocab(BuiltinRelations(), BuiltinPlurals())
 	groups := []RelationGroup{{
 		Canonical: "child",
 		Items: []RelationItem{
@@ -19,7 +19,7 @@ func TestFormatRelationsSharedSurfacePluralised(t *testing.T) {
 }
 
 func TestFormatRelationsMixedSurfacesAnnotateDeviations(t *testing.T) {
-	v := NewRelationVocab(BuiltinRelations())
+	v := NewRelationVocab(BuiltinRelations(), BuiltinPlurals())
 	groups := []RelationGroup{{
 		Canonical: "child",
 		Items: []RelationItem{
@@ -35,7 +35,7 @@ func TestFormatRelationsMixedSurfacesAnnotateDeviations(t *testing.T) {
 }
 
 func TestFormatRelationsSingleItemUsesSurface(t *testing.T) {
-	v := NewRelationVocab(BuiltinRelations())
+	v := NewRelationVocab(BuiltinRelations(), BuiltinPlurals())
 	groups := []RelationGroup{{
 		Canonical: "parent",
 		Items:     []RelationItem{{Other: "Doug", Surface: "father"}},
@@ -46,7 +46,7 @@ func TestFormatRelationsSingleItemUsesSurface(t *testing.T) {
 }
 
 func TestFormatRelationsIncoming(t *testing.T) {
-	v := NewRelationVocab(BuiltinRelations())
+	v := NewRelationVocab(BuiltinRelations(), BuiltinPlurals())
 	groups := []RelationGroup{{
 		Canonical: "bestie",
 		Items:     []RelationItem{{Other: "Sarah", Surface: "bestie", Incoming: true}},
@@ -58,7 +58,7 @@ func TestFormatRelationsIncoming(t *testing.T) {
 
 func TestFormatRelationsEndToEnd(t *testing.T) {
 	world := setupTestWorld(t, "Doug (person): daughter -> Sarah; child -> Tim\n\nSarah (person): x.\n\nTim (person): y.\n")
-	v := NewRelationVocab(BuiltinRelations())
+	v := NewRelationVocab(BuiltinRelations(), BuiltinPlurals())
 	doug, _ := world.FindEntity("Doug")
 	got := FormatRelationsBlock(world.ResolveRelations(v, doug), v)
 	want := "children → Sarah (daughter), Tim"

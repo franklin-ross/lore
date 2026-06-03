@@ -16,15 +16,22 @@ type Config struct {
 	Files     []string                  `toml:"files"`
 	Ignore    []string                  `toml:"ignore"`
 	Relations map[string]RelationConfig `toml:"relations"`
+	// Plurals is the irregular-plural lexicon: a top-level [plurals] table
+	// mapping a singular surface to its display plural. It's global because a
+	// word's plural is a property of the word, not the relation it labels.
+	// Only necessary when the built-in pluraliser fails.
+	Plurals map[string]string `toml:"plurals"`
 }
 
 // RelationConfig is a single [relations.<name>] entry in lore.toml. The table
 // key supplies the canonical relation name; these fields supply its reciprocal,
-// display plural, and surface aliases.
+// noun aliases, and raw aliases (labels taken as-is — verbs, locatives — that
+// get no synthesised genitive or plural). Irregular plurals live in the
+// top-level [plurals] table (see Config.Plurals), not here.
 type RelationConfig struct {
 	Reciprocal string   `toml:"reciprocal"`
-	Plural     string   `toml:"plural"`
 	Aliases    []string `toml:"aliases"`
+	RawAliases []string `toml:"raw_aliases"`
 }
 
 // Project is a loaded lore project: its filesystem, config, matcher, and

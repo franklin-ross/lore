@@ -14,7 +14,9 @@ func (s *Server) hover(_ *glsp.Context, params *protocol.HoverParams) (*protocol
 	}
 	match := s.findEntityAtPosition(ps, params.TextDocument.URI, params.Position)
 	if match == nil {
-		return nil, nil
+		// Not on an entity — maybe on a relation label (`father` in
+		// `Sarah: father -> Doug`). Explain what it stands in for.
+		return s.relationLabelHover(ps, params), nil
 	}
 
 	cursorLine := int(params.Position.Line) + 1 // LSP 0-based → lore 1-based

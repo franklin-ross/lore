@@ -16,14 +16,14 @@ func setupMultiProject(t *testing.T) (*Server, string) {
 	dir := t.TempDir()
 
 	files := map[string]string{
-		"lore.toml":                          `files = ["**/*.md"]` + "\n",
-		"shared.md":                          "Shared (character): Workspace-level NPC.\n",
-		"campaigns/strahd/lore.toml":         `files = ["**/*.md"]` + "\n",
-		"campaigns/strahd/glossary.md":       "Strahd (character): Vampire lord.\n",
-		"campaigns/lostmines/lore.toml":      `files = ["**/*.md"]` + "\n",
-		"campaigns/lostmines/glossary.md":    "Sildar (character): Fighter.\n",
-		"campaigns/strahd/sub/lore.toml":     `files = ["**/*.md"]` + "\n",
-		"campaigns/strahd/sub/glossary.md":   "Subentity (item): Sub-project artefact.\n",
+		"lore.toml":                        `files = ["**/*.md"]` + "\n",
+		"shared.md":                        "Shared (character): Workspace-level NPC.\n",
+		"campaigns/strahd/lore.toml":       `files = ["**/*.md"]` + "\n",
+		"campaigns/strahd/glossary.md":     "Strahd (character): Vampire lord.\n",
+		"campaigns/lostmines/lore.toml":    `files = ["**/*.md"]` + "\n",
+		"campaigns/lostmines/glossary.md":  "Sildar (character): Fighter.\n",
+		"campaigns/strahd/sub/lore.toml":   `files = ["**/*.md"]` + "\n",
+		"campaigns/strahd/sub/glossary.md": "Subentity (item): Sub-project artefact.\n",
 	}
 	for rel, content := range files {
 		abs := filepath.Join(dir, rel)

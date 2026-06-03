@@ -26,8 +26,8 @@ type DefinitionRangesParams struct {
 // should use for its colour. The index is 0..paletteSize-1 and matches the
 // loreColour modifier bit position used in semantic tokens.
 type DefinitionRange struct {
-	Range        protocol.Range `json:"range"`
-	ColourIndex  uint32         `json:"colourIndex"`
+	Range       protocol.Range `json:"range"`
+	ColourIndex uint32         `json:"colourIndex"`
 }
 
 // DefinitionRangesResult is the response body for MethodLoreDefinitionRanges.

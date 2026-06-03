@@ -471,4 +471,3 @@ func TestParseDirectivesValidDirectivesStillParse(t *testing.T) {
 		t.Fatalf("unexpected issues: %+v", issues)
 	}
 }
-

@@ -15,7 +15,7 @@ func Parse(project *Project) (*World, error) {
 	}
 	world := Merge(files)
 	defs := EffectiveRelationDefs(project.Config)
-	world.Vocab = NewRelationVocab(defs)
+	world.Vocab = NewRelationVocab(defs, EffectivePlurals(project.Config))
 	world.RelationIssues = ValidateRelations(defs)
 	world.FileIssues = append(world.FileIssues, world.EdgeRemovalIssues(world.Vocab)...)
 	return world, nil

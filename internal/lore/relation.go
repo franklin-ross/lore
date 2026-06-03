@@ -3,21 +3,54 @@ package lore
 import (
 	"sort"
 	"strings"
+
+	"github.com/gertd/go-pluralize"
 )
 
+// pluralizer holds the English inflection rules. Built once — the client is
+// read-only after construction, so it's safe for concurrent Plural calls.
+var pluralizer = pluralize.NewClient()
+
 // RelationDef defines a relation type: its canonical name, the canonical name
-// of its reciprocal (the label shown on the far endpoint), an optional display
-// plural, and the surface labels that normalise to it.
+// of its reciprocal (the label shown on the far endpoint), the noun aliases
+// that normalise to it, and raw aliases taken as-is (verbs, locatives).
 //
 // Reciprocal is the canonical name of the reverse relation. A relation whose
 // reciprocal is itself (Canonical == Reciprocal) is symmetric — `spouse`,
 // `sibling`, `friend`. An empty Reciprocal means the relation has no defined
 // reverse, so the far side renders as a named-incoming edge.
+//
+// Canonical, Reciprocal, and Aliases are all nouns: they name *what the target
+// is to the subject* (`A: <noun> -> B` = "B is A's <noun>"). From a noun the
+// vocab synthesises the genitive `<noun>-of`, which names *what the subject is
+// to the target* and resolves to the reciprocal — `daughter-of` resolves to
+// `parent`. Deriving the genitive from the reciprocal makes its direction
+// impossible to invert by hand.
+//
+// RawAliases holds surface labels taken as-is: they resolve to the canonical
+// but aren't processed into derived forms the way Aliases are — no synthesised
+// genitive, no plural transform. The name states the contract (raw, not further
+// interpreted) rather than a part of speech, so it fits both kinds that belong
+// here, each already carrying its own direction such that a genitive would be
+// wrong: verbs (`A: owns -> B` = "A owns B") and locatives (`A: within -> B` =
+// "A is within B"). A verb lives on the def whose subject is the actor — `owns`
+// on `possession`, `leads` on `follower`.
 type RelationDef struct {
 	Canonical  string
 	Reciprocal string
-	Plural     string
 	Aliases    []string
+	RawAliases []string
+}
+
+// nouns returns a def's noun surface forms — its canonical followed by its
+// aliases, in display casing. RawAliases are excluded: the genitive and plural
+// transforms apply only to nouns.
+func (d RelationDef) nouns() []string {
+	out := make([]string, 0, 1+len(d.Aliases))
+	if d.Canonical != "" {
+		out = append(out, d.Canonical)
+	}
+	return append(out, d.Aliases...)
 }
 
 // RelationVocab resolves relation labels to canonical relations and answers
@@ -31,6 +64,8 @@ type RelationDef struct {
 type RelationVocab struct {
 	byCanonical map[string]RelationDef // canonical (lowercased) -> def
 	aliasIndex  map[string]string      // lowercased label or alias -> canonical
+	pluralIndex map[string]string      // lowercased singular surface -> display plural
+	rawAliases  map[string]bool        // lowercased raw-alias surfaces (never pluralised)
 }
 
 // BuiltinRelations is the default vocabulary shipped for common familial,
@@ -38,10 +73,20 @@ type RelationVocab struct {
 // a relation of the same canonical name in lore.toml.
 func BuiltinRelations() []RelationDef {
 	return []RelationDef{
-		{Canonical: "parent", Reciprocal: "child", Aliases: []string{"father", "mother", "dad", "mum", "mom"}},
-		{Canonical: "child", Plural: "children", Aliases: []string{"son", "daughter", "kid"}},
+		// Nouns only in Aliases. The genitive forms (`daughter-of`, `son-of`,
+		// `parent-of`, …) are synthesised in NewRelationVocab from each noun plus
+		// the reciprocal, so they never need listing — and can't be inverted by
+		// hand the way a typed `daughter-of` on the wrong def could.
+		{Canonical: "parent", Reciprocal: "child", Aliases: []string{"father", "mother"}},
+		{Canonical: "child", Aliases: []string{"son", "daughter"}},
 		{Canonical: "step-parent", Reciprocal: "step-child", Aliases: []string{"step-father", "step-mother"}},
-		{Canonical: "step-child", Plural: "step-children", Aliases: []string{"step-son", "step-daughter"}},
+		{Canonical: "step-child", Aliases: []string{"step-son", "step-daughter"}},
+		// Step- vs half- split on blood, not the prefix. Step-relations are
+		// non-blood and get their own canonicals (step-parent↔step-child) — a
+		// step-parent is not your parent, and the status drives plot. Half- is a
+		// degree on an existing blood tie: a half-sibling *is* your sibling (one
+		// shared parent), so it folds into `sibling`. Half- has no parent/child
+		// form to cluster anyway — you can't be half someone's parent.
 		{Canonical: "sibling", Reciprocal: "sibling", Aliases: []string{"brother", "sister", "half-brother", "half-sister"}},
 		{Canonical: "step-sibling", Reciprocal: "step-sibling", Aliases: []string{"step-brother", "step-sister"}},
 		// Gender variants are aliases of one canonical, never separate
@@ -54,10 +99,10 @@ func BuiltinRelations() []RelationDef {
 		{Canonical: "nibling", Aliases: []string{"niece", "nephew"}},
 		{Canonical: "cousin", Reciprocal: "cousin"},
 		{Canonical: "grandparent", Reciprocal: "grandchild", Aliases: []string{"grandmother", "grandfather"}},
-		{Canonical: "grandchild", Plural: "grandchildren"},
-		{Canonical: "spouse", Reciprocal: "spouse", Aliases: []string{"husband", "wife", "partner", "married"}},
+		{Canonical: "grandchild", Aliases: []string{"grandson", "granddaughter"}},
+		{Canonical: "spouse", Reciprocal: "spouse", Aliases: []string{"husband", "wife", "partner", "betrothed", "lover", "concubine", "mistress"}},
 		{Canonical: "member", Reciprocal: "member-of"},
-		{Canonical: "member-of", Plural: "members-of"},
+		{Canonical: "member-of"},
 		// Social allegiance — bread and butter of campaign notes. All symmetric.
 		// `friend` and `ally` overlap deliberately (warmth vs alignment); pick
 		// whichever fits the prose. Plurals (members/allies/friends/enemies)
@@ -68,45 +113,76 @@ func BuiltinRelations() []RelationDef {
 		// Containment is generic — boxes, chests, ships, regions all "contain".
 		// Canonicals are nouns (they key the edge, label the undeclared reverse
 		// side, and feed the pluraliser, which assumes a proper singular): the
-		// holder's side is `contents`, the held side `container`. The verbs
-		// `contains`/`holds` are aliases — `pluralise` would mangle `contains`
-		// ("containses") if it were canonical. `contents` already reads plural,
-		// so its Plural is pinned to itself. `contents`/`container` sit on
+		// holder's side is `contents`, the held side `container`. `contains`/
+		// `holds` are raw aliases (verbs) on `contents` — were they canonical,
+		// `pluralise` would mangle them ("containses"). `contents` already reads
+		// plural, so its plural is pinned to itself. `contents`/`container` sit on
 		// opposite endpoints — a reciprocal pair, not aliases of one canonical.
-		{Canonical: "contents", Reciprocal: "container", Plural: "contents", Aliases: []string{"contains", "holds"}},
-		{Canonical: "container", Plural: "containers", Aliases: []string{"within", "inside"}},
+		//
+		// `within`/`inside` are locatives: `A: within -> B` already reads "A is
+		// within B", so they're raw aliases of `container`, not nouns — no
+		// genitive is synthesised for them (which would wrongly point at
+		// `contents`). `inside-of` is real usage, so it's listed too; raw, it's
+		// taken as the synonym it is rather than processed to invert subject/target.
+		{Canonical: "contents", Reciprocal: "container", RawAliases: []string{"contains", "holds"}},
+		{Canonical: "container", RawAliases: []string{"within", "inside", "inside-of"}},
 		{Canonical: "residence", Reciprocal: "resident", Aliases: []string{"home", "abode", "dwelling"}},
 		{Canonical: "resident", Aliases: []string{"tenant", "inhabitant", "occupant"}},
-		// `owns` (subject is the owner) sits on `possession`, since
+		// `owns` (subject is the owner) is a raw alias on `possession`, since
 		// `A: possession -> B` already reads "A owns B".
-		{Canonical: "possession", Reciprocal: "owner", Aliases: []string{"belongings", "property", "owns"}},
+		{Canonical: "possession", Reciprocal: "owner", Aliases: []string{"belongings", "property"}, RawAliases: []string{"owns"}},
 		{Canonical: "owner", Aliases: []string{"proprietor", "holder"}},
 		// `leader` is a noun: `A: leader -> B` = "B is A's leader", so A is the
-		// follower. The verb `serves` (subject = follower) therefore sits on
-		// `leader`; `leads` (subject = leader) on `follower`.
-		{Canonical: "leader", Reciprocal: "follower", Aliases: []string{"chief", "boss", "serves"}},
-		{Canonical: "follower", Aliases: []string{"servant", "subordinate", "minion", "leads"}},
-		{Canonical: "mentor", Reciprocal: "student", Aliases: []string{"teacher"}},
-		{Canonical: "student", Aliases: []string{"apprentice", "pupil", "disciple"}},
-		// `made`/`forged` (subject = maker) sit on `creation`, since
+		// follower. The verbs `serves`/`follows` (subject = follower) therefore
+		// sit on `leader`; `leads` (subject = leader) on `follower`.
+		{Canonical: "leader", Reciprocal: "follower", Aliases: []string{"chief", "boss"}, RawAliases: []string{"serves", "follows"}},
+		{Canonical: "follower", Aliases: []string{"servant", "subordinate", "minion"}, RawAliases: []string{"leads"}},
+		{Canonical: "mentor", Reciprocal: "pupil", Aliases: []string{"teacher"}},
+		{Canonical: "pupil", Aliases: []string{"apprentice", "student", "disciple"}},
+		// `made`/`forged` (subject = maker) are raw aliases on `creation`, since
 		// `A: creation -> B` reads "B is A's creation" (A made B).
 		{Canonical: "creator", Reciprocal: "creation", Aliases: []string{"maker", "author"}},
-		{Canonical: "creation", Plural: "creations", Aliases: []string{"made", "crafted", "forged", "built"}},
+		{Canonical: "creation", RawAliases: []string{"made", "crafted", "forged", "built"}},
 	}
 }
 
-// NewRelationVocab builds a vocabulary from the given definitions. Later
-// definitions override earlier ones with the same canonical name, so callers
-// pass built-ins first and config entries second.
+// BuiltinPlurals is the irregular-plural lexicon for the default vocabulary,
+// keyed by the singular surface. Pluralisation is a property of the word, not
+// the relation, so these live in one flat map rather than on each RelationDef.
+// pluralise() (go-pluralize) already handles every English irregular our
+// vocabulary meets — `child`/`wife`/`nemesis`, the `-f`→`-ves` set, and the
+// already-plural `contents`/`belongings` — so only `member-of` needs an entry:
+// no English pluraliser inflects the head noun of a `-of` compound, giving
+// "member-ofs" instead of "members-of". Users extend this with a top-level
+// [plurals] table in lore.toml (e.g. to pin a contested word like `dwarf`).
+func BuiltinPlurals() map[string]string {
+	return map[string]string{
+		"member-of": "members-of",
+	}
+}
+
+// NewRelationVocab builds a vocabulary from the given definitions and an
+// irregular-plural lexicon (surface -> display plural). Later definitions
+// override earlier ones with the same canonical name, so callers pass built-ins
+// first and config entries second; pass BuiltinRelations()/BuiltinPlurals() for
+// the defaults, or EffectiveRelationDefs(cfg)/EffectivePlurals(cfg) for a
+// project's combined set.
 //
 // Reciprocity is made bidirectional: defining parent.reciprocal = child also
 // gives child.reciprocal = parent, unless child already declares its own
 // reciprocal. The canonical name itself always resolves as a label, in
 // addition to its aliases.
-func NewRelationVocab(defs []RelationDef) *RelationVocab {
+func NewRelationVocab(defs []RelationDef, plurals map[string]string) *RelationVocab {
 	v := &RelationVocab{
 		byCanonical: make(map[string]RelationDef),
 		aliasIndex:  make(map[string]string),
+		pluralIndex: make(map[string]string),
+		rawAliases:  make(map[string]bool),
+	}
+	for surface, plural := range plurals {
+		if key := canonKey(surface); key != "" {
+			v.pluralIndex[key] = strings.TrimSpace(plural)
+		}
 	}
 	for _, d := range defs {
 		canon := canonKey(d.Canonical)
@@ -140,37 +216,90 @@ func NewRelationVocab(defs []RelationDef) *RelationVocab {
 		}
 	}
 
-	// Index canonical names and aliases. Canonical names win over aliases on
-	// collision so a relation is always reachable by its own name.
+	// Index canonical names, aliases, and raw aliases. Canonical names win over
+	// the rest on collision so a relation is always reachable by its own name.
+	// Raw aliases resolve like aliases — they're how authors type an edge — but
+	// are recorded in rawAliases so the genitive/plural passes skip them.
+	index := func(label, canon string) {
+		key := canonKey(label)
+		if key == "" {
+			return
+		}
+		if _, isCanon := v.byCanonical[key]; isCanon {
+			return
+		}
+		v.aliasIndex[key] = canon
+	}
 	for canon, d := range v.byCanonical {
 		for _, a := range d.Aliases {
-			key := canonKey(a)
-			if key == "" {
-				continue
+			index(a, canon)
+		}
+		for _, ra := range d.RawAliases {
+			index(ra, canon)
+			if key := canonKey(ra); key != "" {
+				v.rawAliases[key] = true
 			}
-			if _, isCanon := v.byCanonical[key]; isCanon {
-				continue
-			}
-			v.aliasIndex[key] = canon
 		}
 	}
 	for canon := range v.byCanonical {
 		v.aliasIndex[canon] = canon
 	}
 
-	// A relation's plural resolves as an input label too, so you can write
-	// `Cuthbert: children -> Milly, Bobby` as naturally as `child -> Milly`.
-	// Canonical names and explicit aliases already in the index win, so this
-	// only fills gaps. Display still preserves whatever surface you typed.
-	for canon := range v.byCanonical {
-		key := canonKey(v.Plural(canon))
-		if key == "" || key == canon {
+	// Synthesise genitive "-of" labels from nouns. For a noun N on a relation
+	// whose reciprocal is R, `N-of` names what the subject is to the target and
+	// resolves to R: `daughter-of` comes from `daughter` (a noun of `child`,
+	// reciprocal `parent`) and resolves to `parent` — Doug is Sarah's parent.
+	// Deriving from the reciprocal means the direction can't be inverted by
+	// hand. Raw aliases are excluded ("of" is a noun genitive); a noun already ending
+	// in "-of" (e.g. `member-of`) is skipped to avoid `member-of-of`. Explicit
+	// labels already indexed win, so this only fills gaps.
+	for _, d := range v.byCanonical {
+		if d.Reciprocal == "" {
 			continue
+		}
+		for _, n := range d.nouns() {
+			key := canonKey(n)
+			if key == "" || strings.HasSuffix(key, "-of") {
+				continue
+			}
+			ofKey := key + "-of"
+			if _, taken := v.aliasIndex[ofKey]; taken {
+				continue
+			}
+			if _, isCanon := v.byCanonical[ofKey]; isCanon {
+				continue
+			}
+			v.aliasIndex[ofKey] = d.Reciprocal
+		}
+	}
+
+	// Plurals resolve as input labels too, so you can write `Cuthbert: children
+	// -> Milly, Bobby` as naturally as `child -> Milly`, and `wives`/`daughters`
+	// as well as `wife`/`daughter`. Index the plural of every noun surface
+	// (canonical + aliases; raw aliases are excluded by nouns()). Already-indexed
+	// labels win, so this only fills gaps.
+	addPluralInput := func(surface string) {
+		canon, ok := v.aliasIndex[canonKey(surface)]
+		if !ok {
+			return
+		}
+		plural := pluralise(surface)
+		if p, ok := v.pluralOf(surface); ok {
+			plural = p
+		}
+		key := canonKey(plural)
+		if key == "" || key == canonKey(surface) {
+			return
 		}
 		if _, taken := v.aliasIndex[key]; taken {
-			continue
+			return
 		}
 		v.aliasIndex[key] = canon
+	}
+	for _, d := range v.byCanonical {
+		for _, n := range d.nouns() {
+			addPluralInput(n)
+		}
 	}
 	return v
 }
@@ -199,19 +328,32 @@ func (v *RelationVocab) Reciprocal(canonical string) string {
 	return ""
 }
 
-// Plural returns the display plural for a canonical relation: the configured
-// plural when set, otherwise the display name with a trailing "s".
+// Plural returns the display plural for a canonical relation: the lexicon entry
+// when one exists, otherwise the display name run through the regular rules.
 func (v *RelationVocab) Plural(canonical string) string {
 	key := canonKey(canonical)
-	if d, ok := v.byCanonical[key]; ok {
-		if d.Plural != "" {
-			return d.Plural
-		}
-		if d.Canonical != "" {
-			return pluralise(d.Canonical)
-		}
+	if p, ok := v.pluralIndex[key]; ok && p != "" {
+		return p
+	}
+	if d, ok := v.byCanonical[key]; ok && d.Canonical != "" {
+		return pluralise(d.Canonical)
 	}
 	return pluralise(key)
+}
+
+// pluralOf returns the lexicon plural for any surface (canonical or alias) and
+// whether one was set. Used by the header pluraliser to honour irregulars
+// before falling back to the regular rules.
+func (v *RelationVocab) pluralOf(surface string) (string, bool) {
+	p, ok := v.pluralIndex[canonKey(surface)]
+	return p, ok && p != ""
+}
+
+// isRawAlias reports whether surface was declared as a raw alias — a verb or
+// locative taken as-is. The header pluraliser leaves these untouched: they name
+// the subject, not a count of things, so pluralising them is meaningless.
+func (v *RelationVocab) isRawAlias(surface string) bool {
+	return v.rawAliases[canonKey(surface)]
 }
 
 // Display returns the canonical relation's name in its original casing, for
@@ -223,9 +365,24 @@ func (v *RelationVocab) Display(canonical string) string {
 	return canonKey(canonical)
 }
 
-// Labels returns every relation label in the vocabulary — canonical names and
-// their aliases, in display casing — sorted and de-duplicated. Used to offer
-// relation labels as completions in the directive label slot.
+// SurfaceAliases returns a canonical relation's declared surface synonyms in
+// display casing — its noun aliases followed by its raw aliases — excluding the
+// canonical name itself and the synthesised genitive/plural forms. Nil for an
+// unknown relation.
+func (v *RelationVocab) SurfaceAliases(canonical string) []string {
+	d, ok := v.byCanonical[canonKey(canonical)]
+	if !ok {
+		return nil
+	}
+	out := make([]string, 0, len(d.Aliases)+len(d.RawAliases))
+	out = append(out, d.Aliases...)
+	return append(out, d.RawAliases...)
+}
+
+// Labels returns every relation label in the vocabulary — canonical names,
+// their aliases and raw aliases, and the synthesised genitives — in display casing,
+// sorted and de-duplicated. Used to offer relation labels as completions in
+// the directive label slot.
 func (v *RelationVocab) Labels() []string {
 	seen := make(map[string]bool)
 	var out []string
@@ -241,6 +398,18 @@ func (v *RelationVocab) Labels() []string {
 		add(d.Canonical)
 		for _, a := range d.Aliases {
 			add(a)
+		}
+		for _, ra := range d.RawAliases {
+			add(ra)
+		}
+		// Mirror the genitive synthesis in NewRelationVocab so derived `-of`
+		// labels are completable too.
+		if d.Reciprocal != "" {
+			for _, n := range d.nouns() {
+				if k := canonKey(n); k != "" && !strings.HasSuffix(k, "-of") {
+					add(n + "-of")
+				}
+			}
 		}
 	}
 	sort.Strings(out)
@@ -259,33 +428,15 @@ func canonKey(s string) string {
 	return strings.ToLower(strings.TrimSpace(s))
 }
 
-// pluralise applies regular English pluralisation: a sibilant ending (s, x, z,
-// ch, sh) takes "es"; a consonant followed by "y" becomes "ies"; everything
-// else takes "s". Irregulars (child → children) aren't covered — those use a
-// relation's configured Plural. Safe for canonical relation names, which are
-// always proper singulars.
+// pluralise returns the English plural of a noun via the go-pluralize inflection
+// rules, which cover the irregulars our vocabulary actually meets — `child` →
+// `children`, `wife` → `wives`, the fantasy `-f` → `-ves` set (`elf`/`dwarf`/
+// `wolf`/`thief`), `person` → `people` — and leave already-plural or uncountable
+// forms (`contents`, `belongings`) untouched. The two things it can't infer are
+// handled before it: raw aliases (verbs/locatives) never reach here, and the
+// lexicon (BuiltinPlurals + [plurals]) overrides compounds like `member-of`.
 func pluralise(w string) string {
-	lw := strings.ToLower(w)
-	switch {
-	case strings.HasSuffix(lw, "s"), strings.HasSuffix(lw, "x"), strings.HasSuffix(lw, "z"),
-		strings.HasSuffix(lw, "ch"), strings.HasSuffix(lw, "sh"):
-		return w + "es"
-	case len(lw) >= 2 && strings.HasSuffix(lw, "y") && isConsonant(lw[len(lw)-2]):
-		return w[:len(w)-1] + "ies"
-	default:
-		return w + "s"
-	}
-}
-
-func isConsonant(b byte) bool {
-	if b < 'a' || b > 'z' {
-		return false
-	}
-	switch b {
-	case 'a', 'e', 'i', 'o', 'u':
-		return false
-	}
-	return true
+	return pluralizer.Plural(w)
 }
 
 // relationDefsFromConfig converts the lore.toml [relations.*] table into
@@ -299,8 +450,8 @@ func relationDefsFromConfig(cfg map[string]RelationConfig) []RelationDef {
 		defs = append(defs, RelationDef{
 			Canonical:  name,
 			Reciprocal: rc.Reciprocal,
-			Plural:     rc.Plural,
 			Aliases:    rc.Aliases,
+			RawAliases: rc.RawAliases,
 		})
 	}
 	return defs
@@ -313,8 +464,20 @@ func EffectiveRelationDefs(cfg Config) []RelationDef {
 	return append(BuiltinRelations(), relationDefsFromConfig(cfg.Relations)...)
 }
 
+// EffectivePlurals returns the project's full irregular-plural lexicon:
+// built-ins overlaid with the [plurals] table from lore.toml. Mirrors
+// EffectiveRelationDefs — config entries win on a shared surface.
+func EffectivePlurals(cfg Config) map[string]string {
+	out := BuiltinPlurals()
+	for surface, plural := range cfg.Plurals {
+		out[canonKey(surface)] = plural
+	}
+	return out
+}
+
 // VocabFromConfig builds the effective relation vocabulary for a project:
-// built-ins first, then the project's [relations.*] entries overlaid on top.
+// built-ins first, then the project's [relations.*] and [plurals] entries
+// overlaid on top.
 func VocabFromConfig(cfg Config) *RelationVocab {
-	return NewRelationVocab(EffectiveRelationDefs(cfg))
+	return NewRelationVocab(EffectiveRelationDefs(cfg), EffectivePlurals(cfg))
 }

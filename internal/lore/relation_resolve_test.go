@@ -7,7 +7,7 @@ import (
 
 func focusGroups(t *testing.T, world *World, name string) []RelationGroup {
 	t.Helper()
-	v := NewRelationVocab(BuiltinRelations())
+	v := NewRelationVocab(BuiltinRelations(), BuiltinPlurals())
 	ent, err := world.FindEntity(name)
 	if err != nil {
 		t.Fatalf("find %q: %v", name, err)
@@ -42,6 +42,25 @@ func TestRelationAsymmetricReciprocal(t *testing.T) {
 	}
 	if sarah[0].Surface != "father" {
 		t.Fatalf("Sarah parent surface = %q; want father (preserved)", sarah[0].Surface)
+	}
+}
+
+// `daughter-of` reads subject-first ("Sarah is daughter of Doug") and must
+// land on the same edge as the target-first `father`/`daughter` aliases —
+// Doug is Sarah's parent — not invert it.
+func TestRelationOfAliasDirection(t *testing.T) {
+	world := setupTestWorld(t, "Sarah (person): daughter-of -> Doug\n\nDoug (person): A dwarf.\n")
+
+	sarah := findGroup(focusGroups(t, world, "Sarah"), "parent")
+	if len(sarah) != 1 || sarah[0].Other != "Doug" {
+		t.Fatalf("Sarah parent = %+v; want [Doug] (Doug is Sarah's parent)", sarah)
+	}
+	if sarah[0].Surface != "daughter-of" {
+		t.Fatalf("Sarah surface = %q; want daughter-of (preserved)", sarah[0].Surface)
+	}
+	doug := findGroup(focusGroups(t, world, "Doug"), "child")
+	if len(doug) != 1 || doug[0].Other != "Sarah" {
+		t.Fatalf("Doug child = %+v; want [Sarah]", doug)
 	}
 }
 
@@ -150,8 +169,9 @@ func TestRelationReciprocalSemanticsAudit(t *testing.T) {
 		// New pairs.
 		{"ally", "ally", "ally"},
 		{"enemy", "enemy", "enemy"},
-		{"mentor", "mentor", "student"},
-		{"teacher", "mentor", "student"},
+		{"mentor", "mentor", "pupil"},
+		{"teacher", "mentor", "pupil"},
+		{"student", "pupil", "mentor"},
 		{"creator", "creator", "creation"},
 		// Verb aliases must resolve to the side whose subject plays the verb's
 		// role — the trap that inverts an edge if placed wrong.
@@ -160,6 +180,44 @@ func TestRelationReciprocalSemanticsAudit(t *testing.T) {
 		{"leads", "follower", "leader"},    // A leads B -> B is A's follower
 		{"forged", "creation", "creator"},  // A forged B -> B is A's creation
 		{"holds", "contents", "container"}, // A holds B -> A contains B
+		// `-of` family aliases name the subject's role, so they resolve to the
+		// opposite canonical from the plain gendered aliases (daughter -> child).
+		{"daughter-of", "parent", "child"}, // A is daughter of B -> B is A's parent
+		{"son-of", "parent", "child"},
+		{"child-of", "parent", "child"},
+		{"father-of", "child", "parent"}, // A is father of B -> B is A's child
+		{"mother-of", "child", "parent"},
+		{"parent-of", "child", "parent"},
+		// Step pair — child-words-of land on step-parent, parent-words-of on step-child.
+		{"step-son-of", "step-parent", "step-child"},
+		{"step-daughter-of", "step-parent", "step-child"},
+		{"step-child-of", "step-parent", "step-child"},
+		{"step-father-of", "step-child", "step-parent"},
+		{"step-mother-of", "step-child", "step-parent"},
+		{"step-parent-of", "step-child", "step-parent"},
+		// Symmetric pairs — direction can't invert, but the label must still resolve.
+		{"brother-of", "sibling", "sibling"},
+		{"sister-of", "sibling", "sibling"},
+		{"half-sister-of", "sibling", "sibling"},
+		{"step-brother-of", "step-sibling", "step-sibling"},
+		{"cousin-of", "cousin", "cousin"},
+		// Pibling/nibling — niece-words-of resolve to pibling, aunt-words-of to nibling.
+		{"niece-of", "pibling", "nibling"}, // A is niece of B -> B is A's pibling
+		{"nephew-of", "pibling", "nibling"},
+		{"nibling-of", "pibling", "nibling"},
+		{"aunt-of", "nibling", "pibling"}, // A is aunt of B -> B is A's nibling
+		{"uncle-of", "nibling", "pibling"},
+		{"pibling-of", "nibling", "pibling"},
+		// Grandparent/grandchild.
+		{"grandson-of", "grandparent", "grandchild"}, // A is grandson of B -> B is A's grandparent
+		{"granddaughter-of", "grandparent", "grandchild"},
+		{"grandchild-of", "grandparent", "grandchild"},
+		{"grandfather-of", "grandchild", "grandparent"}, // A is grandfather of B -> B is A's grandchild
+		{"grandmother-of", "grandchild", "grandparent"},
+		{"grandparent-of", "grandchild", "grandparent"},
+		// Plain gendered aliases newly added to grandchild.
+		{"grandson", "grandchild", "grandparent"},
+		{"granddaughter", "grandchild", "grandparent"},
 	}
 	for _, c := range cases {
 		world := setupTestWorld(t, "A (thing): "+c.label+" -> B\n\nB (thing): x.\n")
@@ -178,7 +236,7 @@ func TestRelationReciprocalSemanticsAudit(t *testing.T) {
 // `Cuthbert: children -> ...` works, not just `child -> ...`. The header on
 // the multi-item group must stay "children", not double to "childrens".
 func TestRelationPluralAsInputLabel(t *testing.T) {
-	v := NewRelationVocab(BuiltinRelations())
+	v := NewRelationVocab(BuiltinRelations(), BuiltinPlurals())
 	if canon, known := v.Resolve("children"); !known || canon != "child" {
 		t.Fatalf("Resolve(children) = %q,%v; want child,true", canon, known)
 	}
@@ -200,6 +258,43 @@ func TestRelationPluralAsInputLabel(t *testing.T) {
 	}
 }
 
+// The irregular-plural lexicon applies to alias surfaces, not just canonicals:
+// a merged `wife` header reads "wives" (not "wifes"), a singular s-ender pluralises
+// ("boss" -> "bosses" rather than staying put), and the irregular plural resolves
+// as an input label.
+func TestRelationIrregularAliasPlurals(t *testing.T) {
+	v := NewRelationVocab(BuiltinRelations(), BuiltinPlurals())
+
+	world := setupTestWorld(t, "Solomon (person): wife -> Naamah, Tirzah\n\nNaamah (person): x.\nTirzah (person): x.\n")
+	block := FormatRelationsBlock(focusGroups(t, world, "Solomon"), v)
+	if !strings.Contains(block, "wives → ") || strings.Contains(block, "wifes") {
+		t.Fatalf("header should read 'wives →', not 'wifes'; got %q", block)
+	}
+
+	// `boss` ends in s; without a lexicon entry the header pluraliser would
+	// mistake it for a plural and leave it as "boss".
+	w2 := setupTestWorld(t, "Hagar (person): boss -> Sarai, Abram\n\nSarai (person): x.\nAbram (person): x.\n")
+	if b2 := FormatRelationsBlock(focusGroups(t, w2, "Hagar"), v); !strings.Contains(b2, "bosses → ") {
+		t.Fatalf("header should read 'bosses →'; got %q", b2)
+	}
+
+	if canon, known := v.Resolve("wives"); !known || canon != "spouse" {
+		t.Errorf("Resolve(wives) = %q,%v; want spouse,true", canon, known)
+	}
+}
+
+// Raw aliases name the subject, not a count, so a shared-surface header must
+// never pluralise them — including non-s ones the old `HasSuffix("s")` guard
+// missed (it turned `forged` into "forgeds", `within` into "withins").
+func TestRelationRawAliasesNotPluralisedInHeader(t *testing.T) {
+	v := NewRelationVocab(BuiltinRelations(), BuiltinPlurals())
+	world := setupTestWorld(t, "Smith (person): forged -> Sting, Glamdring\n\nSting (item): x.\nGlamdring (item): x.\n")
+	block := FormatRelationsBlock(focusGroups(t, world, "Smith"), v)
+	if !strings.Contains(block, "forged → ") || strings.Contains(block, "forgeds") {
+		t.Fatalf("raw alias header should stay 'forged →', not 'forgeds'; got %q", block)
+	}
+}
+
 func TestRelationRemovalCancelsEdge(t *testing.T) {
 	world := setupTestWorld(t, "Sarah (person): friend -> Mary; friend -/> Mary\n\nMary (person): x.\n")
 	if g := findGroup(focusGroups(t, world, "Sarah"), "friend"); g != nil {
@@ -208,7 +303,7 @@ func TestRelationRemovalCancelsEdge(t *testing.T) {
 }
 
 func TestEdgeRemovalIssues(t *testing.T) {
-	v := NewRelationVocab(BuiltinRelations())
+	v := NewRelationVocab(BuiltinRelations(), BuiltinPlurals())
 
 	// Removing an edge that was never set warns.
 	w1 := setupTestWorld(t, "Sarah (person): friend -/> Mary\n\nMary (person): x\n")
@@ -232,7 +327,7 @@ func TestEdgeRemovalIssues(t *testing.T) {
 func TestRelationInlineAsideTarget(t *testing.T) {
 	// `father -> (Doug: daughter -> Sarah)`: one line, custom label each side.
 	world := setupTestWorld(t, "Sarah (person): father -> (Doug (person): daughter -> Sarah)\n")
-	v := NewRelationVocab(BuiltinRelations())
+	v := NewRelationVocab(BuiltinRelations(), BuiltinPlurals())
 
 	doug, err := world.FindEntity("Doug")
 	if err != nil {
@@ -250,7 +345,7 @@ func TestRelationInlineAsideTarget(t *testing.T) {
 
 func TestResolveAllRelationsForGraph(t *testing.T) {
 	world := setupTestWorld(t, "Sarah (person): father -> Doug\n\nDoug (person): x\n\nParty (group): members -> Sarah\n")
-	v := NewRelationVocab(BuiltinRelations())
+	v := NewRelationVocab(BuiltinRelations(), BuiltinPlurals())
 	all := world.ResolveAllRelations(v)
 	if len(all) != 2 {
 		t.Fatalf("want 2 edges, got %d: %+v", len(all), all)
@@ -271,7 +366,7 @@ func TestRelationResolvesAtCursor(t *testing.T) {
 	// friend added on line 1, removed on line 3. Hovering at line 1 should
 	// still see the friendship; at line 3 (after the removal) it's gone.
 	world := setupTestWorld(t, "Sarah (person): friend -> Mary\n\nMary (person): ok\n\nSarah (person): friend -/> Mary\n")
-	v := NewRelationVocab(BuiltinRelations())
+	v := NewRelationVocab(BuiltinRelations(), BuiltinPlurals())
 	sarah, _ := world.FindEntity("Sarah")
 
 	at1 := world.ResolveRelationsAt(v, sarah, world.FileOrder, "test.md", 1)

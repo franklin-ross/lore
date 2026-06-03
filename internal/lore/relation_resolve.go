@@ -156,11 +156,11 @@ func (w *World) EdgeRemovalIssues(vocab *RelationVocab) []StateIssue {
 // relation when that side wasn't named). Symmetric marks relations whose
 // direction isn't meaningful (spouse, sibling, friend).
 type GraphRelation struct {
-	FromName string
-	FromType string
-	ToName   string
-	ToType   string
-	Label    string
+	FromName  string
+	FromType  string
+	ToName    string
+	ToType    string
+	Label     string
 	Symmetric bool
 }
 

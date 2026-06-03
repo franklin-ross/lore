@@ -77,7 +77,7 @@ func (idx *Index) World() *lore.World {
 	// and validate it, so hover/relations resolution and the relation-config
 	// diagnostics match what `lore query` produces.
 	defs := lore.EffectiveRelationDefs(idx.config)
-	idx.world.Vocab = lore.NewRelationVocab(defs)
+	idx.world.Vocab = lore.NewRelationVocab(defs, lore.EffectivePlurals(idx.config))
 	idx.world.RelationIssues = lore.ValidateRelations(defs)
 	idx.world.FileIssues = append(idx.world.FileIssues, idx.world.EdgeRemovalIssues(idx.world.Vocab)...)
 	return idx.world

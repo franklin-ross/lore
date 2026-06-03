@@ -60,12 +60,14 @@ The parser doesn't extract key-value pairs — it carries the text and finds ent
 An entity can be defined across multiple files or locations. Descriptions are concatenated. Use any name or alias as the heading:
 
 **glossary/characters.md:**
+
 ```
 Sildar Hallwinter (character) | Sildar: Fighter. Member of the
   Lords Alliance.
 ```
 
 **sessions/03-cragmaw.md:**
+
 ```
 Sildar: Was captured at Cragmaw Hideout; we rescued him. Gave
   us quest: Find Iarno Albrek.
@@ -152,7 +154,7 @@ Guild: Borin storms out. members -/> Borin
 Removal is reciprocity-aware: either endpoint can retract the link with
 either label. Hover and the wiki show an entity's relations **as of the
 cursor position** — the net set after removals, on the same timeline as
-state. An undefined label still works (a *generic* edge); the vocabulary
+state. An undefined label still works (a _generic_ edge); the vocabulary
 below is pure upgrade.
 
 ### The One Rule
@@ -167,9 +169,29 @@ A: rel -> B          reads as          "B is A's rel."
 - `Party: members -> Aragorn` → Aragorn is Party's member.
 
 Read it that way and direction never surprises you. The natural-language
-idiom "Sarah, *daughter of* Doug" is the other way around, so write it
-from the parent (`Doug: daughter -> Sarah`) or possessively from the
-child (`Sarah: father -> Doug`) — both record the same link.
+idiom "Sarah, _daughter of_ Doug" is the other way around — so every noun
+gets a synthesised **genitive** `<noun>-of` that names **what the subject is
+to the target**, letting you write it subject-first:
+
+```
+Sarah: daughter-of -> Doug          Sarah is Doug's daughter (Doug is her parent).
+Doug: father-of -> Sarah            Doug is Sarah's father (Sarah is his child).
+Aragorn: member-of -> Fellowship    Aragorn belongs to the Fellowship.
+```
+
+The genitive resolves to the **reciprocal**: `daughter-of` comes from the
+noun `daughter` (a `child`), whose reciprocal is `parent`, so it records
+"Doug is Sarah's parent". You don't list these — Lore derives them from the
+noun and its reciprocal, which also means they can't point the wrong way.
+Pick whichever endpoint you're writing from; the same edge is recorded
+either way. The choice is just which side carries the detail — and the
+subject is always singular, so the `-of` form reads cleanly when the targets
+are a list (`Sarah: daughter-of -> Doug, Linda` = two parents).
+
+Labels that already name the subject carry their own direction and so get
+**no** genitive — verbs (`A: owns -> B` = "A owns B") and locatives
+(`A: within -> B` = "A is within B"). These are configured as `raw_aliases`
+(taken as-is) rather than nouns you can be "of".
 
 ### Configuring Relations
 
@@ -181,25 +203,40 @@ you reuse enough to care about — without it, `->` still works.
 reciprocal = "child"                       # the reverse label, shown on the far side
 aliases = ["father", "mother", "dad", "mum"]
 
-[relations.child]
-plural = "children"                        # for merged headers; defaults to name + "s"
-aliases = ["son", "daughter"]
-
 [relations.spouse]
 reciprocal = "spouse"                      # self-reciprocal = symmetric
 aliases = ["husband", "wife", "partner"]
+
+[relations.possession]
+reciprocal = "owner"
+aliases = ["belongings", "property"]       # nouns
+raw_aliases = ["owns"]                      # taken as-is: `A: owns -> B` = "A owns B"
+
+# Plurals are global and mostly automatic. Add an entry only when the
+# inflector can't know the answer — invariant or setting-specific words.
+[plurals]
+drow = "drow"   # otherwise inflected to "drows"
 ```
 
 - **`reciprocal`** — the canonical reverse. Bidirectional: defining one
   way implies the other. A relation whose reciprocal is itself is
   symmetric (`spouse`, `sibling`, `ally`).
-- **`aliases`** — surface labels that mean the same relation. Display is
-  preserving: Lore keeps the word you typed and uses the canonical only
-  for matching, reciprocity, and merging.
-- **`plural`** — used in merged headers (`child` → `children`). A relation's
-  plural also resolves as an **input label**, so `Cuthbert: children -> Milly,
-  Bobby` works as naturally as `child -> Milly`. If the auto-pluralised form
-  reads awkwardly, set `plural` explicitly or add a pluralised alias.
+- **`aliases`** — surface labels (all **nouns**) that mean the same relation.
+  Display is preserving: Lore keeps the word you typed and uses the canonical
+  only for matching, reciprocity, and merging. From each noun Lore synthesises
+  the genitive `<noun>-of`, resolving to the reciprocal.
+- **`raw_aliases`** — labels taken as-is, not processed into derived forms:
+  no synthesised genitive, no pluralisation. These are labels that already name
+  the **subject** and so carry their own direction — verbs (`owns`, `leads`,
+  `contains`, reading "A _verbs_ B") and locatives (`within`, `inside`). Giving
+  them a genitive would point the wrong way.
+- **`[plurals]`** (top-level) — an override lexicon, keyed by the singular
+  surface. Pluralisation is automatic: `child → children`, `elf → elves`,
+  `dwarf → dwarves`, `person → people` all just work. Add an entry only for a
+  word the inflector can't know — an invariant plural (`drow = "drow"`), a
+  setting-specific term, or a contested word you want to force the other way.
+  Plurals also resolve as **input labels**, so `Cuthbert: children -> Milly,
+  Bobby` works as naturally as `child -> Milly`.
 
 Four rules keep a custom relation from misbehaving — the parser warns on
 the first two, but the last two are on you:
@@ -212,18 +249,19 @@ the first two, but the last two are on you:
    exactly this reason.)
 2. **Reciprocals are mutual.** If `A` reverses `B`, then `B` must reverse
    `A`, not some third relation.
-3. **Canonicals are singular nouns.** The canonical is the edge's key,
-   the label shown on an undeclared reverse side, and the stem that gets
-   pluralised for headers — so a verb breaks it (`contains` would
-   pluralise to "containses"). Make the canonical a noun (`contents`) and
-   put the verb in `aliases` (`contains`, `holds`). If a noun canonical
-   already ends in "s", pin its `plural` to itself.
-4. **A verb alias goes on the side whose *subject* performs it** — which
-   is the opposite side from the matching noun, because the noun reads
-   possessively. `A: leader -> B` means "B is A's leader", so A is the
-   follower; the verb `serves` (the subject serves) therefore belongs to
-   `leader`, and `leads` to `follower`. Likewise, `owns` sits with
-   `possession` (not `owner`), and `made`/`forged` with `creation`.
+3. **Canonicals and aliases are singular nouns.** The canonical is the
+   edge's key, the label shown on an undeclared reverse side, and the stem
+   that gets pluralised for headers and suffixed for genitives — so a verb
+   breaks it (`contains` would pluralise to "containses"). Make the canonical
+   a noun (`contents`) and put the verb in `raw_aliases` (`contains`, `holds`).
+   If a noun already ends in "s", pin it to itself in `[plurals]`
+   (`contents = "contents"`).
+4. **A raw alias goes on the side whose _subject_ performs it** — which is the
+   opposite side from the matching noun, because the noun reads possessively.
+   `A: leader -> B` means "B is A's leader", so A is the follower; the verb
+   `serves` (the subject serves) therefore belongs to `leader`, and `leads`
+   to `follower`. Likewise, `owns` sits with `possession` (not `owner`), and
+   `made`/`forged` with `creation`.
 
 Built-in vocabulary for common familial, social, membership, containment,
 residence, ownership, hierarchy, mentorship, and authorship relations

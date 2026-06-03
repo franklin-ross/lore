@@ -18,10 +18,10 @@ func TestDirectiveSubSpans(t *testing.T) {
 		}
 	}
 
-	check("gold += 5", [2]int{0, 4}, [2]int{5, 7})     // field name + operator
-	check("gold = 5", [2]int{0, 4}, [2]int{5, 6})      // single `=`
-	check("inv -= sword", [2]int{0, 3}, [2]int{4, 6})  // `-=`
-	check("+injured", [2]int{1, 8}, [2]int{0, 1})      // tag: name after sigil
+	check("gold += 5", [2]int{0, 4}, [2]int{5, 7})      // field name + operator
+	check("gold = 5", [2]int{0, 4}, [2]int{5, 6})       // single `=`
+	check("inv -= sword", [2]int{0, 3}, [2]int{4, 6})   // `-=`
+	check("+injured", [2]int{1, 8}, [2]int{0, 1})       // tag: name after sigil
 	check("father -> Doug", [2]int{0, 6}, [2]int{7, 9}) // relation label + arrow
 	check("friend -/> Mary", [2]int{0, 6}, [2]int{7, 10})
 }

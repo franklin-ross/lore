@@ -277,10 +277,10 @@ func TestParseFilesOrderedByPatternThenAlpha(t *testing.T) {
 	// story/** even though "s" < "w" alphabetically. Within each pattern,
 	// files still sort alphabetically.
 	fsys := testFS(map[string]string{
-		"story/01-intro.md":         "Frodo (character): Hobbit.\n",
-		"story/02-bag-end.md":       "Bag End (location): Frodo's home.\n",
-		"world-building/places.md":  "The Shire (location): Hobbit homeland.\n",
-		"world-building/people.md":  "Hobbits (race): Small folk.\n",
+		"story/01-intro.md":        "Frodo (character): Hobbit.\n",
+		"story/02-bag-end.md":      "Bag End (location): Frodo's home.\n",
+		"world-building/places.md": "The Shire (location): Hobbit homeland.\n",
+		"world-building/people.md": "Hobbits (race): Small folk.\n",
 	})
 	cfg := Config{Files: []string{"world-building/**/*.md", "story/**/*.md"}}
 	matcher := Matcher{Patterns: cfg.Files}

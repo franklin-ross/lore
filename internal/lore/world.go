@@ -51,7 +51,7 @@ type FileSource struct {
 func NewWorld() *World {
 	return &World{
 		References: make(map[string][]Reference),
-		Vocab:      NewRelationVocab(BuiltinRelations()),
+		Vocab:      NewRelationVocab(BuiltinRelations(), BuiltinPlurals()),
 	}
 }
 

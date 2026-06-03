@@ -276,18 +276,26 @@ func relItemsEqual(a, b []RelationItem) bool {
 // "witch" → "witches"), except an already-plural alias like "members" is left
 // as-is rather than doubling to "memberss".
 func pluraliseSurface(surface, canonical string, vocab *RelationVocab) string {
+	// An explicit lexicon entry for this exact surface wins — it's how
+	// irregulars (`wife` → `wives`) and plurale-tantum forms (`belongings`,
+	// pinned to itself) override the regular rules.
+	if p, ok := vocab.pluralOf(surface); ok {
+		return p
+	}
+	// Raw aliases (verbs, locatives) name the subject, not a count — never
+	// pluralise them. `A: owns -> X, Y` stays "owns", `forged` stays "forged".
+	if vocab.isRawAlias(surface) {
+		return surface
+	}
 	if canonKey(surface) == canonical {
 		return vocab.Plural(canonical)
 	}
-	// The surface may already be a plural the author typed — the canonical's
-	// own plural ("children"), or any s-ending ("members"). Leave those as-is
-	// rather than doubling them. Other endings are unambiguous singulars, so
-	// the regular rules apply.
+	// The surface may already be the plural the author typed (the canonical's
+	// own plural, e.g. "children" or "members") — leave it rather than doubling.
 	if canonKey(surface) == canonKey(vocab.Plural(canonical)) {
 		return surface
 	}
-	if strings.HasSuffix(surface, "s") {
-		return surface
-	}
+	// A genuine singular noun: the regular rules handle it, including s-enders
+	// via the sibilant case (`boss` → `bosses`, `princess` → `princesses`).
 	return pluralise(surface)
 }

@@ -11,14 +11,21 @@ func TestValidateBuiltinsAreClean(t *testing.T) {
 	}
 }
 
-// Canonicals are singular nouns: they feed pluralise(), which doubles an
-// s-ending ("contains" -> "containses"). A canonical that already ends in s
-// (a verb, or an already-plural noun like "contents") must pin its Plural so
-// the mixed-surface header stays sane.
+// Every built-in canonical must pluralise to a sane header — no doubling
+// ("contentses") and no compound mangling ("member-ofs"). The library handles
+// already-plural forms; the lexicon covers what it can't.
 func TestBuiltinCanonicalsPluraliseSanely(t *testing.T) {
+	v := NewRelationVocab(BuiltinRelations(), BuiltinPlurals())
 	for _, d := range BuiltinRelations() {
-		if strings.HasSuffix(strings.ToLower(d.Canonical), "s") && d.Plural == "" {
-			t.Errorf("canonical %q ends in s but has no Plural; pluralise would mangle it (use a singular noun or pin Plural)", d.Canonical)
+		c := d.Canonical
+		got := v.Plural(c)
+		// Doubling an already-s-ending canonical ("contents" -> "contentses").
+		if strings.HasSuffix(strings.ToLower(c), "s") && strings.EqualFold(got, c+"es") {
+			t.Errorf("Plural(%q) = %q doubles the s-ending; pin it in BuiltinPlurals", c, got)
+		}
+		// Appending to the trailing preposition of a compound ("member-ofs").
+		if strings.Contains(c, "-of") && strings.EqualFold(got, c+"s") {
+			t.Errorf("Plural(%q) = %q inflects the preposition; pin it in BuiltinPlurals", c, got)
 		}
 	}
 }
@@ -88,7 +95,7 @@ func TestValidateMutualBothSidesIsClean(t *testing.T) {
 	if issues := ValidateRelations(defs); len(issues) != 0 {
 		t.Fatalf("matching both-sides reciprocal should be clean, got: %+v", issues)
 	}
-	v := NewRelationVocab(defs)
+	v := NewRelationVocab(defs, nil)
 	if v.Reciprocal("parent") != "child" || v.Reciprocal("child") != "parent" {
 		t.Fatalf("reciprocals should round-trip: %q / %q", v.Reciprocal("parent"), v.Reciprocal("child"))
 	}

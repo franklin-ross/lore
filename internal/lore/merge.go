@@ -340,7 +340,6 @@ func findReferences(world *World, content, file string) {
 	}
 }
 
-
 // SkipSpaces returns the first index at or after pos that isn't a plain
 // space character. Tabs and other whitespace are intentionally not skipped —
 // a disambiguator is a user-facing inline construct, not a layout element.
