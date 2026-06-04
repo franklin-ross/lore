@@ -1,6 +1,7 @@
 package lore
 
 import (
+	"log"
 	"sort"
 	"strings"
 
@@ -216,6 +217,14 @@ func NewRelationVocab(defs []RelationDef, plurals map[string]string) *RelationVo
 		}
 	}
 
+	// Cook the definitions so no label is claimed by two canonicals. Walking the
+	// definitions in input order (built-ins first, config last), a later claim on
+	// a label wins and is stripped from the earlier owner; a label colliding with
+	// a canonical name is dropped (the canonical always wins). After this every
+	// (raw)alias resolves to exactly one canonical, so the index passes below —
+	// which range over a map — can't depend on iteration order.
+	v.resolveAliasConflicts(defs)
+
 	// Index canonical names, aliases, and raw aliases. Canonical names win over
 	// the rest on collision so a relation is always reachable by its own name.
 	// Raw aliases resolve like aliases — they're how authors type an edge — but
@@ -302,6 +311,96 @@ func NewRelationVocab(defs []RelationDef, plurals map[string]string) *RelationVo
 		}
 	}
 	return v
+}
+
+// resolveAliasConflicts deduplicates the (raw)alias surfaces across the whole
+// vocabulary in place, so each label is owned by exactly one canonical. It walks
+// canonicals in definition order — built-ins first, config last, since callers
+// append config to built-ins — and resolves a clash in favour of the later
+// definition, stripping the loser. A label that collides with a canonical name
+// is dropped outright: a canonical always resolves to itself. Every removal is
+// logged. With the data deconflicted, the map-ranging index passes can't produce
+// an order-dependent result.
+func (v *RelationVocab) resolveAliasConflicts(defs []RelationDef) {
+	// Rank each canonical by its last occurrence in defs, so a config entry that
+	// overrides a built-in of the same name is processed after it (and wins).
+	rank := make(map[string]int, len(v.byCanonical))
+	for i, d := range defs {
+		if key := canonKey(d.Canonical); key != "" {
+			rank[key] = i
+		}
+	}
+	order := make([]string, 0, len(v.byCanonical))
+	for key := range v.byCanonical {
+		order = append(order, key)
+	}
+	sort.SliceStable(order, func(a, b int) bool {
+		ra, oka := rank[order[a]]
+		rb, okb := rank[order[b]]
+		if oka != okb {
+			return oka // canonicals from defs precede backfilled-only ones
+		}
+		if ra != rb {
+			return ra < rb
+		}
+		return order[a] < order[b]
+	})
+
+	owner := make(map[string]string) // label key -> winning canonical
+	for _, canon := range order {
+		d := v.byCanonical[canon]
+		d.Aliases = v.cookLabels(canon, "alias", d.Aliases, owner)
+		d.RawAliases = v.cookLabels(canon, "raw alias", d.RawAliases, owner)
+		v.byCanonical[canon] = d
+	}
+}
+
+// cookLabels returns labels with every conflicting surface removed: those that
+// shadow a canonical name, duplicates within the list, and those already owned
+// by an earlier canonical (which is stripped from that owner — the later
+// definition wins). owner is updated with the surfaces this canonical keeps.
+func (v *RelationVocab) cookLabels(canon, kind string, labels []string, owner map[string]string) []string {
+	out := make([]string, 0, len(labels))
+	for _, label := range labels {
+		key := canonKey(label)
+		if key == "" {
+			continue
+		}
+		if other, isCanon := v.byCanonical[key]; isCanon && canonKey(other.Canonical) != canon {
+			log.Printf("lore/relation: %s %q on %q dropped — %q is itself a canonical relation", kind, label, canon, key)
+			continue
+		}
+		if prev, ok := owner[key]; ok {
+			if prev == canon {
+				continue // duplicate within this canonical's labels
+			}
+			log.Printf("lore/relation: %s %q reassigned from %q to %q (later definition wins)", kind, label, prev, canon)
+			v.removeAlias(prev, key)
+		}
+		owner[key] = canon
+		out = append(out, label)
+	}
+	return out
+}
+
+// removeAlias strips the surface keyed by key from canon's alias and raw-alias
+// lists. Used when a later definition claims a label an earlier one held.
+func (v *RelationVocab) removeAlias(canon, key string) {
+	d := v.byCanonical[canon]
+	d.Aliases = dropLabel(d.Aliases, key)
+	d.RawAliases = dropLabel(d.RawAliases, key)
+	v.byCanonical[canon] = d
+}
+
+// dropLabel returns labels without any surface whose key matches.
+func dropLabel(labels []string, key string) []string {
+	out := labels[:0]
+	for _, l := range labels {
+		if canonKey(l) != key {
+			out = append(out, l)
+		}
+	}
+	return out
 }
 
 // Resolve maps a surface label to its canonical relation. known is false for a

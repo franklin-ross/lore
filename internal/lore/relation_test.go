@@ -170,6 +170,38 @@ func TestVocabLabelsIncludeRawAliasesAndGenitives(t *testing.T) {
 	}
 }
 
+// A config alias that clashes with a built-in is resolved in the data, not at
+// lookup time: config comes after the built-ins, so it wins the label, and the
+// built-in owner is stripped of it. The result is conflict-free, so resolution
+// can't depend on map-iteration order.
+func TestVocabConfigAliasOverridesBuiltin(t *testing.T) {
+	defs := append(BuiltinRelations(),
+		// `father` is a built-in alias of `parent`; here a campaign reuses it for
+		// a clergy title. The later (config) definition wins.
+		RelationDef{Canonical: "priest", Reciprocal: "parishioner", Aliases: []string{"father"}},
+		// `parent` is a canonical name; an alias can never shadow it.
+		RelationDef{Canonical: "patron", Aliases: []string{"parent"}},
+	)
+	v := NewRelationVocab(defs, BuiltinPlurals())
+
+	if canon, known := v.Resolve("father"); !known || canon != "priest" {
+		t.Errorf("Resolve(father) = %q,%v; want priest,true (config wins)", canon, known)
+	}
+	// `parent` keeps resolving to itself; the shadowing alias on `patron` is gone.
+	if canon, known := v.Resolve("parent"); !known || canon != "parent" {
+		t.Errorf("Resolve(parent) = %q,%v; want parent,true (canonical wins)", canon, known)
+	}
+	if canon, known := v.Resolve("patron"); !known || canon != "patron" {
+		t.Errorf("Resolve(patron) = %q,%v; want patron,true", canon, known)
+	}
+	// The stripped built-in no longer advertises the reassigned surface.
+	for _, a := range v.SurfaceAliases("parent") {
+		if canonKey(a) == "father" {
+			t.Errorf("parent still lists alias %q after reassignment", a)
+		}
+	}
+}
+
 func TestRelationAuntUncleConvergeToOneEdge(t *testing.T) {
 	// uncle (declared) and its undeclared nibling reverse must be one edge,
 	// each side keeping its own surface label.
