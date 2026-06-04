@@ -276,9 +276,11 @@ func relItemsEqual(a, b []RelationItem) bool {
 // "witch" → "witches"), except an already-plural alias like "members" is left
 // as-is rather than doubling to "memberss".
 func pluraliseSurface(surface, canonical string, vocab *RelationVocab) string {
-	// An explicit lexicon entry for this exact surface wins — it's how
-	// irregulars (`wife` → `wives`) and plurale-tantum forms (`belongings`,
-	// pinned to itself) override the regular rules.
+	// An explicit lexicon entry for this exact surface wins — it's how a form the
+	// inflector can't infer (a compound like `member-of`, or a word pinned via
+	// the [plurals] table) overrides the regular rules. Plurale-tantum forms
+	// like `contents`/`belongings` aren't pinned here; go-pluralize already
+	// leaves them unchanged, so they fall through to the regular path below.
 	if p, ok := vocab.pluralOf(surface); ok {
 		return p
 	}
