@@ -23,6 +23,11 @@ func TestRelationLabelAt(t *testing.T) {
 		{"continuation line", "  father -> Doug", 4, "father"},
 		{"prose arrow is not a label", "the door -> opens", 5, ""},
 		{"genitive compound", "Sarah: daughter-of -> Doug", 11, "daughter-of"},
+		// Spaces around the arrow are optional — the label must still resolve.
+		{"tight arrow", "Sarah: father->Doug", 9, "father"},
+		{"tight removal arrow", "Sarah: father-/>Doug", 9, "father"},
+		{"tight genitive compound", "Sarah: daughter-of->Doug", 11, "daughter-of"},
+		{"no space either side", "Sarah:father->Doug", 8, "father"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

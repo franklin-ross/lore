@@ -56,10 +56,23 @@ func relationLabelAt(line string, col int) (start, end int, ok bool) {
 	if start == end {
 		return 0, 0, false
 	}
-	// Followed by a relation arrow (targets never precede one).
-	after := lore.SkipSpaces(line, end)
-	if !strings.HasPrefix(line[after:], "->") && !strings.HasPrefix(line[after:], "-/>") {
+	// Followed by a relation arrow (targets never precede one). Spaces around the
+	// arrow are optional, so a tight `father->Doug` or `daughter-of->X` leaves the
+	// forward scan having swallowed the arrow's leading `-` into the label (it's a
+	// label char). Peel trailing hyphens back until an arrow is exposed.
+	for {
+		after := lore.SkipSpaces(line, end)
+		if strings.HasPrefix(line[after:], "->") || strings.HasPrefix(line[after:], "-/>") {
+			break
+		}
+		if end > start && line[end-1] == '-' {
+			end--
+			continue
+		}
 		return 0, 0, false
+	}
+	if start == end {
+		return 0, 0, false // the run was only the arrow's hyphen(s)
 	}
 	// Preceded by a directive boundary: line start, `:`, or `;`.
 	before := start
