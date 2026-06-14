@@ -20,7 +20,12 @@ const MethodLoreLookup = "lore/lookup"
 // one project; without it the first project is used so palette invocation
 // works before any markdown is open.
 type LookupParams struct {
-	Name         string                           `json:"name"`
+	Name string `json:"name"`
+	// Offset is the cursor's byte offset within Name. When the editor's word
+	// range over-matches and grabs a run of prose containing several
+	// entities, the scanner uses this to return the entity at the cursor
+	// rather than the first in the range. Nil means "no cursor hint".
+	Offset       *int                             `json:"offset,omitempty"`
 	TextDocument *protocol.TextDocumentIdentifier `json:"textDocument,omitempty"`
 }
 
@@ -65,8 +70,20 @@ func (s *Server) lookup(p *LookupParams) (*LookupResult, error) {
 
 	// Scan the input as free text — picks up an entity name embedded in a
 	// longer word range, e.g. "Sildar arrived at the fortress" → Sildar.
+	// When the caller supplies a cursor offset, prefer the span covering it
+	// so F12 in "Vistani Camp near Sildar" with the cursor on "Sildar"
+	// resolves Sildar, not the first entity in the range.
 	if matches := lore.ScanEntities(world, name, false); len(matches) > 0 {
-		ent := &world.Entities[matches[0].EntityIdx]
+		pick := matches[0]
+		if p.Offset != nil {
+			for _, m := range matches {
+				if m.Start <= *p.Offset && *p.Offset <= m.End {
+					pick = m
+					break
+				}
+			}
+		}
+		ent := &world.Entities[pick.EntityIdx]
 		return &LookupResult{Kind: "entity", Value: entityLabel(world, ent.Name, ent.Type)}, nil
 	}
 

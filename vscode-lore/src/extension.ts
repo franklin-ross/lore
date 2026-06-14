@@ -328,21 +328,27 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const doc = editor.document;
       const sel = editor.selection;
       let entity = "";
+      let offset: number | undefined;
       if (!sel.isEmpty) {
         entity = doc.getText(sel).trim();
       } else {
-        // Allow multi-word entity names by widening the word range past
-        // single spaces between letter runs. Falls back to the default
-        // word range if the wide regex doesn't match.
-        const wide = doc.getWordRangeAtPosition(
-          sel.active,
-          /[A-Za-z][A-Za-z0-9_'-]*(?: [A-Za-z][A-Za-z0-9_'-]*)*/,
+        // Send the whole line plus the cursor's byte offset within it. The
+        // server scans the line for entity mentions and returns the one
+        // covering the cursor, so multi-word and period-containing names
+        // match without the client trying to guess a name's shape. A
+        // rarely-used, manually-invoked command — a generous payload is fine.
+        const line = doc.lineAt(sel.active.line).text;
+        const lead = line.length - line.trimStart().length;
+        entity = line.trim();
+        const cut = Math.min(
+          entity.length,
+          Math.max(0, sel.active.character - lead),
         );
-        const range = wide || doc.getWordRangeAtPosition(sel.active);
-        if (range) entity = doc.getText(range).trim();
+        // UTF-8 byte offset to match the server's byte-indexed entity spans.
+        offset = new TextEncoder().encode(entity.slice(0, cut)).length;
       }
       if (!entity) return;
-      await wikiPanel.showWord(entity, doc.uri.toString());
+      await wikiPanel.showWord(entity, doc.uri.toString(), offset);
     }),
     vscode.commands.registerCommand("lore.openWiki", async (arg: unknown) => {
       const entity = typeof arg === "string" ? arg : "";

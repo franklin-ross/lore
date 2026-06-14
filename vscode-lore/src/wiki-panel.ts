@@ -100,7 +100,13 @@ export class LoreWikiPanel {
   // showWord asks the server to classify `word` as an entity, type, or
   // miss before navigating. Used by F12-at-cursor where the cursor word
   // could be either the entity name or its inline `(type)` label.
-  async showWord(word: string, source: string | undefined): Promise<void> {
+  // `offset` is the cursor's byte offset within `word`; when the word range
+  // spans several entities the server uses it to pick the one at the cursor.
+  async showWord(
+    word: string,
+    source: string | undefined,
+    offset?: number,
+  ): Promise<void> {
     const client = this.getClient();
     if (!client) {
       await this.show(word, source);
@@ -110,6 +116,7 @@ export class LoreWikiPanel {
     try {
       result = await client.sendRequest("lore/lookup", {
         name: word,
+        offset,
         textDocument: source ? { uri: source } : undefined,
       });
     } catch {
