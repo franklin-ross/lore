@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"lore/internal/lore"
+
+	protocol "github.com/tliron/glsp/protocol_3_16"
 )
 
 func TestRelationRemovalCompletions(t *testing.T) {
@@ -16,7 +18,9 @@ func TestRelationRemovalCompletions(t *testing.T) {
 
 	// `father -/> ` should offer only Sarah's parent-relation targets (Doug,
 	// Bea — both resolve under canonical "parent"), not the whole entity list.
-	list := relationRemovalCompletions(w, sarah, "x.md", 1, "father")
+	line := "Sarah (person): father -/> "
+	pos := protocol.Position{Line: 0, Character: uint32(len(line))}
+	list := relationRemovalCompletions(w, sarah, "x.md", 1, "father", line, pos)
 	got := map[string]bool{}
 	for _, it := range list.Items {
 		got[it.Label] = true

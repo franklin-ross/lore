@@ -57,14 +57,14 @@ func (s *Server) completion(_ *glsp.Context, params *protocol.CompletionParams) 
 	// via that relation, mirroring how `-=`/`-tag` list removable values.
 	if label, remove, ok := parseRelationTargetContext(prefix); ok {
 		if !remove {
-			return entityCompletions(ps.world()), nil
+			return entityCompletions(ps.world(), line, params.Position), nil
 		}
 		cursorLine := int(params.Position.Line) + 1
 		ent := findOwningEntity(ps.world(), rel, cursorLine)
 		if ent == nil {
 			return &protocol.CompletionList{}, nil
 		}
-		return relationRemovalCompletions(ps.world(), ent, rel, cursorLine, label), nil
+		return relationRemovalCompletions(ps.world(), ent, rel, cursorLine, label, line, params.Position), nil
 	}
 
 	// The trigger characters exist to open directive popups; if none of the
@@ -82,10 +82,10 @@ func (s *Server) completion(_ *glsp.Context, params *protocol.CompletionParams) 
 	// vocabulary alongside entities. Only the leading word qualifies, so prose
 	// further along the line isn't affected.
 	if parseRelationLabelContext(prefix) {
-		return labelSlotCompletions(ps.world()), nil
+		return labelSlotCompletions(ps.world(), line, params.Position), nil
 	}
 
-	return entityCompletions(ps.world()), nil
+	return entityCompletions(ps.world(), line, params.Position), nil
 }
 
 // parseRelationLabelContext reports whether the cursor is typing the first
@@ -115,7 +115,7 @@ func parseRelationLabelContext(prefix string) bool {
 // via the given relation label, resolved at the cursor — the set a `-/>`
 // removal can actually act on. Incoming generic edges are excluded: they're
 // declared on the other side and a same-label remove here wouldn't match.
-func relationRemovalCompletions(world *lore.World, ent *lore.Entity, file string, cursorLine int, label string) *protocol.CompletionList {
+func relationRemovalCompletions(world *lore.World, ent *lore.Entity, file string, cursorLine int, label, line string, pos protocol.Position) *protocol.CompletionList {
 	if world.Vocab == nil {
 		return &protocol.CompletionList{}
 	}
@@ -133,7 +133,11 @@ func relationRemovalCompletions(world *lore.World, ent *lore.Entity, file string
 				continue
 			}
 			seen[it.Other] = true
-			items = append(items, protocol.CompletionItem{Label: it.Other, Kind: &kind})
+			items = append(items, protocol.CompletionItem{
+				Label:    it.Other,
+				Kind:     &kind,
+				TextEdit: nameReplaceEdit(line, pos, it.Other, it.Other),
+			})
 		}
 	}
 	return &protocol.CompletionList{IsIncomplete: true, Items: items}
@@ -142,8 +146,8 @@ func relationRemovalCompletions(world *lore.World, ent *lore.Entity, file string
 // labelSlotCompletions offers entity names plus relation-vocabulary labels for
 // the directive label slot, so both a relation (`father -> …`) and a plain
 // entity reference are one keystroke away.
-func labelSlotCompletions(world *lore.World) *protocol.CompletionList {
-	list := entityCompletions(world)
+func labelSlotCompletions(world *lore.World, line string, pos protocol.Position) *protocol.CompletionList {
+	list := entityCompletions(world, line, pos)
 	if world.Vocab == nil {
 		return list
 	}
@@ -506,9 +510,45 @@ func quoteListItemIfNeeded(item string) string {
 	return item
 }
 
+// nameReplaceEdit builds the TextEdit that swaps the partially typed entity
+// name ending at the cursor for newText. Entity names may contain spaces, so
+// the editor's default word-boundary completion — which replaces only the last
+// whitespace-delimited word — would leave the earlier words in place: typing
+// `Her Do` and accepting `Her Doktor` yields `Her Her Doktor`. The edit instead
+// replaces the longest run of already-typed text that prefixes name, so the
+// whole partial name is overwritten.
+func nameReplaceEdit(line string, pos protocol.Position, name, newText string) protocol.TextEdit {
+	char := min(int(pos.Character), len(line))
+	start := char - matchedNameSuffixLen(line[:char], name)
+	return protocol.TextEdit{
+		Range: protocol.Range{
+			Start: protocol.Position{Line: pos.Line, Character: utf16UnitsForBytes(line, start)},
+			End:   protocol.Position{Line: pos.Line, Character: utf16UnitsForBytes(line, char)},
+		},
+		NewText: newText,
+	}
+}
+
+// matchedNameSuffixLen returns the byte length of the longest suffix of prefix
+// that is a case-insensitive prefix of name — the span of text the author has
+// already typed toward this candidate. It walks rune boundaries longest-first
+// so a multibyte sequence is never split. Zero means nothing typed matches, so
+// the completion inserts at the cursor.
+func matchedNameSuffixLen(prefix, name string) int {
+	lowerName := strings.ToLower(name)
+	for i := 0; i < len(prefix); {
+		if strings.HasPrefix(lowerName, strings.ToLower(prefix[i:])) {
+			return len(prefix) - i
+		}
+		_, w := utf8.DecodeRuneInString(prefix[i:])
+		i += w
+	}
+	return 0
+}
+
 // entityCompletions returns the existing entity-name suggestion list for the
 // given project's world.
-func entityCompletions(world *lore.World) *protocol.CompletionList {
+func entityCompletions(world *lore.World, line string, pos protocol.Position) *protocol.CompletionList {
 	kind := protocol.CompletionItemKindText
 
 	// Count how many distinct entities expose each label (name or alias).
@@ -541,11 +581,15 @@ func entityCompletions(world *lore.World) *protocol.CompletionList {
 			if labelOwners[strings.ToLower(label)] > 1 {
 				display = fmt.Sprintf("%s (%s)", label, ent.Type)
 			}
+			// Match the typed text against the bare name but insert the
+			// (possibly type-qualified) display form, so an ambiguous label
+			// still round-trips as `Name (type)`.
 			items = append(items, protocol.CompletionItem{
 				Label:         display,
 				Kind:          &kind,
 				Detail:        ptrStr(ent.Type),
 				Documentation: doc,
+				TextEdit:      nameReplaceEdit(line, pos, label, display),
 			})
 		}
 

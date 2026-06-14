@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"lore/internal/lore"
+
+	protocol "github.com/tliron/glsp/protocol_3_16"
 )
 
 func TestDescribeRelationLabel(t *testing.T) {
@@ -26,6 +28,75 @@ func TestDescribeRelationLabel(t *testing.T) {
 		if !strings.Contains(doc, c.wantDocSub) {
 			t.Errorf("%s: doc = %q; want substring %q", c.label, doc, c.wantDocSub)
 		}
+	}
+}
+
+func TestMatchedNameSuffixLen(t *testing.T) {
+	cases := []struct {
+		prefix, name string
+		want         int
+	}{
+		// Multi-word name completed from a later word: the whole partial name
+		// ("Her Do") is the matched span, not just the final word.
+		{"Sarah: father -> Her Do", "Her Doktor", len("Her Do")},
+		{"Her Do", "Her Doktor", len("Her Do")},
+		// Single word still works.
+		{"Sarah: father -> Do", "Doug", len("Do")},
+		// Case-insensitive.
+		{"her do", "Her Doktor", len("her do")},
+		// Just after the arrow, nothing typed toward the name yet.
+		{"Sarah: father -> ", "Doug", 0},
+		// Prefix has a longer earlier suffix that does not prefix the name, so
+		// the shorter matching suffix wins.
+		{"x Her", "Her Doktor", len("Her")},
+		// No overlap at all.
+		{"prose ", "Doug", 0},
+		// Multibyte: the matched suffix starts on a rune boundary.
+		{"Æther Do", "Æther Doktor", len("Æther Do")},
+	}
+	for _, c := range cases {
+		if got := matchedNameSuffixLen(c.prefix, c.name); got != c.want {
+			t.Errorf("matchedNameSuffixLen(%q, %q) = %d; want %d", c.prefix, c.name, got, c.want)
+		}
+	}
+}
+
+func TestEntityCompletionsReplaceMultiWordName(t *testing.T) {
+	idx := loadIndexWithConfig(t, lore.Config{}, map[string]string{
+		"x.md": "Her Doktor (person): a\n",
+	})
+
+	// Cursor sits after "Her Do" in a relation target slot.
+	line := "Sarah: father -> Her Do"
+	pos := protocol.Position{Line: 3, Character: uint32(len(line))}
+	list := entityCompletions(idx.World(), line, pos)
+
+	var item *protocol.CompletionItem
+	for i := range list.Items {
+		if list.Items[i].Label == "Her Doktor" {
+			item = &list.Items[i]
+		}
+	}
+	if item == nil {
+		t.Fatalf("no completion for Her Doktor; got %+v", list.Items)
+	}
+	edit, ok := item.TextEdit.(protocol.TextEdit)
+	if !ok {
+		t.Fatalf("TextEdit = %T; want protocol.TextEdit", item.TextEdit)
+	}
+	// The edit must replace the whole "Her Do" span, not just "Do", so the
+	// result is "Her Doktor" rather than "Her Her Doktor".
+	wantStart := uint32(len("Sarah: father -> "))
+	wantEnd := uint32(len(line))
+	if edit.Range.Start.Character != wantStart || edit.Range.End.Character != wantEnd {
+		t.Errorf("range = %d..%d; want %d..%d",
+			edit.Range.Start.Character, edit.Range.End.Character, wantStart, wantEnd)
+	}
+	if edit.Range.Start.Line != 3 || edit.Range.End.Line != 3 {
+		t.Errorf("range lines = %d..%d; want 3..3", edit.Range.Start.Line, edit.Range.End.Line)
+	}
+	if edit.NewText != "Her Doktor" {
+		t.Errorf("NewText = %q; want %q", edit.NewText, "Her Doktor")
 	}
 }
 
